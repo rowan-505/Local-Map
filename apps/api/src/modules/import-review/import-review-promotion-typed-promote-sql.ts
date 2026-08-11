@@ -26,17 +26,160 @@ export function promotionTypedPointGeom(alias: string, geomColumn = "point_geom"
     return columnRef(alias, geomColumn);
 }
 
-/** Building core name from typed name_en / name_mm only. */
-export function promotionTypedBuildingNameExpr(alias: string): Prisma.Sql {
-    const a = aliasRef(alias);
+/**
+ * Legacy `core.core_map_buildings.name` is unused.
+ * Canonical building names are written to `core.core_map_building_names` after promote.
+ */
+export function promotionTypedBuildingNameExpr(_alias: string): Prisma.Sql {
+    return Prisma.sql`NULL::text`;
+}
+
+/**
+ * Upsert approved building names into core.core_map_building_names.
+ * Source: normalized_data.names when present, else typed name_mm / name_en / name as imported.
+ * ON CONFLICT identity → DO NOTHING (never overwrite official/local/alternate/old rows).
+ * is_primary for imported only when no primary exists for that language.
+ */
+export function promotionBuildingNamesUpsertSql(args: {
+    buildingId: bigint;
+    publishItemId: bigint;
+    candidateTable?: string;
+}): Prisma.Sql {
+    const candidateTable = Prisma.raw(
+        args.candidateTable ?? "import_review.building_candidates"
+    );
     return Prisma.sql`
-        nullif(trim(coalesce(
-            ${a}.name_en,
-            ${a}.name_mm,
-            ${a}.name,
-            ${a}.canonical_name,
-            ''
-        )), '')
+        WITH src AS (
+            SELECT
+                b.normalized_data,
+                nullif(btrim(b.name_mm), '') AS name_mm,
+                nullif(btrim(b.name_en), '') AS name_en,
+                nullif(btrim(b.name), '') AS name_plain
+            FROM system.system_publish_items AS spi
+            INNER JOIN ${candidateTable} AS b
+                ON b.id = spi.review_candidate_id
+            WHERE spi.id = ${args.publishItemId}
+            LIMIT 1
+        ),
+        from_json AS (
+            SELECT
+                nullif(btrim(coalesce(elem->>'name', '')), '') AS name,
+                CASE
+                    WHEN lower(btrim(coalesce(
+                        elem->>'language_code',
+                        elem->>'languageCode',
+                        ''
+                    ))) IN ('my', 'mm', 'my-mm') THEN 'my'
+                    WHEN lower(btrim(coalesce(
+                        elem->>'language_code',
+                        elem->>'languageCode',
+                        ''
+                    ))) = 'en' THEN 'en'
+                    WHEN lower(btrim(coalesce(
+                        elem->>'language_code',
+                        elem->>'languageCode',
+                        ''
+                    ))) = 'und' THEN 'und'
+                    ELSE NULL
+                END AS language_code,
+                nullif(btrim(coalesce(elem->>'script_code', elem->>'scriptCode', '')), '') AS script_code,
+                coalesce(
+                    (elem->>'is_primary')::boolean,
+                    (elem->>'isPrimary')::boolean,
+                    false
+                ) AS wants_primary,
+                coalesce(
+                    (elem->>'search_weight')::int,
+                    (elem->>'searchWeight')::int,
+                    50
+                ) AS search_weight
+            FROM src AS s
+            CROSS JOIN LATERAL jsonb_array_elements(
+                CASE
+                    WHEN jsonb_typeof(s.normalized_data->'names') = 'array'
+                        THEN s.normalized_data->'names'
+                    ELSE '[]'::jsonb
+                END
+            ) AS elem
+            WHERE nullif(btrim(coalesce(elem->>'name', '')), '') IS NOT NULL
+        ),
+        typed_fallback AS (
+            SELECT
+                v.name,
+                v.language_code,
+                v.script_code,
+                v.wants_primary,
+                v.search_weight
+            FROM src AS s
+            CROSS JOIN LATERAL (
+                VALUES
+                    (s.name_mm, 'my'::text, 'Mymr'::text, true, 100),
+                    (s.name_en, 'en'::text, 'Latn'::text, true, 90),
+                    (s.name_plain, 'und'::text, NULL::text, true, 70)
+            ) AS v(name, language_code, script_code, wants_primary, search_weight)
+            WHERE v.name IS NOT NULL
+              AND NOT EXISTS (SELECT 1 FROM from_json)
+        ),
+        source_names AS (
+            SELECT name, language_code, script_code, wants_primary, search_weight
+            FROM from_json
+            WHERE language_code IS NOT NULL
+            UNION ALL
+            SELECT name, language_code, script_code, wants_primary, search_weight
+            FROM typed_fallback
+        ),
+        dedup AS (
+            SELECT DISTINCT ON (language_code, lower(btrim(name)))
+                name,
+                language_code,
+                script_code,
+                wants_primary,
+                search_weight
+            FROM source_names
+            ORDER BY
+                language_code,
+                lower(btrim(name)),
+                wants_primary DESC,
+                search_weight DESC
+        ),
+        ranked AS (
+            SELECT
+                d.*,
+                row_number() OVER (
+                    PARTITION BY d.language_code
+                    ORDER BY d.wants_primary DESC, d.search_weight DESC
+                ) AS rn
+            FROM dedup AS d
+        )
+        INSERT INTO core.core_map_building_names (
+            building_id,
+            name,
+            language_code,
+            script_code,
+            name_type,
+            is_primary,
+            search_weight
+        )
+        SELECT
+            ${args.buildingId},
+            r.name,
+            r.language_code,
+            r.script_code,
+            'imported',
+            (
+                r.wants_primary
+                AND r.rn = 1
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM core.core_map_building_names AS existing
+                    WHERE existing.building_id = ${args.buildingId}
+                      AND existing.language_code = r.language_code
+                      AND existing.is_primary IS TRUE
+                )
+            ),
+            r.search_weight
+        FROM ranked AS r
+        ON CONFLICT (building_id, language_code, name_type, (lower(btrim(name)))) DO NOTHING
     `;
 }
 

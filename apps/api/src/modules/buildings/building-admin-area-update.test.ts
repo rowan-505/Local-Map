@@ -99,7 +99,10 @@ function makeBuildingDetail(adminAreaId: bigint | null): BuildingDetailRow {
 
 function makeBuildingsService(args: {
     existingAdminAreaId: bigint | null;
-    onUpdate?: (snapshot: { admin_area_id: bigint | null }) => void;
+    onUpdate?: (
+        snapshot: { admin_area_id: bigint | null },
+        audit?: { editorId: bigint | null; protectAttributes: boolean },
+    ) => void;
 }) {
     const entityAdminArea = new EntityAdminAreaService(makeEntityAdminAreaRepo());
     const buildingsRepo = {
@@ -107,8 +110,10 @@ function makeBuildingsService(args: {
         updateDashboardBuildingScalars: async (
             _id: string,
             snapshot: { admin_area_id: bigint | null },
+            _scope: string,
+            audit: { editorId: bigint | null; protectAttributes: boolean },
         ) => {
-            args.onUpdate?.(snapshot);
+            args.onUpdate?.(snapshot, audit);
             return makeBuildingDetail(snapshot.admin_area_id);
         },
     } as unknown as BuildingsRepository;
@@ -262,5 +267,49 @@ describe("BuildingsService.updateBuilding admin_area_id", () => {
                 return true;
             },
         );
+    });
+});
+
+describe("BuildingsService.updateBuilding manual attribute protection", () => {
+    it("does not protect imported attributes when the dashboard resends an unchanged value", async () => {
+        let captured: { editorId: bigint | null; protectAttributes: boolean } | undefined;
+        const service = makeBuildingsService({
+            existingAdminAreaId: TOWNSHIP_ID,
+            onUpdate: (_snapshot, audit) => {
+                captured = audit;
+            },
+        });
+
+        await service.updateBuilding(
+            "building-1",
+            { name_en: "Building" },
+            { ...testUser, id: "41" },
+        );
+
+        assert.deepEqual(captured, {
+            editorId: 41n,
+            protectAttributes: false,
+        });
+    });
+
+    it("protects imported attributes when a dashboard value really changes", async () => {
+        let captured: { editorId: bigint | null; protectAttributes: boolean } | undefined;
+        const service = makeBuildingsService({
+            existingAdminAreaId: TOWNSHIP_ID,
+            onUpdate: (_snapshot, audit) => {
+                captured = audit;
+            },
+        });
+
+        await service.updateBuilding(
+            "building-1",
+            { name_en: "Manually renamed building" },
+            { ...testUser, id: "41" },
+        );
+
+        assert.deepEqual(captured, {
+            editorId: 41n,
+            protectAttributes: true,
+        });
     });
 });

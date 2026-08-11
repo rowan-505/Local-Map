@@ -1,7 +1,31 @@
 -- =============================================================================
 -- Stage 06 F1 core: identity_key + normalized_hash compare + source_status writeback.
 -- Included from 06_diff_current_vs_previous.sql inside an open transaction.
+--
+-- Performance notes (buildings / large families):
+--   - Diff payloads strip geometry columns (geom already in normalized_hash).
+--   - Inserts run in id-range chunks with RAISE NOTICE progress: N/M (P%).
+--   - First snapshot OR empty previous uses the fast "all new" path (no FULL JOIN).
+--   - source_status writeback avoids joining millions of staging rows to diff_items
+--     when every current row is source_new.
 -- =============================================================================
+
+CREATE OR REPLACE FUNCTION system.pipeline_staging_diff_payload(p_row jsonb)
+RETURNS jsonb
+LANGUAGE sql
+IMMUTABLE
+AS $$
+    -- Keep attribute payload; drop heavy PostGIS columns (geometry is hashed separately).
+    SELECT jsonb_strip_nulls(
+        coalesce(p_row, '{}'::jsonb)
+        - 'geom'
+        - 'point_geom'
+        - 'centroid'
+        - 'footprint_geom'
+        - 'geom_multi'
+        - 'entrance_geom'
+    );
+$$;
 
 DO $stage06_create_diffs$
 DECLARE
@@ -18,6 +42,18 @@ DECLARE
     v_confidence_expr text;
     v_written bigint;
     v_snap_ids bigint[];
+    v_chunk_size bigint;
+    v_min_id bigint;
+    v_max_id bigint;
+    v_lo bigint;
+    v_hi bigint;
+    v_done bigint;
+    v_batch bigint;
+    v_pct numeric;
+    v_t0 timestamptz;
+    v_elapsed_s numeric;
+    v_eta_s numeric;
+    v_use_all_new boolean;
     q text;
 BEGIN
     SELECT p.staging_schema
@@ -27,6 +63,16 @@ BEGIN
     SELECT *
     INTO STRICT ctx
     FROM stage06_context;
+
+    -- Chunk size: env-like GUC via custom setting, else 50k.
+    BEGIN
+        v_chunk_size := nullif(current_setting('coremap.stage06_chunk_size', true), '')::bigint;
+    EXCEPTION WHEN OTHERS THEN
+        v_chunk_size := NULL;
+    END;
+    IF v_chunk_size IS NULL OR v_chunk_size < 1000 THEN
+        v_chunk_size := 50000;
+    END IF;
 
     IF ctx.previous_snapshot_id IS NULL THEN
         v_snap_ids := ARRAY[ctx.current_snapshot_id];
@@ -38,6 +84,8 @@ BEGIN
         IF to_regclass(format('%I.%I', v_staging_schema, cfg.target_table)) IS NULL THEN
             CONTINUE;
         END IF;
+
+        RAISE NOTICE 'progress: 0/100 (0.00%%) stage06 family=% start', cfg.entity_family;
 
         -- Ensure status columns exist (safe if Stage 05b already ran).
         EXECUTE format(
@@ -78,6 +126,7 @@ BEGIN
         END IF;
 
         -- Backfill missing hashes for current + previous slices (local only).
+        RAISE NOTICE 'progress: 0/100 (0.00%%) stage06 family=% hash_backfill', cfg.entity_family;
         IF v_geom_expr = 'none' THEN
             q := format(
                 $h$
@@ -173,6 +222,10 @@ BEGIN
             CONTINUE;
         END IF;
 
+        -- Fast path: no previous rows means every current row is "new"
+        -- (even if a previous snapshot id exists for the region).
+        v_use_all_new := (ctx.previous_snapshot_id IS NULL OR v_previous_count = 0);
+
         INSERT INTO system.system_diff_runs (
             previous_snapshot_id,
             current_snapshot_id,
@@ -182,7 +235,7 @@ BEGIN
             summary
         )
         VALUES (
-            ctx.previous_snapshot_id,
+            CASE WHEN v_use_all_new THEN NULL ELSE ctx.previous_snapshot_id END,
             ctx.current_snapshot_id,
             cfg.entity_family,
             'running',
@@ -191,6 +244,9 @@ BEGIN
                 'comparison_type', 'snapshot_vs_snapshot',
                 'compare_mode', 'identity_key_normalized_hash',
                 'first_snapshot', ctx.is_first_snapshot,
+                'all_new_fast_path', v_use_all_new,
+                'payload_mode', 'slim_no_geom',
+                'chunk_size', v_chunk_size,
                 'current_snapshot_id', ctx.current_snapshot_id,
                 'previous_snapshot_id', ctx.previous_snapshot_id,
                 'current_snapshot_version', ctx.current_snapshot_version,
@@ -223,150 +279,276 @@ BEGIN
             v_confidence_expr := '50.0000';
         END IF;
 
-        IF ctx.previous_snapshot_id IS NULL THEN
+        v_t0 := clock_timestamp();
+        v_done := 0;
+
+        IF v_use_all_new THEN
+            -- Chunked insert: all current rows as diff_type=new (slim payload).
             q := format(
-                $q$
-                INSERT INTO system.system_diff_items (
-                    diff_run_id,
-                    entity_family,
-                    diff_type,
-                    external_id,
-                    local_entity_id,
-                    before_data,
-                    after_data,
-                    confidence_score,
-                    auto_action,
-                    review_status,
-                    created_at
-                )
-                SELECT
-                    $1,
-                    %L,
-                    'new',
-                    c.external_id,
-                    c.id,
-                    NULL,
-                    to_jsonb(c),
-                    %s,
-                    'insert_candidate',
-                    'pending',
-                    now()
-                FROM %I.%I AS c
-                WHERE c.source_snapshot_id = $2
-                $q$,
-                cfg.entity_family,
-                CASE WHEN v_has_confidence THEN 'coalesce(c.confidence_score, 50.0000)' ELSE '50.0000' END,
+                'SELECT coalesce(min(id),0), coalesce(max(id),-1) FROM %I.%I WHERE source_snapshot_id = $1',
+                v_staging_schema, cfg.target_table
+            );
+            EXECUTE q INTO v_min_id, v_max_id USING ctx.current_snapshot_id;
+
+            v_lo := v_min_id;
+            WHILE v_lo <= v_max_id LOOP
+                v_hi := v_lo + v_chunk_size - 1;
+
+                q := format(
+                    $q$
+                    INSERT INTO system.system_diff_items (
+                        diff_run_id,
+                        entity_family,
+                        diff_type,
+                        external_id,
+                        local_entity_id,
+                        before_data,
+                        after_data,
+                        confidence_score,
+                        auto_action,
+                        review_status,
+                        created_at
+                    )
+                    SELECT
+                        $1,
+                        %L,
+                        'new',
+                        c.external_id,
+                        c.id,
+                        NULL,
+                        system.pipeline_staging_diff_payload(to_jsonb(c)),
+                        %s,
+                        'insert_candidate',
+                        'pending',
+                        now()
+                    FROM %I.%I AS c
+                    WHERE c.source_snapshot_id = $2
+                      AND c.id BETWEEN $3 AND $4
+                    $q$,
+                    cfg.entity_family,
+                    CASE WHEN v_has_confidence THEN 'coalesce(c.confidence_score, 50.0000)' ELSE '50.0000' END,
+                    v_staging_schema,
+                    cfg.target_table
+                );
+                EXECUTE q USING v_diff_run_id, ctx.current_snapshot_id, v_lo, v_hi;
+                GET DIAGNOSTICS v_batch = ROW_COUNT;
+                v_done := v_done + v_batch;
+
+                v_elapsed_s := EXTRACT(EPOCH FROM (clock_timestamp() - v_t0));
+                IF v_current_count > 0 THEN
+                    v_pct := round(100.0 * v_done / v_current_count, 2);
+                ELSE
+                    v_pct := 100;
+                END IF;
+                IF v_done > 0 AND v_elapsed_s > 0 AND v_done < v_current_count THEN
+                    v_eta_s := (v_elapsed_s * (v_current_count - v_done)) / v_done;
+                ELSE
+                    v_eta_s := 0;
+                END IF;
+
+                RAISE NOTICE 'progress: %/% (%)%% stage06 family=% insert_new chunk=%-% batch=% eta_s=%',
+                    v_done, v_current_count, v_pct, cfg.entity_family, v_lo, v_hi, v_batch, round(v_eta_s)::bigint;
+
+                v_lo := v_hi + 1;
+            END LOOP;
+
+            -- Fast source_status: every current row is source_new (no join to diff_items).
+            RAISE NOTICE 'progress: %/% (%)%% stage06 family=% source_status_writeback_fast',
+                v_done, v_current_count, 99.50, cfg.entity_family;
+            q := format(
+                $w$
+                UPDATE %1$I.%2$I AS s
+                SET source_status = 'source_new'
+                WHERE s.source_snapshot_id = $1
+                $w$,
                 v_staging_schema,
                 cfg.target_table
             );
-            EXECUTE q USING v_diff_run_id, ctx.current_snapshot_id;
+            EXECUTE q USING ctx.current_snapshot_id;
+            GET DIAGNOSTICS v_written = ROW_COUNT;
         ELSE
+            -- Compare path: key-only pairing (no to_jsonb in CTE), then slim payload insert.
+            RAISE NOTICE 'progress: 0/% (0.00%%) stage06 family=% compare_keys',
+                greatest(v_current_count, v_previous_count), cfg.entity_family;
+
+            EXECUTE 'DROP TABLE IF EXISTS stage06_paired_keys';
             q := format(
                 $q$
+                CREATE TEMP TABLE stage06_paired_keys ON COMMIT DROP AS
                 WITH current_rows AS (
                     SELECT DISTINCT ON (system.pipeline_osm_identity_key(external_id))
-                        *,
+                        id AS c_id,
+                        external_id AS c_external_id,
+                        normalized_hash AS c_hash,
+                        %3$s AS c_confidence_score,
                         system.pipeline_osm_identity_key(external_id) AS identity_key
                     FROM %1$I.%2$I
-                    WHERE source_snapshot_id = $2
+                    WHERE source_snapshot_id = $1
                       AND system.pipeline_osm_identity_key(external_id) IS NOT NULL
                     ORDER BY system.pipeline_osm_identity_key(external_id), id
                 ),
                 previous_rows AS (
                     SELECT DISTINCT ON (system.pipeline_osm_identity_key(external_id))
-                        *,
+                        id AS p_id,
+                        external_id AS p_external_id,
+                        normalized_hash AS p_hash,
+                        %4$s AS p_confidence_score,
                         system.pipeline_osm_identity_key(external_id) AS identity_key
                     FROM %1$I.%2$I
-                    WHERE source_snapshot_id = $3
+                    WHERE source_snapshot_id = $2
                       AND system.pipeline_osm_identity_key(external_id) IS NOT NULL
                     ORDER BY system.pipeline_osm_identity_key(external_id), id
-                ),
-                paired AS (
-                    SELECT
-                        c.id AS c_id,
-                        p.id AS p_id,
-                        coalesce(c.external_id, p.external_id) AS external_id,
-                        %3$s AS c_confidence_score,
-                        %4$s AS p_confidence_score,
-                        to_jsonb(c) AS current_data,
-                        to_jsonb(p) AS previous_data,
-                        CASE
-                            WHEN c.id IS NULL THEN 'deleted_candidate'
-                            WHEN p.id IS NULL THEN 'new'
-                            WHEN coalesce(c.normalized_hash, '') IS DISTINCT FROM coalesce(p.normalized_hash, '')
-                                THEN 'changed'
-                            ELSE 'unchanged'
-                        END AS diff_type
-                    FROM current_rows AS c
-                    FULL OUTER JOIN previous_rows AS p
-                        ON p.identity_key = c.identity_key
-                )
-                INSERT INTO system.system_diff_items (
-                    diff_run_id,
-                    entity_family,
-                    diff_type,
-                    external_id,
-                    local_entity_id,
-                    before_data,
-                    after_data,
-                    confidence_score,
-                    auto_action,
-                    review_status,
-                    created_at
                 )
                 SELECT
-                    $1,
-                    %5$L,
-                    paired.diff_type,
-                    paired.external_id,
+                    c.c_id,
+                    p.p_id,
+                    coalesce(c.c_external_id, p.p_external_id) AS external_id,
+                    c.c_confidence_score,
+                    p.p_confidence_score,
                     CASE
-                        WHEN paired.diff_type = 'deleted_candidate' THEN paired.p_id
-                        ELSE paired.c_id
-                    END,
-                    CASE WHEN paired.diff_type = 'new' THEN NULL ELSE paired.previous_data END,
-                    CASE WHEN paired.diff_type = 'deleted_candidate' THEN NULL ELSE paired.current_data END,
-                    %6$s,
-                    CASE
-                        WHEN paired.diff_type = 'new' THEN 'insert_candidate'
-                        WHEN paired.diff_type = 'changed' AND %7$L::boolean THEN 'needs_review'
-                        WHEN paired.diff_type = 'changed' THEN 'update_candidate'
-                        WHEN paired.diff_type = 'deleted_candidate' THEN 'needs_review'
-                        ELSE 'ignore_unchanged'
-                    END,
-                    CASE
-                        WHEN paired.diff_type = 'unchanged' THEN 'ignored'
-                        ELSE 'pending'
-                    END,
-                    now()
-                FROM paired
+                        WHEN c.c_id IS NULL THEN 'deleted_candidate'
+                        WHEN p.p_id IS NULL THEN 'new'
+                        WHEN coalesce(c.c_hash, '') IS DISTINCT FROM coalesce(p.p_hash, '')
+                            THEN 'changed'
+                        ELSE 'unchanged'
+                    END AS diff_type
+                FROM current_rows AS c
+                FULL OUTER JOIN previous_rows AS p
+                    ON p.identity_key = c.identity_key
                 $q$,
                 v_staging_schema,
                 cfg.target_table,
-                CASE WHEN v_has_confidence THEN 'c.confidence_score' ELSE 'NULL::numeric' END,
-                CASE WHEN v_has_confidence THEN 'p.confidence_score' ELSE 'NULL::numeric' END,
-                cfg.entity_family,
-                v_confidence_expr,
-                cfg.admin_needs_review
+                CASE WHEN v_has_confidence THEN 'confidence_score' ELSE 'NULL::numeric' END,
+                CASE WHEN v_has_confidence THEN 'confidence_score' ELSE 'NULL::numeric' END
             );
-            EXECUTE q USING v_diff_run_id, ctx.current_snapshot_id, ctx.previous_snapshot_id;
-        END IF;
+            EXECUTE q USING ctx.current_snapshot_id, ctx.previous_snapshot_id;
 
-        -- Write source_status onto current staging rows (valid candidates must have one).
-        q := format(
-            $w$
-            UPDATE %1$I.%2$I AS s
-            SET source_status = system.pipeline_map_diff_to_source_status(item.diff_type)
-            FROM system.system_diff_items AS item
-            WHERE item.diff_run_id = $1
-              AND item.diff_type IN ('new', 'changed', 'unchanged')
-              AND item.local_entity_id = s.id
-              AND s.source_snapshot_id = $2
-            $w$,
-            v_staging_schema,
-            cfg.target_table
-        );
-        EXECUTE q USING v_diff_run_id, ctx.current_snapshot_id;
-        GET DIAGNOSTICS v_written = ROW_COUNT;
+            EXECUTE 'CREATE INDEX ON stage06_paired_keys (c_id)';
+            EXECUTE 'CREATE INDEX ON stage06_paired_keys (p_id)';
+            EXECUTE 'ANALYZE stage06_paired_keys';
+
+            SELECT count(*)::bigint INTO v_current_count FROM stage06_paired_keys;
+            -- Reuse v_current_count as total paired rows for progress.
+            SELECT coalesce(min(COALESCE(c_id, p_id)), 0), coalesce(max(COALESCE(c_id, p_id)), -1)
+            INTO v_min_id, v_max_id
+            FROM stage06_paired_keys;
+
+            -- Prefer chunking by ordinal via ctid ranges is awkward; use row_number batches.
+            EXECUTE 'DROP TABLE IF EXISTS stage06_paired_numbered';
+            CREATE TEMP TABLE stage06_paired_numbered ON COMMIT DROP AS
+            SELECT row_number() OVER (ORDER BY coalesce(c_id, p_id), coalesce(p_id, c_id)) AS rn, *
+            FROM stage06_paired_keys;
+            CREATE INDEX ON stage06_paired_numbered (rn);
+            ANALYZE stage06_paired_numbered;
+
+            SELECT count(*)::bigint INTO v_current_count FROM stage06_paired_numbered;
+            v_lo := 1;
+            WHILE v_lo <= v_current_count LOOP
+                v_hi := least(v_lo + v_chunk_size - 1, v_current_count);
+
+                q := format(
+                    $q$
+                    INSERT INTO system.system_diff_items (
+                        diff_run_id,
+                        entity_family,
+                        diff_type,
+                        external_id,
+                        local_entity_id,
+                        before_data,
+                        after_data,
+                        confidence_score,
+                        auto_action,
+                        review_status,
+                        created_at
+                    )
+                    SELECT
+                        $1,
+                        %1$L,
+                        paired.diff_type,
+                        paired.external_id,
+                        CASE
+                            WHEN paired.diff_type = 'deleted_candidate' THEN paired.p_id
+                            ELSE paired.c_id
+                        END,
+                        CASE
+                            WHEN paired.diff_type = 'new' THEN NULL
+                            ELSE system.pipeline_staging_diff_payload(to_jsonb(p))
+                        END,
+                        CASE
+                            WHEN paired.diff_type = 'deleted_candidate' THEN NULL
+                            ELSE system.pipeline_staging_diff_payload(to_jsonb(c))
+                        END,
+                        %2$s,
+                        CASE
+                            WHEN paired.diff_type = 'new' THEN 'insert_candidate'
+                            WHEN paired.diff_type = 'changed' AND %3$L::boolean THEN 'needs_review'
+                            WHEN paired.diff_type = 'changed' THEN 'update_candidate'
+                            WHEN paired.diff_type = 'deleted_candidate' THEN 'needs_review'
+                            ELSE 'ignore_unchanged'
+                        END,
+                        CASE
+                            WHEN paired.diff_type = 'unchanged' THEN 'ignored'
+                            ELSE 'pending'
+                        END,
+                        now()
+                    FROM stage06_paired_numbered AS paired
+                    LEFT JOIN %4$I.%5$I AS c
+                        ON c.id = paired.c_id
+                    LEFT JOIN %4$I.%5$I AS p
+                        ON p.id = paired.p_id
+                    WHERE paired.rn BETWEEN $2 AND $3
+                    $q$,
+                    cfg.entity_family,
+                    CASE
+                        WHEN v_has_confidence THEN
+                            'CASE WHEN paired.c_id IS NULL THEN coalesce(paired.p_confidence_score, 50.0000) ELSE coalesce(paired.c_confidence_score, 50.0000) END'
+                        ELSE '50.0000'
+                    END,
+                    cfg.admin_needs_review,
+                    v_staging_schema,
+                    cfg.target_table
+                );
+                EXECUTE q USING v_diff_run_id, v_lo, v_hi;
+                GET DIAGNOSTICS v_batch = ROW_COUNT;
+                v_done := v_done + v_batch;
+
+                v_elapsed_s := EXTRACT(EPOCH FROM (clock_timestamp() - v_t0));
+                IF v_current_count > 0 THEN
+                    v_pct := round(100.0 * v_done / v_current_count, 2);
+                ELSE
+                    v_pct := 100;
+                END IF;
+                IF v_done > 0 AND v_elapsed_s > 0 AND v_done < v_current_count THEN
+                    v_eta_s := (v_elapsed_s * (v_current_count - v_done)) / v_done;
+                ELSE
+                    v_eta_s := 0;
+                END IF;
+
+                RAISE NOTICE 'progress: %/% (%)%% stage06 family=% insert_compare rn=%-% batch=% eta_s=%',
+                    v_done, v_current_count, v_pct, cfg.entity_family, v_lo, v_hi, v_batch, round(v_eta_s)::bigint;
+
+                v_lo := v_hi + 1;
+            END LOOP;
+
+            -- Chunked source_status writeback for current rows only.
+            RAISE NOTICE 'progress: %/% (%)%% stage06 family=% source_status_writeback',
+                v_done, v_current_count, 99.00, cfg.entity_family;
+            q := format(
+                $w$
+                UPDATE %1$I.%2$I AS s
+                SET source_status = system.pipeline_map_diff_to_source_status(item.diff_type)
+                FROM system.system_diff_items AS item
+                WHERE item.diff_run_id = $1
+                  AND item.diff_type IN ('new', 'changed', 'unchanged')
+                  AND item.local_entity_id = s.id
+                  AND s.source_snapshot_id = $2
+                $w$,
+                v_staging_schema,
+                cfg.target_table
+            );
+            EXECUTE q USING v_diff_run_id, ctx.current_snapshot_id;
+            GET DIAGNOSTICS v_written = ROW_COUNT;
+        END IF;
 
         INSERT INTO stage06_report (entity_family, target_table, diff_type, value_n, status, note)
         VALUES (
@@ -375,7 +557,10 @@ BEGIN
             'source_status_written',
             v_written,
             'PASS',
-            'Current-row source_status updated from F1 hash compare.'
+            CASE
+                WHEN v_use_all_new THEN 'Fast path: all current rows set to source_new.'
+                ELSE 'Current-row source_status updated from F1 hash compare.'
+            END
         );
 
         UPDATE system.system_diff_runs AS run
@@ -441,6 +626,9 @@ BEGIN
         FROM system.system_diff_items AS item
         WHERE item.diff_run_id = v_diff_run_id
         GROUP BY system.pipeline_map_diff_to_source_status(item.diff_type);
+
+        RAISE NOTICE 'progress: %/% (100.00%%) stage06 family=% done items=% written=%',
+            v_done, v_done, cfg.entity_family, v_done, v_written;
     END LOOP;
 END
 $stage06_create_diffs$;

@@ -39,6 +39,73 @@ type UpdateBuildingBody = z.infer<typeof updateBuildingBodySchema>;
 const AREA_MIN_EXCLUSIVE = 3;
 const AREA_MAX_EXCLUSIVE = 200_000;
 
+function normalizedOptionalName(value: string | null | undefined): string | null {
+    const trimmed = value?.trim();
+    return trimmed ? trimmed : null;
+}
+
+function editorIdFromJwt(user: JwtUser): bigint | null {
+    const raw = user.id?.trim();
+    return raw && /^\d+$/.test(raw) ? BigInt(raw) : null;
+}
+
+export function buildingPatchChangesImportedAttributes(
+    existing: BuildingDetailRow,
+    patch: UpdateBuildingBody,
+    snapshot: BuildingPersistSnapshot
+): boolean {
+    if (
+        patch.name !== undefined
+        && normalizedOptionalName(snapshot.name)
+            !== normalizedOptionalName(existing.fallback_name)
+    ) {
+        return true;
+    }
+
+    if (
+        patch.name_mm !== undefined
+        && normalizedOptionalName(snapshot.name_mm)
+            !== normalizedOptionalName(existing.name_mm)
+    ) {
+        return true;
+    }
+
+    if (
+        patch.name_en !== undefined
+        && normalizedOptionalName(snapshot.name_en)
+            !== normalizedOptionalName(existing.name_en)
+    ) {
+        return true;
+    }
+
+    if (
+        (patch.building_type_id !== undefined || patch.building_type !== undefined)
+        && snapshot.building_type_id?.toString() !== (existing.building_type_id ?? undefined)
+    ) {
+        return true;
+    }
+
+    if (
+        patch.admin_area_id !== undefined
+        && snapshot.admin_area_id?.toString() !== (existing.admin_area_id ?? undefined)
+    ) {
+        return true;
+    }
+
+    if (patch.levels !== undefined && snapshot.levels !== existing.levels) {
+        return true;
+    }
+
+    if (patch.height_m !== undefined && snapshot.height_m !== existing.height_m) {
+        return true;
+    }
+
+    return (
+        patch.confidence_score !== undefined
+        && snapshot.confidence_score !== Number(existing.confidence_score ?? 80)
+    );
+}
+
 export class BuildingNotFoundError extends Error {
     constructor(message = "Building not found") {
         super(message);
@@ -112,6 +179,8 @@ export class BuildingsService {
         }
 
         const snapshot = await this.mergePersistSnapshot(existing, body, user);
+        const protectAttributes = buildingPatchChangesImportedAttributes(existing, body, snapshot);
+        const editorId = editorIdFromJwt(user);
 
         if (body.geometry !== undefined) {
             const geojsonText = JSON.stringify(body.geometry);
@@ -120,7 +189,9 @@ export class BuildingsService {
             const updated = await this.buildingsRepo.updateDashboardBuildingGeometry(
                 publicId,
                 geojsonText,
-                snapshot
+                snapshot,
+                "dashboard",
+                { editorId, protectAttributes }
             );
 
             if (!updated) {
@@ -136,7 +207,12 @@ export class BuildingsService {
             return this.serializeBuilding(updated);
         }
 
-        const updated = await this.buildingsRepo.updateDashboardBuildingScalars(publicId, snapshot);
+        const updated = await this.buildingsRepo.updateDashboardBuildingScalars(
+            publicId,
+            snapshot,
+            "dashboard",
+            { editorId, protectAttributes }
+        );
 
         if (!updated) {
             throw new BuildingNotFoundError();
@@ -154,6 +230,8 @@ export class BuildingsService {
         }
 
         const snapshot = await this.mergePersistSnapshot(existing, body, user);
+        const protectAttributes = buildingPatchChangesImportedAttributes(existing, body, snapshot);
+        const editorId = editorIdFromJwt(user);
 
         if (body.geometry !== undefined) {
             const geojsonText = JSON.stringify(body.geometry);
@@ -164,6 +242,7 @@ export class BuildingsService {
                 geojsonText,
                 snapshot,
                 "active",
+                { editorId, protectAttributes },
             );
 
             if (!updated) {
@@ -183,6 +262,7 @@ export class BuildingsService {
             publicId,
             snapshot,
             "active",
+            { editorId, protectAttributes },
         );
 
         if (!updated) {
@@ -216,6 +296,7 @@ export class BuildingsService {
             public_id: row.public_id,
             source_staging_id: row.source_staging_id,
             external_id: row.external_id,
+            names: names.names,
             name_mm: names.name_mm,
             name_en: names.name_en,
             fallback_name: names.fallback_name,

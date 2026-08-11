@@ -346,7 +346,8 @@ BEGIN
 END;
 $$;
 
--- True when a building footprint is near an important CoreMap place (local core).
+-- True when a building footprint is near an important production place
+-- (local lab uses prod_mirror — never local core.*; IDs must match Supabase).
 CREATE OR REPLACE FUNCTION system.pipeline_building_linked_to_important_place(
     p_geom geometry,
     p_canonical_name text DEFAULT NULL
@@ -357,8 +358,8 @@ STABLE
 AS $$
     SELECT EXISTS (
         SELECT 1
-        FROM core.core_places AS p
-        LEFT JOIN ref.ref_poi_categories AS c ON c.id = p.category_id
+        FROM prod_mirror.core_places AS p
+        LEFT JOIN prod_mirror.ref_poi_categories AS c ON c.id = p.category_id
         WHERE p.deleted_at IS NULL
           AND p.point_geom IS NOT NULL
           AND p_geom IS NOT NULL
@@ -377,7 +378,6 @@ AS $$
                     'ferry_terminal', 'train_station', 'city', 'town', 'village',
                     'religion', 'monastery', 'hotel'
                 )
-                OR coalesce(p.importance_score, 0) >= 70
                 OR coalesce(p.is_verified, false)
           )
     );

@@ -267,6 +267,10 @@ export default function ReviewMapCandidateCompareDialog({
                 canonicalSide === "current" ? currentStopPublicId : candidate.publicId;
             const duplicateStopId =
                 canonicalSide === "current" ? candidate.publicId : currentStopPublicId;
+            const canonicalStop =
+                canonicalSide === "current" ? preview.currentStop : preview.candidateStop;
+            const duplicateStop =
+                canonicalSide === "current" ? preview.candidateStop : preview.currentStop;
             const result = await mergeTransportStopsGlobal({
                 canonicalStopId,
                 duplicateStopId,
@@ -276,12 +280,45 @@ export default function ReviewMapCandidateCompareDialog({
                 acknowledgeSameVariantOccurrences: hasSameVariantOccurrences
                     ? acknowledgedSameVariantOccurrences
                     : undefined,
+                canonicalUpdatedAt: canonicalStop.updatedAt ?? undefined,
+                duplicateUpdatedAt: duplicateStop.updatedAt ?? undefined,
                 reason: reason.trim() || undefined,
             });
             onClose();
             await onMergeSuccess(result, currentStopPublicId);
         } catch (err) {
             if (isAbortError(err)) {
+                return;
+            }
+            const message = err instanceof Error ? err.message.toLowerCase() : "";
+            const stale =
+                message.includes("merge_stale_preview") ||
+                message.includes("changed since the merge preview");
+            if (stale) {
+                setError(
+                    "One or both stops changed since this comparison loaded. Refreshing…",
+                );
+                // Re-run preview without closing the dialog.
+                setPreview(null);
+                setPreviewLoading(true);
+                try {
+                    const refreshed = await previewTransportStopMerge(
+                        currentStopPublicId,
+                        candidate.publicId,
+                    );
+                    setPreview(refreshed);
+                    setError(
+                        "Comparison refreshed. Review the fields and try merge again.",
+                    );
+                } catch (previewErr) {
+                    if (!isAbortError(previewErr)) {
+                        setError(
+                            "Stops changed and the comparison could not be refreshed. Close and try again.",
+                        );
+                    }
+                } finally {
+                    setPreviewLoading(false);
+                }
                 return;
             }
             onClose();

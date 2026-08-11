@@ -1,3 +1,4 @@
+import { useMapUiText } from '@/features/map/i18n/mapUiText';
 import { useAuth } from '../state/useAuth';
 
 type AccountMenuProps = {
@@ -13,6 +14,7 @@ type AccountMenuProps = {
  * (no centered modal, no map blur).
  */
 export function AccountMenu({ onOpen, active = false }: AccountMenuProps) {
+  const t = useMapUiText();
   const { user, isAuthenticated, initializing } = useAuth();
 
   if (initializing) return null;
@@ -21,14 +23,14 @@ export function AccountMenu({ onOpen, active = false }: AccountMenuProps) {
     return (
       <button
         type="button"
-        className={`group grid h-11 w-11 place-items-center rounded-2xl transition-all duration-150 ${
+        className={`group grid h-11 w-11 place-items-center rounded-2xl transition-[color,background-color,border-color,box-shadow,opacity,filter] duration-150 ${
           active
-            ? 'bg-sky-600 text-white shadow-md shadow-sky-900/20'
-            : 'text-neutral-500 hover:bg-sky-50 hover:text-sky-700'
+            ? 'bg-map-primary text-white shadow-map-control'
+            : 'text-map-muted hover:bg-map-primary-soft hover:text-map-primary'
         }`}
-        aria-label="Sign in"
+        aria-label={t('အကောင့်ဝင်ရန်', 'Sign in')}
         aria-current={active ? 'page' : undefined}
-        title="Sign in"
+        title={t('အကောင့်ဝင်ရန်', 'Sign in')}
         onClick={onOpen}
       >
         <AccountIcon />
@@ -41,15 +43,15 @@ export function AccountMenu({ onOpen, active = false }: AccountMenuProps) {
   return (
     <button
       type="button"
-      className={`grid h-11 w-11 place-items-center rounded-2xl transition-all duration-150 ${
-        active ? 'bg-sky-50 ring-2 ring-sky-200' : 'hover:bg-sky-50'
+      className={`grid h-11 w-11 place-items-center rounded-2xl transition-[color,background-color,border-color,box-shadow,opacity,filter] duration-150 ${
+        active ? 'bg-map-primary-soft ring-2 ring-map-primary/25' : 'hover:bg-map-primary-soft'
       }`}
-      aria-label="Account"
+      aria-label={t('အကောင့်', 'Account')}
       aria-current={active ? 'page' : undefined}
       title={user.display_name}
       onClick={onOpen}
     >
-      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-sky-600 text-xs font-bold text-white">
+      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[linear-gradient(135deg,#0f68e8,#087c8f)] text-xs font-bold text-white shadow-map-control">
         {initial}
       </span>
     </button>

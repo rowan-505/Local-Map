@@ -1,6 +1,6 @@
 # CoreMap tiles
 
-> **Documentation index:** [`docs/06-tiles/tiles-overview.md`](../../docs/06-tiles/tiles-overview.md)
+> **Documentation index:** [`docs/tiles.md`](../../docs/tiles.md)
 
 Offline tile pipelines and local dev assets for map rendering.
 

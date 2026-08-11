@@ -58,7 +58,8 @@ function formValuesToBuildingPayload(values: CoreEntityFormValues, isEdit: boole
         geometry,
         name_mm: String(values.name_mm ?? "").trim() || null,
         name_en: String(values.name_en ?? "").trim() || null,
-        name: String(values.fallback_name ?? "").trim() || null,
+        // Canonical names live in core_map_building_names via name_mm/name_en.
+        // Do not write legacy core_map_buildings.name.
     };
 
     const buildingTypeId = String(values.building_type_id ?? "").trim();
@@ -131,7 +132,12 @@ export const BUILDINGS_ENTITY_CONFIG: CoreEntityConfig<
     editableFields: [
         { key: "name_mm", label: "Myanmar name", type: "text" },
         { key: "name_en", label: "English name", type: "text" },
-        { key: "fallback_name", label: "Fallback name", type: "text", helpText: "Used when localized names are empty." },
+        {
+            key: "fallback_name",
+            label: "Derived display name",
+            type: "text",
+            helpText: "Read-only display from names table. Not written to core_map_buildings.name.",
+        },
         { key: "building_type_id", label: "Building type", type: "ref", refSource: "building-types" },
         townshipAdminEntityField({
             slug: "buildings",

@@ -20,7 +20,7 @@
       "id": "background",
       "type": "background",
       "paint": {
-        "background-color": "#f4f4f0"
+        "background-color": "#f6f8f3"
       }
     },
     {
@@ -30,7 +30,7 @@
       "source-layer": "landuse",
       "minzoom": 8,
       "paint": {
-        "fill-color": "#dce8d5",
+        "fill-color": "#d9efd7",
         "fill-opacity": [
           "interpolate",
           ["linear"],
@@ -47,7 +47,7 @@
       "source": "local-basemap",
       "source-layer": "water_polygons",
       "paint": {
-        "fill-color": "#b8ddea",
+        "fill-color": "#bfe8fa",
         "fill-opacity": 0.9
       }
     },
@@ -62,7 +62,7 @@
         "line-join": "round"
       },
       "paint": {
-        "line-color": "#9ccfe1",
+        "line-color": "#8fd3ec",
         "line-opacity": [
           "interpolate",
           ["linear"],
@@ -704,7 +704,7 @@
       "source-layer": "buildings",
       "minzoom": 14,
       "paint": {
-        "fill-color": "#ded8cf",
+        "fill-color": "#e9edf2",
         "fill-opacity": [
           "interpolate",
           ["linear"],

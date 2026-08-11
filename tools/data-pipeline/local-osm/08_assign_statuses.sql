@@ -345,6 +345,8 @@ DECLARE
     v_both bigint;
     v_decision_rows bigint;
     v_f2_all_insert_candidate boolean := false;
+    v_f2_non_insert_count bigint := 0;
+    v_f2_insert_count bigint := 0;
 BEGIN
     TRUNCATE stage08_status_decisions;
 
@@ -409,18 +411,25 @@ BEGIN
     ORDER BY item.entity_family, item.local_entity_id, item.id DESC;
 
     SELECT count(*)::bigint INTO v_row_count FROM stage08_f2_items;
-    SELECT coalesce(bool_and(f2.f2_auto_action = 'insert_candidate'), false)
-    INTO v_f2_all_insert_candidate
-    FROM stage08_f2_items AS f2;
+    SELECT count(*)::bigint
+    INTO v_f2_insert_count
+    FROM stage08_f2_items AS f2
+    WHERE f2.f2_auto_action = 'insert_candidate';
+    v_f2_non_insert_count := greatest(v_row_count - v_f2_insert_count, 0);
+    v_f2_all_insert_candidate := (v_f2_non_insert_count = 0);
 
-    RAISE NOTICE 'stage08 | step=materialize_f2_items | rows=% | all_insert_candidate=% | step_elapsed=% | total_elapsed=%',
-        v_row_count, v_f2_all_insert_candidate,
+    RAISE NOTICE 'stage08 | step=materialize_f2_items | rows=% | all_insert_candidate=% | insert_candidate=% | non_insert=% | step_elapsed=% | total_elapsed=%',
+        v_row_count, v_f2_all_insert_candidate, v_f2_insert_count, v_f2_non_insert_count,
         clock_timestamp() - v_step_started_at, clock_timestamp() - v_run_started_at;
 
     v_step_started_at := clock_timestamp();
 
-    IF v_f2_all_insert_candidate THEN
-        RAISE NOTICE 'stage08 | step=insert_status_decisions | mode=bulk_insert_candidate_fast_path (skip f1/combine)';
+    -- Fast path for the insert_candidate majority (typical national dry-run: >99%).
+    IF v_f2_insert_count > 0 THEN
+        RAISE NOTICE 'progress: 0/% (0.00%%) stage08 bulk_insert_candidate rows=%',
+            v_row_count, v_f2_insert_count;
+        RAISE NOTICE 'stage08 | step=insert_status_decisions | mode=bulk_insert_candidate_fast_path | rows=%',
+            v_f2_insert_count;
 
         INSERT INTO stage08_status_decisions (
             entity_family,
@@ -458,13 +467,31 @@ BEGIN
         FROM stage08_f2_items AS f2
         INNER JOIN stage08_family_manifest AS m
             ON m.entity_family = f2.entity_family
-           AND m.has_required_cols;
+           AND m.has_required_cols
+        WHERE f2.f2_auto_action = 'insert_candidate';
+    END IF;
 
+    IF v_f2_non_insert_count = 0 THEN
         v_f1_only := 0;
         v_f2_only := v_row_count;
         v_both := 0;
     ELSE
-        RAISE NOTICE 'stage08 | step=materialize_f1_items | starting (non-bulk path)';
+        -- Exception path: only merge the small non-insert_candidate set with F1.
+        RAISE NOTICE 'progress: %/% (%)%% stage08 exception_merge non_insert=%',
+            v_f2_insert_count, v_row_count,
+            CASE WHEN v_row_count > 0 THEN round(100.0 * v_f2_insert_count / v_row_count, 2) ELSE 100 END,
+            v_f2_non_insert_count;
+        RAISE NOTICE 'stage08 | step=materialize_f1_items | starting (exception path) | non_insert=%',
+            v_f2_non_insert_count;
+
+        DROP TABLE IF EXISTS stage08_f2_exceptions;
+        CREATE TEMP TABLE stage08_f2_exceptions ON COMMIT DROP AS
+        SELECT *
+        FROM stage08_f2_items AS f2
+        WHERE f2.f2_auto_action IS DISTINCT FROM 'insert_candidate';
+        CREATE INDEX stage08_f2_exceptions_join_idx
+            ON stage08_f2_exceptions (entity_family, local_entity_id);
+        ANALYZE stage08_f2_exceptions;
 
         DROP TABLE IF EXISTS stage08_f1_items;
         CREATE TEMP TABLE stage08_f1_items ON COMMIT DROP AS
@@ -479,11 +506,14 @@ BEGIN
         INNER JOIN stage08_latest_diff_runs AS lr
             ON lr.entity_family = item.entity_family
            AND lr.f1_diff_run_id = item.diff_run_id
+        INNER JOIN stage08_f2_exceptions AS ex
+            ON ex.entity_family = item.entity_family
+           AND ex.local_entity_id = item.local_entity_id
         WHERE item.local_entity_id IS NOT NULL
         ORDER BY item.entity_family, item.local_entity_id, item.id DESC;
 
         CREATE INDEX stage08_f1_items_join_idx ON stage08_f1_items (entity_family, local_entity_id);
-        CREATE INDEX stage08_f2_items_join_idx ON stage08_f2_items (entity_family, local_entity_id);
+        ANALYZE stage08_f1_items;
 
         DROP TABLE IF EXISTS stage08_combined;
         CREATE TEMP TABLE stage08_combined ON COMMIT DROP AS
@@ -500,10 +530,10 @@ BEGIN
             f2.f2_item_id IS NOT NULL AS has_f2,
             f1.f1_item_id,
             f2.f2_item_id
-        FROM stage08_f1_items AS f1
-        FULL OUTER JOIN stage08_f2_items AS f2
-            ON f2.entity_family = f1.entity_family
-           AND f2.local_entity_id IS NOT DISTINCT FROM f1.local_entity_id;
+        FROM stage08_f2_exceptions AS f2
+        LEFT JOIN stage08_f1_items AS f1
+            ON f1.entity_family = f2.entity_family
+           AND f1.local_entity_id IS NOT DISTINCT FROM f2.local_entity_id;
 
         SELECT count(*)::bigint INTO v_row_count FROM stage08_combined;
         SELECT count(*)::bigint INTO v_both FROM stage08_combined WHERE has_f1 AND has_f2;
@@ -515,7 +545,8 @@ BEGIN
             clock_timestamp() - v_step_started_at, clock_timestamp() - v_run_started_at;
 
         v_step_started_at := clock_timestamp();
-        RAISE NOTICE 'stage08 | step=insert_status_decisions | mode=full_rule_merge';
+        RAISE NOTICE 'stage08 | step=insert_status_decisions | mode=exception_rule_merge | rows=%',
+            v_row_count;
 
         INSERT INTO stage08_status_decisions (
     entity_family,
@@ -697,9 +728,11 @@ CROSS JOIN LATERAL (
 ) AS x;
     END IF;
 
-    GET DIAGNOSTICS v_decision_rows = ROW_COUNT;
+    SELECT count(*)::bigint INTO v_decision_rows FROM stage08_status_decisions;
+    RAISE NOTICE 'progress: %/% (100.00%%) stage08 decisions_done',
+        v_decision_rows, v_decision_rows;
     RAISE NOTICE 'stage08 | step=insert_status_decisions | rows=% / % | step_elapsed=% | total_elapsed=%',
-        v_decision_rows, v_row_count,
+        v_decision_rows, greatest(v_f2_insert_count + v_f2_non_insert_count, v_decision_rows),
         clock_timestamp() - v_step_started_at, clock_timestamp() - v_run_started_at;
 END
 $stage08_build_status_decisions$;

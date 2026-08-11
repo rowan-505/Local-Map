@@ -478,6 +478,8 @@ export class TransportService {
                 candidateStopPublicId: body.candidateStopId,
                 fieldSources: body.fieldSources,
                 acknowledgeSameVariantOccurrences: body.acknowledgeSameVariantOccurrences,
+                canonicalUpdatedAt: body.canonicalUpdatedAt,
+                duplicateUpdatedAt: body.duplicateUpdatedAt,
                 reason: body.reason,
                 audit,
             },

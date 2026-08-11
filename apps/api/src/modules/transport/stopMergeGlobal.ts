@@ -26,6 +26,10 @@ export function emptyStopMergeReferenceChanges(): StopMergeGlobalReferenceChange
     };
 }
 
+export function emptyStopMergeReferenceCounts(): TransportStopMergeReferenceCounts {
+    return emptyStopMergeReferenceChanges();
+}
+
 export function sumStopMergeReferenceCounts(
     counts: TransportStopMergeReferenceCounts,
 ): number {

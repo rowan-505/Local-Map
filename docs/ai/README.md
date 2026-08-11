@@ -30,5 +30,5 @@ Shared, tool-neutral AI guidance for CoreMap. Edit canonical content here; tool-
 
 ## Related docs
 
-- V2 roadmap: [`docs/11-roadmap/v2-plan.md`](../11-roadmap/v2-plan.md)
+- V2 roadmap: [`docs/roadmap.md`](../roadmap.md)
 - Human docs index: [`docs/README.md`](../README.md)

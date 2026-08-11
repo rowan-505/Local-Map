@@ -13,6 +13,7 @@ lerna-debug.log*
 # Node / Build
 # ========================
 node_modules
+.pnpm-store/
 dist
 dist-ssr
 .next
@@ -119,6 +120,8 @@ geo-database/**/*.sql
 # ========================
 tools/data-pipeline/local-osm/imports/*.env
 !tools/data-pipeline/local-osm/imports/template.full.env
+# Batch override envs often contain live local/Supabase URLs — never commit
+tools/data-pipeline/local-osm/imports/_batch/*.env
 tools/data-pipeline/road-fast-core/imports/*.env
 !tools/data-pipeline/road-fast-core/imports/template.full.env
 tools/data-pipeline/admin-fast-core/imports/*.env
@@ -130,6 +133,11 @@ tools/data-pipeline/transport-fast-publish/imports/*.env
 
 # Local Supabase prod mirror env (secrets)
 tools/data-pipeline/prod-mirror/00_env.sh
+
+# Pipeline generated artifacts / exports (CSV, GeoJSON, backups — often large)
+tools/data-pipeline/**/artifacts/
+tools/data-pipeline/import-work/reports/
+tools/data-pipeline/buildings/reports/
 
 # Stray scratch / scratchpad files (may contain pasted connection strings)
 infrastructure/Untitled
@@ -154,6 +162,9 @@ infrastructure/routing/valhalla/data/builds/*
 !infrastructure/routing/valhalla/data/work/.gitkeep
 !infrastructure/routing/valhalla/data/osm/.gitkeep
 !infrastructure/routing/valhalla/data/builds/.gitkeep
+# Local build scratch (elevation .hgt, tile tars, temp extracts) — multi-GB
+infrastructure/routing/valhalla/scripts/work/
+*.hgt
 
 # DB introspection exports (schema metadata, not source)
 infrastructure/database/introspection/**/snapshots/

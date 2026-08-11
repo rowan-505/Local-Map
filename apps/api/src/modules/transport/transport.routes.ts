@@ -8,6 +8,7 @@ import {
     TransportMergeExecutionFailedError,
     TransportMergeParentConflictError,
     TransportMergePreviewFailedError,
+    TransportMergeStalePreviewError,
     TransportMergeTerminalConflictError,
     TransportNameRequiredError,
     TransportNotFoundError,
@@ -20,7 +21,11 @@ import {
     TransportStopDeleteBlockedError,
 } from "./transport.errors.js";
 import { isHttpAuthError } from "./stopMergePreview.js";
-import { logTransportRequestPerf } from "./transport-perf.js";
+import {
+    estimateJsonResponseBytes,
+    isTransportPerfLogEnabled,
+    logTransportRequestPerf,
+} from "./transport-perf.js";
 import { RoutingServiceDisabledError } from "../../config/env.js";
 import {
     RoutingEngineTimeoutError,
@@ -247,6 +252,14 @@ function sendTransportError(reply: FastifyReply, error: unknown): FastifyReply |
             duplicateStopId: error.duplicateStopId,
             canonicalTerminalId: error.canonicalTerminalId,
             duplicateTerminalId: error.duplicateTerminalId,
+        });
+    }
+    if (error instanceof TransportMergeStalePreviewError) {
+        return reply.code(error.statusCode).send({
+            message: error.message,
+            code: error.code,
+            canonicalStopId: error.canonicalStopId,
+            duplicateStopId: error.duplicateStopId,
         });
     }
     if (error instanceof TransportMergeParentConflictError) {
@@ -727,6 +740,7 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
                 } else if (
                     !(error instanceof TransportMergeTerminalConflictError) &&
                     !(error instanceof TransportMergeParentConflictError) &&
+                    !(error instanceof TransportMergeStalePreviewError) &&
                     !(error instanceof TransportReviewGuardError) &&
                     !(error instanceof TransportNotFoundError) &&
                     !(error instanceof ZodError) &&
@@ -1396,21 +1410,57 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
         "/route-stops/:id/timing",
         { schema: patchRouteStopTimingSchema },
         async (request, reply) => {
+            const perfOn = isTransportPerfLogEnabled();
+            const t0 = perfOn ? performance.now() : 0;
             try {
+                const validationStarted = perfOn ? performance.now() : 0;
                 const { id } = routeStopIdParamSchema.parse(request.params);
                 const body = patchRouteStopTimingBodySchema.parse(request.body);
+                const validationDurationMs = perfOn
+                    ? Number((performance.now() - validationStarted).toFixed(1))
+                    : undefined;
+                const serviceStarted = perfOn ? performance.now() : 0;
                 const result = await service.updateRouteStopTiming(
                     BigInt(id),
                     mapPatchRouteStopTimingToInput(body),
                     auditContextFrom(request),
                 );
+                const serviceDurationMs = perfOn
+                    ? Number((performance.now() - serviceStarted).toFixed(1))
+                    : undefined;
                 request.log.info(
                     { id, fields: Object.keys(body) },
                     "transport route stop timing updated",
                 );
-                return reply.send(result);
+                reply.send(result);
+                if (perfOn) {
+                    logTransportRequestPerf(request.log, {
+                        requestId: request.id ?? null,
+                        endpoint: "PATCH /transport/route-stops/:id/timing",
+                        action: "save_route_stop_timing",
+                        totalDurationMs: Number((performance.now() - t0).toFixed(1)),
+                        validationDurationMs,
+                        serviceDurationMs,
+                        queryCount: result.route_stop_count + 4,
+                        responseSizeBytes: estimateJsonResponseBytes(result),
+                        resultCount: result.route_stop_count,
+                        statusCode: 200,
+                        success: true,
+                    });
+                }
+                return;
             } catch (error) {
                 const handled = sendTransportError(reply, error);
+                if (perfOn) {
+                    logTransportRequestPerf(request.log, {
+                        requestId: request.id ?? null,
+                        endpoint: "PATCH /transport/route-stops/:id/timing",
+                        action: "save_route_stop_timing",
+                        totalDurationMs: Number((performance.now() - t0).toFixed(1)),
+                        statusCode: reply.statusCode || 500,
+                        success: false,
+                    });
+                }
                 if (handled) return handled;
                 throw error;
             }
@@ -1436,30 +1486,48 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
     });
 
     app.delete("/route-stops/:id", { schema: deleteRouteStopSchema }, async (request, reply) => {
-        // TEMP perf: gated by TRANSPORT_PERF_LOG=1 (no-op otherwise).
-        const perfOn = process.env.TRANSPORT_PERF_LOG === "1";
+        const perfOn = isTransportPerfLogEnabled();
         const t0 = perfOn ? performance.now() : 0;
         try {
             const { id } = routeStopIdParamSchema.parse(request.params);
             const { reason } = removeRouteStopBodySchema.parse(request.body ?? {});
+            const serviceStarted = perfOn ? performance.now() : 0;
             const result = await service.removeRouteStop(
                 BigInt(id),
                 auditContextFrom(request),
                 reason
             );
-            if (perfOn) {
-                request.log.info(
-                    {
-                        ms: Number((performance.now() - t0).toFixed(1)),
-                        stops: result.route_stop_count,
-                    },
-                    "[transport.perf] remove-route-stop | handler done (response ready)"
-                );
-            }
+            const serviceDurationMs = perfOn
+                ? Number((performance.now() - serviceStarted).toFixed(1))
+                : undefined;
             request.log.info({ id }, "transport route stop removed from variant");
-            return reply.send(result);
+            reply.send(result);
+            if (perfOn) {
+                logTransportRequestPerf(request.log, {
+                    requestId: request.id ?? null,
+                    endpoint: "DELETE /transport/route-stops/:id",
+                    action: "remove_stop_from_route",
+                    totalDurationMs: Number((performance.now() - t0).toFixed(1)),
+                    serviceDurationMs,
+                    resultCount: result.route_stop_count,
+                    responseSizeBytes: estimateJsonResponseBytes(result),
+                    statusCode: 200,
+                    success: true,
+                });
+            }
+            return;
         } catch (error) {
             const handled = sendTransportError(reply, error);
+            if (perfOn) {
+                logTransportRequestPerf(request.log, {
+                    requestId: request.id ?? null,
+                    endpoint: "DELETE /transport/route-stops/:id",
+                    action: "remove_stop_from_route",
+                    totalDurationMs: Number((performance.now() - t0).toFixed(1)),
+                    statusCode: reply.statusCode || 500,
+                    success: false,
+                });
+            }
             if (handled) return handled;
             throw error;
         }
@@ -1505,18 +1573,51 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
     });
 
     app.post("/routes/:publicId/review-action", async (request, reply) => {
+        const perfOn = isTransportPerfLogEnabled();
+        const t0 = perfOn ? performance.now() : 0;
         try {
             const { publicId } = transportPublicIdParamSchema.parse(request.params);
             const body = transportReviewActionBodySchema.parse(request.body);
+            const serviceStarted = perfOn ? performance.now() : 0;
             const result = await service.applyRouteReviewAction(
                 publicId,
                 body.action,
                 auditContextFrom(request),
                 body.reason,
             );
-            return reply.send(result);
+            const serviceDurationMs = perfOn
+                ? Number((performance.now() - serviceStarted).toFixed(1))
+                : undefined;
+            reply.send(result);
+            if (perfOn) {
+                logTransportRequestPerf(request.log, {
+                    requestId: request.id ?? null,
+                    endpoint: "POST /transport/routes/:publicId/review-action",
+                    action: body.action,
+                    totalDurationMs: Number((performance.now() - t0).toFixed(1)),
+                    serviceDurationMs,
+                    duplicateCheckDurationMs:
+                        body.action === "mark_reviewed" || body.action === "mark_verified"
+                            ? (service.getLastReadinessDuplicateCheckDurationMs() ?? undefined)
+                            : undefined,
+                    responseSizeBytes: estimateJsonResponseBytes(result),
+                    statusCode: 200,
+                    success: true,
+                });
+            }
+            return;
         } catch (error) {
             const handled = sendTransportError(reply, error);
+            if (perfOn) {
+                logTransportRequestPerf(request.log, {
+                    requestId: request.id ?? null,
+                    endpoint: "POST /transport/routes/:publicId/review-action",
+                    action: "review_action",
+                    totalDurationMs: Number((performance.now() - t0).toFixed(1)),
+                    statusCode: reply.statusCode || 500,
+                    success: false,
+                });
+            }
             if (handled) return handled;
             throw error;
         }
@@ -1543,54 +1644,143 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
     );
 
     app.post("/stops/:publicId/review-action", async (request, reply) => {
+        const perfOn = isTransportPerfLogEnabled();
+        const t0 = perfOn ? performance.now() : 0;
         try {
             const { stopPublicId } = stopPublicIdParamSchema.parse(request.params);
             const body = transportReviewActionBodySchema.parse(request.body);
+            const serviceStarted = perfOn ? performance.now() : 0;
             const result = await service.applyStopReviewAction(
                 stopPublicId,
                 body.action,
                 auditContextFrom(request),
                 body.reason,
             );
-            return reply.send(result);
+            const serviceDurationMs = perfOn
+                ? Number((performance.now() - serviceStarted).toFixed(1))
+                : undefined;
+            reply.send(result);
+            if (perfOn) {
+                logTransportRequestPerf(request.log, {
+                    requestId: request.id ?? null,
+                    endpoint: "POST /transport/stops/:publicId/review-action",
+                    action: body.action,
+                    totalDurationMs: Number((performance.now() - t0).toFixed(1)),
+                    serviceDurationMs,
+                    queryCount: 3,
+                    responseSizeBytes: estimateJsonResponseBytes(result),
+                    statusCode: 200,
+                    success: true,
+                });
+            }
+            return;
         } catch (error) {
             const handled = sendTransportError(reply, error);
+            if (perfOn) {
+                logTransportRequestPerf(request.log, {
+                    requestId: request.id ?? null,
+                    endpoint: "POST /transport/stops/:publicId/review-action",
+                    action: "review_action",
+                    totalDurationMs: Number((performance.now() - t0).toFixed(1)),
+                    statusCode: reply.statusCode || 500,
+                    success: false,
+                });
+            }
             if (handled) return handled;
             throw error;
         }
     });
 
     app.post("/route-paths/:id/review-action", async (request, reply) => {
+        const perfOn = isTransportPerfLogEnabled();
+        const t0 = perfOn ? performance.now() : 0;
         try {
             const { id } = routeStopIdParamSchema.parse(request.params);
             const body = transportReviewActionBodySchema.parse(request.body);
+            const serviceStarted = perfOn ? performance.now() : 0;
             const result = await service.applyRoutePathReviewAction(
                 BigInt(id),
                 body.action,
                 auditContextFrom(request),
                 body.reason,
             );
-            return reply.send(result);
+            const serviceDurationMs = perfOn
+                ? Number((performance.now() - serviceStarted).toFixed(1))
+                : undefined;
+            reply.send(result);
+            if (perfOn) {
+                logTransportRequestPerf(request.log, {
+                    requestId: request.id ?? null,
+                    endpoint: "POST /transport/route-paths/:id/review-action",
+                    action: body.action,
+                    totalDurationMs: Number((performance.now() - t0).toFixed(1)),
+                    serviceDurationMs,
+                    queryCount: 3,
+                    responseSizeBytes: estimateJsonResponseBytes(result),
+                    statusCode: 200,
+                    success: true,
+                });
+            }
+            return;
         } catch (error) {
             const handled = sendTransportError(reply, error);
+            if (perfOn) {
+                logTransportRequestPerf(request.log, {
+                    requestId: request.id ?? null,
+                    endpoint: "POST /transport/route-paths/:id/review-action",
+                    action: "review_action",
+                    totalDurationMs: Number((performance.now() - t0).toFixed(1)),
+                    statusCode: reply.statusCode || 500,
+                    success: false,
+                });
+            }
             if (handled) return handled;
             throw error;
         }
     });
 
     app.patch("/route-stops/:id/replace-stop", async (request, reply) => {
+        const perfOn = isTransportPerfLogEnabled();
+        const t0 = perfOn ? performance.now() : 0;
         try {
             const { id } = routeStopIdParamSchema.parse(request.params);
             const body = replaceRouteStopBodySchema.parse(request.body);
+            const serviceStarted = perfOn ? performance.now() : 0;
             const result = await service.replaceRouteStop(
                 BigInt(id),
                 body.stop_public_id,
                 auditContextFrom(request),
                 body.reason,
             );
-            return reply.send(result);
+            const serviceDurationMs = perfOn
+                ? Number((performance.now() - serviceStarted).toFixed(1))
+                : undefined;
+            reply.send(result);
+            if (perfOn) {
+                logTransportRequestPerf(request.log, {
+                    requestId: request.id ?? null,
+                    endpoint: "PATCH /transport/route-stops/:id/replace-stop",
+                    action: "replace_stop_in_route",
+                    totalDurationMs: Number((performance.now() - t0).toFixed(1)),
+                    serviceDurationMs,
+                    responseSizeBytes: estimateJsonResponseBytes(result),
+                    statusCode: 200,
+                    success: true,
+                });
+            }
+            return;
         } catch (error) {
             const handled = sendTransportError(reply, error);
+            if (perfOn) {
+                logTransportRequestPerf(request.log, {
+                    requestId: request.id ?? null,
+                    endpoint: "PATCH /transport/route-stops/:id/replace-stop",
+                    action: "replace_stop_in_route",
+                    totalDurationMs: Number((performance.now() - t0).toFixed(1)),
+                    statusCode: reply.statusCode || 500,
+                    success: false,
+                });
+            }
             if (handled) return handled;
             throw error;
         }

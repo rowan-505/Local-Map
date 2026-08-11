@@ -52,6 +52,12 @@
 -- Candidate confidence_score (and similar staging scores) use a 0–100 scale to
 -- match Supabase production core — not fractional 0–1.
 --
+-- Building names (normalized_data.names): Stage 05 calls
+-- system.pipeline_extract_building_names(tags). That function is defined in
+-- Supabase migration 153 (153_building_names_canonical_my_en_und.sql). Apply
+-- migration 153 on the local DB before running Stage 05 for buildings;
+-- this file does not duplicate the function.
+--
 -- Source feature classification:
 --   Raw OSM rows remain untouched. Stage 05 derives classification metadata from
 --   raw tags into staging rows only. A single source feature can produce a place
@@ -100,7 +106,8 @@ VALUES (
 \ir pipeline_source_identity.sql
 \ir pipeline_tmp_import_mode.sql
 \ir pipeline_settlements.sql
-\ir pipeline_township_assignment.sql
+-- pipeline_township_assignment.sql retired: required local core.* and local admin IDs.
+-- Township assign for IR uses Stage 08c + pipeline_prod_admin_assign.sql (prod_mirror).
 
 CREATE TEMP TABLE IF NOT EXISTS stage05_context (
     source_snapshot_id bigint NOT NULL,
@@ -821,7 +828,7 @@ BEGIN
     ELSIF v_place_class_id IS NULL THEN
         INSERT INTO stage05_report VALUES ('point_extraction', 'place', format('%s.staging_place_candidates', v_staging_schema), 'available_rows', v_available, 'WARN', 'ref.ref_place_classes has no rows; skipped place candidate extraction because place_class_id is required.');
     ELSE
-        RAISE NOTICE 'stage05_point_extraction: place candidates — available_rows=% (admin assign settlements only)', v_available;
+        RAISE NOTICE 'stage05_point_extraction: place candidates — available_rows=% (admin deferred to Stage 08c prod_mirror)', v_available;
         q := format(
             $q$
             WITH src AS (
@@ -829,13 +836,9 @@ BEGIN
                     cls.*,
                     system.pipeline_is_settlement_place(cls.tags->>'place') AS is_settlement,
                     system.pipeline_normalize_settlement_place(cls.tags->>'place') AS settlement_place,
-                    -- Admin assign is expensive (spatial cover). Only settlements need
-                    -- core_admin_area_id for confidence / settlement import rules.
-                    CASE
-                        WHEN system.pipeline_is_settlement_place(cls.tags->>'place')
-                            THEN system.pipeline_assign_admin_area_for_point(cls.point_geom)
-                        ELSE NULL
-                    END AS admin_area_id,
+                    -- Do NOT assign local core admin IDs here. Stage 08c writes
+                    -- production township ids from prod_mirror into normalized_data.admin_area_id.
+                    NULL::bigint AS admin_area_id,
                     cat.id AS settlement_category_id
                 FROM stage05_source_feature_classification AS cls
                 LEFT JOIN ref.ref_poi_categories AS cat
@@ -894,7 +897,6 @@ BEGIN
                     CASE WHEN src.is_settlement THEN src.settlement_category_id ELSE NULL END,
                     src.point_geom,
                     CASE
-                        WHEN src.is_settlement AND src.source_name IS NOT NULL AND src.admin_area_id IS NOT NULL THEN 80
                         WHEN src.is_settlement AND src.source_name IS NOT NULL THEN 65
                         WHEN src.is_settlement THEN 40
                         WHEN src.source_classification = 'place_with_address' THEN 85
@@ -932,7 +934,6 @@ BEGIN
                         'settlement_place', src.settlement_place,
                         'myanmar_name', system.pipeline_settlement_myanmar_name(src.tags),
                         'english_name', system.pipeline_settlement_english_name(src.tags),
-                        'core_admin_area_id', src.admin_area_id,
                         'duplicate_threshold_m', system.pipeline_places_duplicate_threshold_m(
                             CASE WHEN src.is_settlement THEN src.settlement_place ELSE src.source_type_hint END
                         ),
@@ -3412,6 +3413,7 @@ BEGIN
                     END,
                     jsonb_build_object(
                         'tags', coalesce(src.tags, '{}'::jsonb),
+                        'names', system.pipeline_extract_building_names(coalesce(src.tags, '{}'::jsonb)),
                         'source_building_tag', nullif(btrim(src.tags->>'building'), ''),
                         'address', jsonb_strip_nulls(jsonb_build_object(
                             'full_address', src.tags->>'addr:full',

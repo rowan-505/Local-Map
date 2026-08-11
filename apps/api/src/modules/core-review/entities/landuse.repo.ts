@@ -30,6 +30,7 @@ import {
 } from "../core-review-verification-write.js";
 import { CoreReviewValidationError } from "../core-review-write.errors.js";
 import { pickAlias, pickGeometry } from "../core-review-write.schema.js";
+import { parseCoreReviewExactIdSearch } from "../core-review-id-search.js";
 
 const DASHBOARD_SOURCE_REFS = JSON.stringify({ source: "dashboard" });
 
@@ -149,18 +150,25 @@ function listFilters(params: CoreReviewLanduseListParams): Prisma.Sql {
     const parts: Prisma.Sql[] = [listStatusClause(params.status)];
 
     if (params.search) {
-        const q = `%${params.search}%`;
-        parts.push(Prisma.sql`(
-            COALESCE(lu.name, '') ILIKE ${q}
-            OR COALESCE(lu.class_code, '') ILIKE ${q}
-            OR COALESCE(lc.name_en, '') ILIKE ${q}
-            OR COALESCE(lc.name_mm, '') ILIKE ${q}
-            OR COALESCE(lu.external_id, '') ILIKE ${q}
-            OR EXISTS (
-                SELECT 1 FROM core.core_map_landuse_names AS n
-                WHERE n.landuse_id = lu.id AND n.name ILIKE ${q}
-            )
-        )`);
+        const exactId = parseCoreReviewExactIdSearch(params.search);
+        if (exactId.numericId !== null) {
+            parts.push(Prisma.sql`lu.id = ${exactId.numericId}`);
+        } else if (exactId.publicId) {
+            parts.push(Prisma.sql`lu.public_id = CAST(${exactId.publicId} AS uuid)`);
+        } else {
+            const q = `%${params.search}%`;
+            parts.push(Prisma.sql`(
+                COALESCE(lu.name, '') ILIKE ${q}
+                OR COALESCE(lu.class_code, '') ILIKE ${q}
+                OR COALESCE(lc.name_en, '') ILIKE ${q}
+                OR COALESCE(lc.name_mm, '') ILIKE ${q}
+                OR COALESCE(lu.external_id, '') ILIKE ${q}
+                OR EXISTS (
+                    SELECT 1 FROM core.core_map_landuse_names AS n
+                    WHERE n.landuse_id = lu.id AND n.name ILIKE ${q}
+                )
+            )`);
+        }
     }
     const verificationCondition = coreReviewVerificationFilterCondition("lu", params);
     if (verificationCondition) {

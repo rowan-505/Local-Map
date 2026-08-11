@@ -10,7 +10,7 @@ import {
 } from '../api/reportsApi';
 
 const STATUS_BADGE: Record<string, string> = {
-  submitted: 'bg-sky-50 text-sky-700 ring-sky-100',
+  submitted: 'bg-map-primary-soft text-map-primary ring-map-primary/15',
   in_review: 'bg-indigo-50 text-indigo-700 ring-indigo-100',
   needs_more_info: 'bg-amber-50 text-amber-700 ring-amber-100',
   accepted: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
@@ -44,14 +44,14 @@ export function MyReportsPanel() {
   if (!isAuthenticated) {
     return (
       <section className="p-4">
-        <div className="rounded-2xl border border-dashed border-neutral-200 bg-neutral-50 p-5 text-center">
-          <h2 className="text-base font-semibold text-neutral-950">Track your reports</h2>
-          <p className="mt-2 text-sm leading-6 text-neutral-600">
-            Sign in to see the reports you submitted, their status, and replies from the team.
+        <div className="rounded-map-card border border-dashed border-map-primary/25 bg-map-primary-soft/55 p-5 text-center shadow-map-card">
+          <h2 className="text-sm font-semibold text-map-ink">Track your reports</h2>
+          <p className="mt-2 text-sm leading-6 text-map-muted">
+            Sign in to view your reports.
           </p>
           <button
             type="button"
-            className="mt-3 rounded-xl bg-sky-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-sky-700"
+            className="mt-3 rounded-map-control bg-map-primary px-4 py-2 text-sm font-semibold text-white shadow-map-control transition-[color,background-color,border-color,box-shadow,opacity,filter] duration-150 hover:bg-map-primary-hover"
             onClick={() => openAuthModal('login')}
           >
             Sign in
@@ -64,7 +64,7 @@ export function MyReportsPanel() {
   if (query.isLoading) {
     return (
       <section className="p-4">
-        <p className="text-sm text-neutral-500">Loading your reports…</p>
+        <p className="text-sm text-map-muted">Loading your reports…</p>
       </section>
     );
   }
@@ -73,7 +73,7 @@ export function MyReportsPanel() {
     return (
       <section className="p-4">
         <p className="rounded-2xl border border-red-100 bg-red-50 p-4 text-sm text-red-700">
-          Could not load your reports. Try again later.
+          Reports unavailable.
         </p>
       </section>
     );
@@ -84,11 +84,10 @@ export function MyReportsPanel() {
   if (items.length === 0) {
     return (
       <section className="p-4">
-        <div className="rounded-2xl border border-dashed border-neutral-200 bg-neutral-50 p-5">
-          <h2 className="text-base font-semibold text-neutral-950">No reports yet</h2>
-          <p className="mt-2 text-sm leading-6 text-neutral-600">
-            Open a place or click the map and choose “Report” to flag a problem. Your reports
-            will show up here.
+        <div className="rounded-map-card border border-dashed border-map-primary/25 bg-map-primary-soft/55 p-5 shadow-map-card">
+          <h2 className="text-sm font-semibold text-map-ink">No reports yet</h2>
+          <p className="mt-2 text-sm leading-6 text-map-muted">
+            Select “Report” on any place or map point.
           </p>
         </div>
       </section>
@@ -108,28 +107,28 @@ function MyReportCard({ report }: { readonly report: MyReport }) {
   const needsInfo = report.status.code === 'needs_more_info';
 
   return (
-    <div className="rounded-2xl border border-neutral-100 bg-white p-3.5 shadow-sm shadow-neutral-950/3">
+    <div className="rounded-map-card border border-map-border bg-map-surface p-3.5 shadow-map-card">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-neutral-950">
+          <p className="truncate text-sm font-semibold text-map-ink">
             {report.report_type.name}
           </p>
           {targetLabel(report) ? (
-            <p className="mt-0.5 truncate text-xs text-neutral-500">{targetLabel(report)}</p>
+            <p className="mt-0.5 truncate text-xs text-map-muted">{targetLabel(report)}</p>
           ) : null}
-          <p className="mt-0.5 text-[11px] text-neutral-400">{formatDate(report.created_at)}</p>
+          <p className="mt-0.5 text-xs text-map-muted/75">{formatDate(report.created_at)}</p>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
           <StatusBadge code={report.status.code} label={report.status.name} />
           {report.reward_granted_at ? (
-            <span className="inline-flex rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-100">
+            <span className="inline-flex rounded-full bg-emerald-50 px-1.5 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100">
               Rewarded
             </span>
           ) : null}
         </div>
       </div>
 
-      <p className="mt-2 line-clamp-3 whitespace-pre-wrap text-xs leading-5 text-neutral-600">
+      <p className="mt-2 line-clamp-3 whitespace-pre-wrap text-xs leading-5 text-map-muted">
         {report.description}
       </p>
 
@@ -172,19 +171,19 @@ function NeedsInfoSection({ publicId }: { readonly publicId: string }) {
 
   return (
     <div className="mt-3 rounded-xl border border-amber-100 bg-amber-50/60 p-3">
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">
+      <p className="map-kicker text-amber-700">
         The team needs more info
       </p>
 
       {detail.isLoading ? (
-        <p className="mt-1.5 text-xs text-neutral-500">Loading the question…</p>
+        <p className="mt-1.5 text-xs text-map-muted">Loading the question…</p>
       ) : latestAdminQuestion ? (
-        <p className="mt-1.5 whitespace-pre-wrap text-sm leading-5 text-neutral-800">
+        <p className="mt-1.5 whitespace-pre-wrap text-sm leading-5 text-map-ink">
           {latestAdminQuestion.message}
         </p>
       ) : (
-        <p className="mt-1.5 text-sm text-neutral-700">
-          Please add more details about this report.
+        <p className="mt-1.5 text-sm text-map-ink/80">
+          Add a short reply.
         </p>
       )}
 
@@ -192,11 +191,11 @@ function NeedsInfoSection({ publicId }: { readonly publicId: string }) {
         <ul className="mt-2.5 space-y-1.5 border-t border-amber-100 pt-2.5">
           {followups.map((f, i) => (
             <li key={`${f.created_at}-${i}`} className="text-xs">
-              <span className="font-semibold text-neutral-700">
+              <span className="font-semibold text-map-ink/80">
                 {f.actor_type === 'admin' ? 'Team' : 'You'}
               </span>
-              <span className="text-neutral-400"> · {formatDate(f.created_at)}</span>
-              <p className="mt-0.5 whitespace-pre-wrap leading-5 text-neutral-600">{f.message}</p>
+              <span className="text-map-muted/75"> · {formatDate(f.created_at)}</span>
+              <p className="mt-0.5 whitespace-pre-wrap leading-5 text-map-muted">{f.message}</p>
             </li>
           ))}
         </ul>
@@ -204,7 +203,7 @@ function NeedsInfoSection({ publicId }: { readonly publicId: string }) {
 
       <div className="mt-2.5">
         <textarea
-          className="w-full resize-none rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 outline-none transition-colors focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+          className="w-full resize-none rounded-map-control border border-map-border bg-map-surface px-3 py-2 text-sm text-map-ink outline-none transition-colors focus:border-map-primary "
           rows={3}
           value={reply}
           onChange={(e) => setReply(e.target.value)}
@@ -218,14 +217,14 @@ function NeedsInfoSection({ publicId }: { readonly publicId: string }) {
         ) : null}
         <button
           type="button"
-          className="mt-2 w-full rounded-xl bg-sky-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-sky-700 disabled:opacity-60"
+          className="mt-2 w-full rounded-map-control bg-map-primary px-4 py-2 text-sm font-semibold text-white shadow-map-control transition-colors hover:bg-map-primary-hover disabled:opacity-60"
           disabled={mutation.isPending || trimmed.length === 0}
           onClick={() => mutation.mutate(trimmed)}
         >
           {mutation.isPending ? 'Sending…' : 'Send reply'}
         </button>
-        <p className="mt-1 text-[11px] text-neutral-400">
-          Sending a reply moves your report back to “Submitted” for another review.
+        <p className="mt-1 text-xs text-map-muted/75">
+          Replies reopen the report.
         </p>
       </div>
     </div>
@@ -235,7 +234,7 @@ function NeedsInfoSection({ publicId }: { readonly publicId: string }) {
 function StatusBadge({ code, label }: { readonly code: string; readonly label: string }) {
   const tone = STATUS_BADGE[code] ?? 'bg-neutral-100 text-neutral-600 ring-neutral-200';
   return (
-    <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ${tone}`}>
+    <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ${tone}`}>
       {label}
     </span>
   );

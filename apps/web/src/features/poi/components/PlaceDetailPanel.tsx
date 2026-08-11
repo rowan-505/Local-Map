@@ -1,11 +1,12 @@
 import { memo, useState } from 'react';
+import { useMapUiText } from '@/features/map/i18n/mapUiText';
 import { useMapUiStore } from '@/features/map/state/mapUiStore';
 import { useReverseAddress } from '@/features/map/api/useReverseAddress';
 import { SaveButton } from '@/features/saved-places/components/SaveButton';
 import { ReportEntryButton } from '@/features/reports/components/ReportEntryButton';
 import { ShareCard, type ShareCardTarget } from '@/features/share/components/ShareCard';
 import { ActionButton, MetadataList, MetadataRow } from '@/components/ui/sidebarUi';
-import { mutedLabel, sidebarCard } from '@/components/ui/sidebarTokens';
+import { sidebarCard } from '@/components/ui/sidebarTokens';
 import type { ReportTarget } from '@/features/reports/api/reportsApi';
 import type { PlaceLanguageMode, PublicSearchResult } from '@/features/poi/api/publicMapApi';
 import type { Poi } from '@/types';
@@ -27,9 +28,9 @@ export type PlaceDetailPanelProps = {
   readonly onRoutePlace: (field: 'from' | 'to', place: RoutePlacePayload) => void;
 };
 
-/** Neutral, full-width report button styling so it matches SaveButton in the action row. */
+/** Neutral report button styling so it matches SaveButton in the compact action row. */
 const REPORT_BUTTON_CLASS =
-  'flex w-full items-center justify-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2.5 text-sm font-medium text-neutral-700 transition-colors hover:border-neutral-300 hover:bg-neutral-50';
+  'flex min-h-10 w-full items-center justify-center gap-2 rounded-map-control border border-map-border bg-map-surface px-2.5 py-2 text-xs font-semibold text-map-ink transition-[color,background-color,border-color,box-shadow,opacity,filter] duration-150 hover:border-map-primary/30 hover:bg-map-primary-soft hover:text-map-primary';
 
 function PlaceDetailPanelInner({
   selectedPoi,
@@ -39,6 +40,7 @@ function PlaceDetailPanelInner({
   onBack,
   onRoutePlace,
 }: PlaceDetailPanelProps) {
+  const t = useMapUiText();
   const languageMode = useMapUiStore((s) => s.languageMode);
   const [showShare, setShowShare] = useState(false);
   const detail = buildPlaceDetail({
@@ -47,16 +49,17 @@ function PlaceDetailPanelInner({
     languageMode,
   });
 
-  // Fallback only when this single detail is open and the API didn't supply an address line.
-  const needsReverse = Boolean(detail && !detail.addressLine && detail.coordinates);
+  // Resolve again for the active language. Stored detail snapshots may contain
+  // an older mixed-language address line.
+  const needsReverse = Boolean(detail?.coordinates);
   const reverse = useReverseAddress(needsReverse ? detail!.coordinates : null);
 
   if (detailLoading && !detail) {
     return (
       <StateView
         onBack={onBack}
-        title="Loading details…"
-        body="Getting the selected place information."
+        title={t('အသေးစိတ် ဖွင့်နေသည်…', 'Loading details…')}
+        body={t('နေရာအချက်အလက် ရယူနေသည်။', 'Fetching place data.')}
       />
     );
   }
@@ -65,8 +68,8 @@ function PlaceDetailPanelInner({
     return (
       <StateView
         onBack={onBack}
-        title="Could not load details."
-        body="Return to search and try again."
+        title={t('အသေးစိတ်ကို ဖွင့်၍မရပါ။', 'Could not load details.')}
+        body={t('ပြန်သွားပြီး ထပ်ကြိုးစားပါ။', 'Go back and retry.')}
         tone="error"
       />
     );
@@ -76,8 +79,8 @@ function PlaceDetailPanelInner({
     return (
       <StateView
         onBack={onBack}
-        title="Select a place"
-        body="Choose a result from the map or sidebar list."
+        title={t('နေရာရွေးပါ', 'Select a place')}
+        body={t('စာရင်း သို့မဟုတ် မြေပုံမှ ရွေးပါ။', 'Choose from the list or map.')}
       />
     );
   }
@@ -86,33 +89,35 @@ function PlaceDetailPanelInner({
     ? formatCoordinates(detail.coordinates[0], detail.coordinates[1])
     : null;
 
-  const addressLine = detail.addressLine ?? reverse.data?.address_line ?? null;
+  const addressLine = reverse.data?.address_line ?? detail.addressLine ?? null;
   const plusCode = detail.plusCode ?? reverse.data?.plus_code ?? null;
   const reportTarget = buildReportTarget(selectedPoi, detail);
   const shareTarget = buildShareTarget(detail, addressLine, plusCode);
 
   return (
-    <section className="p-3" aria-label="Selected place details">
+    <section className="p-3" aria-label={t('ရွေးထားသောနေရာ အချက်အလက်', 'Selected place details')}>
       <article className={sidebarCard}>
         <div className="px-4 pb-3.5 pt-3">
-          <div className="mb-2 flex items-center gap-2">
+          <div className="flex items-start gap-2">
             <BackButton onBack={onBack} />
-            <span className={mutedLabel}>Place</span>
+            <div className="min-w-0 flex-1 pt-1">
+              <h2 className="wrap-break-word text-sm font-semibold leading-5 text-map-ink">
+                {detail.title}
+              </h2>
+              <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-map-muted">
+                <span className="shrink-0 rounded-full bg-map-primary-soft px-2 py-0.5 font-medium text-map-primary">
+                  {detail.category}
+                </span>
+                {detail.area ? <span className="truncate">{detail.area}</span> : null}
+              </div>
+            </div>
+            <StatusBadge verified={detail.verified} />
           </div>
 
-          <div className="flex items-start justify-between gap-3">
-            <h2 className="min-w-0 wrap-break-word text-base font-semibold leading-6 text-neutral-900">
-              {detail.title}
-            </h2>
-            {detail.verified ? <VerifiedBadge /> : null}
-          </div>
-          {detail.area ? (
-            <p className="mt-0.5 truncate text-xs text-neutral-500">{detail.area}</p>
-          ) : null}
-
-          <div className="mt-3 grid grid-cols-4 gap-1.5">
+          <div className="mt-3 grid grid-cols-2 gap-2">
             <ActionButton
               primary
+              title={t('လမ်းကြောင်းစတင်ရာ', 'Route start')}
               disabled={!detail.coordinates}
               onClick={() => {
                 if (detail.coordinates) {
@@ -124,10 +129,11 @@ function PlaceDetailPanelInner({
                 }
               }}
             >
-              From
+              {t('မှ', 'From')}
             </ActionButton>
             <ActionButton
               primary
+              title={t('သွားမည့်နေရာ', 'Route destination')}
               disabled={!detail.coordinates}
               onClick={() => {
                 if (detail.coordinates) {
@@ -139,32 +145,32 @@ function PlaceDetailPanelInner({
                 }
               }}
             >
-              To
+              {t('သို့', 'To')}
             </ActionButton>
             <ActionButton
+              title={t('နေရာမျှဝေရန်', 'Share place')}
               disabled={!shareTarget}
               onClick={() => setShowShare((open) => !open)}
             >
-              Share
+              {t('မျှဝေ', 'Share')}
             </ActionButton>
             <ActionButton
+              title={t('ကိုဩဒိနိတ်ကူးယူရန်', 'Copy coordinates')}
               disabled={!coordinatesText}
               onClick={() => {
                 if (coordinatesText) copyText(coordinatesText);
               }}
             >
-              Coords
+              {t('ကူးယူ', 'Copy')}
             </ActionButton>
           </div>
 
-          <div
-            className={`mt-1.5 grid gap-1.5 ${reportTarget ? 'grid-cols-2' : 'grid-cols-1'}`}
-          >
+          <div className={`mt-2 grid gap-2 ${reportTarget ? 'grid-cols-2' : 'grid-cols-1'}`}>
             <SaveButton placeApiId={selectedPoi?.apiId} />
             {reportTarget ? (
               <ReportEntryButton
                 target={reportTarget}
-                label="Report"
+                label={t('တိုင်ကြား', 'Report')}
                 className={REPORT_BUTTON_CLASS}
               />
             ) : null}
@@ -172,30 +178,23 @@ function PlaceDetailPanelInner({
         </div>
 
         <MetadataList>
-          <MetadataRow label="Area">{detail.area ?? 'Kyauktan Township'}</MetadataRow>
-          <MetadataRow label="Type">{detail.category}</MetadataRow>
-          <MetadataRow label="Coordinates" mono>
-            {coordinatesText ?? 'No coordinate available'}
-          </MetadataRow>
           {addressLine ? (
-            <MetadataRow label="Address" stacked>
-              {addressLine}
+            <MetadataRow label={t('လိပ်စာ', 'Address')} stacked>
+              <span className="line-clamp-2 text-sm leading-5">{addressLine}</span>
             </MetadataRow>
           ) : reverse.loading ? (
-            <MetadataRow label="Address" stacked muted>
-              Loading address…
+            <MetadataRow label={t('လိပ်စာ', 'Address')} stacked muted>
+              {t('လိပ်စာ ဖွင့်နေသည်…', 'Loading address…')}
             </MetadataRow>
           ) : null}
+          <MetadataRow label={t('တည်နေရာ', 'Coords')} mono>
+            {coordinatesText ?? t('မရှိပါ', 'Unavailable')}
+          </MetadataRow>
           {plusCode ? (
-            <MetadataRow label="Plus Code" mono>
+            <MetadataRow label="Plus code" mono>
               {plusCode}
             </MetadataRow>
           ) : null}
-          <MetadataRow label="Status">
-            {detail.verified
-              ? 'Verified place data'
-              : 'Community data, pending verification'}
-          </MetadataRow>
         </MetadataList>
       </article>
 
@@ -209,11 +208,12 @@ function PlaceDetailPanelInner({
 }
 
 function BackButton({ onBack }: { readonly onBack: () => void }) {
+  const t = useMapUiText();
   return (
     <button
       type="button"
-      className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-900"
-      aria-label="Back to search results"
+      className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-map-muted transition-colors hover:bg-map-primary-soft hover:text-map-primary"
+      aria-label={t('ရှာဖွေမှုရလဒ်များသို့ ပြန်ရန်', 'Back to search results')}
       onClick={onBack}
     >
       <BackIcon />
@@ -221,10 +221,17 @@ function BackButton({ onBack }: { readonly onBack: () => void }) {
   );
 }
 
-function VerifiedBadge() {
+function StatusBadge({ verified }: { readonly verified: boolean }) {
+  const t = useMapUiText();
   return (
-    <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-100">
-      Verified
+    <span
+      className={`mt-1 shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ${
+        verified
+          ? 'bg-emerald-50 text-emerald-700 ring-emerald-100'
+          : 'bg-map-bg text-map-muted ring-map-border/70'
+      }`}
+    >
+      {verified ? t('အတည်ပြုပြီး', 'Verified') : t('စစ်ဆေးဆဲ', 'Pending')}
     </span>
   );
 }
@@ -240,22 +247,22 @@ function StateView({
   readonly body: string;
   readonly tone?: 'neutral' | 'error';
 }) {
+  const t = useMapUiText();
   return (
-    <section className="p-3" aria-label="Selected place details">
+    <section className="p-3" aria-label={t('ရွေးထားသောနေရာ အချက်အလက်', 'Selected place details')}>
       <article className={sidebarCard}>
         <div className="px-4 pb-4 pt-3">
-          <div className="mb-2 flex items-center gap-2">
+          <div className="mb-2">
             <BackButton onBack={onBack} />
-            <span className={mutedLabel}>Place</span>
           </div>
           <p
             className={`text-sm font-medium ${
-              tone === 'error' ? 'text-red-700' : 'text-neutral-800'
+              tone === 'error' ? 'text-red-700' : 'text-map-ink'
             }`}
           >
             {title}
           </p>
-          <p className="mt-1 text-xs leading-5 text-neutral-500">{body}</p>
+          <p className="mt-1 text-xs leading-5 text-map-muted">{body}</p>
         </div>
       </article>
     </section>
@@ -286,7 +293,11 @@ function buildPlaceDetail({
   if (poi) {
     return {
       title: getLocalizedName(poi, languageMode),
-      category: poiCategoryLabel(poi.category, poi.categoryName, poi.categoryCode),
+      category: localizedCategoryLabel(
+        poiCategoryLabel(poi.category, poi.categoryName, poi.categoryCode),
+        poi.categoryCode ?? poi.category,
+        languageMode,
+      ),
       area: poi.address,
       address: poi.address,
       addressLine: poi.addressLine,
@@ -299,7 +310,7 @@ function buildPlaceDetail({
 
   if (!searchResult) return null;
 
-  const typeLabel = searchResultTypeLabel(searchResult.type);
+  const typeLabel = searchResultTypeLabel(searchResult.type, languageMode);
   const placeId =
     searchResult.type === 'place'
       ? (searchResult.publicId ?? searchResult.id)
@@ -307,7 +318,11 @@ function buildPlaceDetail({
 
   return {
     title: getLocalizedName(searchResult, languageMode),
-    category: searchResult.categoryName ?? searchResult.categoryCode ?? typeLabel,
+    category: localizedCategoryLabel(
+      searchResult.categoryName ?? searchResult.categoryCode ?? typeLabel,
+      searchResult.categoryCode ?? searchResult.type,
+      languageMode,
+    ),
     area: searchResult.subtitle,
     address: searchResult.subtitle,
     coordinates: getSearchResultCenter(searchResult),
@@ -412,10 +427,36 @@ function buildShareTarget(
   return null;
 }
 
-function searchResultTypeLabel(type: PublicSearchResult['type']): string {
-  if (type === 'street' || type === 'street_group') return 'Street';
-  if (type === 'admin_area') return 'Village';
-  return 'Place';
+function searchResultTypeLabel(
+  type: PublicSearchResult['type'],
+  languageMode: PlaceLanguageMode,
+): string {
+  if (type === 'street' || type === 'street_group') {
+    return languageMode === 'en' ? 'Street' : 'လမ်း';
+  }
+  if (type === 'admin_area') return languageMode === 'en' ? 'Area' : 'ဒေသ';
+  return languageMode === 'en' ? 'Place' : 'နေရာ';
+}
+
+function localizedCategoryLabel(
+  label: string,
+  code: string,
+  languageMode: PlaceLanguageMode,
+): string {
+  if (languageMode === 'en') return label;
+
+  const normalized = `${code} ${label}`.toLowerCase();
+  if (normalized.includes('hotel') || normalized.includes('lodging')) return 'ဟိုတယ်';
+  if (normalized.includes('restaurant') || normalized.includes('food')) return 'စားသောက်ဆိုင်';
+  if (normalized.includes('cafe')) return 'ကဖေး';
+  if (normalized.includes('shop')) return 'ဆိုင်';
+  if (normalized.includes('hospital') || normalized.includes('clinic')) return 'ဆေးရုံ';
+  if (normalized.includes('school') || normalized.includes('education')) return 'ပညာရေး';
+  if (normalized.includes('bank') || normalized.includes('finance')) return 'ဘဏ်';
+  if (normalized.includes('relig') || normalized.includes('worship')) return 'ဘာသာရေး';
+  if (normalized.includes('park') || normalized.includes('outdoor')) return 'ပန်းခြံ';
+  if (normalized.includes('service')) return 'ဝန်ဆောင်မှု';
+  return label;
 }
 
 function BackIcon() {

@@ -31,7 +31,8 @@ Automation for importing OpenStreetMap extracts into a **local** PostgreSQL/Post
 |-------|------------------|------|
 | **tmp_import** | `tmp_import` | Disposable scratch for osm2pgsql (or similar). Rebuilt per run. |
 | **raw** | `raw` | Archived OSM geometries/tags keyed by `system.system_source_snapshots.id` → `source_snapshot_id`. |
-| **staging** | `staging` | Normalized **candidates** for review and diffing—not production truth. |
+| **staging** | `staging` | Normalized **candidates** for review and diffing—not production truth. Temporary for buildings after archive. |
+| **basemap_source** | `basemap_source` | **Persistent** local basemap archive. `basemap_source.buildings` holds the full national building footprints for later PMTiles export. **Stage 05 reset never touches this schema.** |
 | **system** | `system` | Import batches, snapshots, diff runs/items, boundaries—lineage and workflow metadata. |
 
 **Permanent DB memory:** `system.system_import_batches` and `system.system_source_snapshots` record each import’s identity, lineage, and checksum. Env files are run configuration only; the database rows are what later stages reference.
@@ -82,6 +83,7 @@ Orchestration: **`run_local_osm_pipeline.sh`** (one import env file per run).
 - **`osm2pgsql`** — Stage B (`02_import_to_tmp.sh`); optional binary override via `OSM2PGSQL`.
 - **Node.js + repo dependencies** — only when **`REMOTE_REVIEW_UPLOAD_ENABLED=true`**: Stage **K** runs `npx tsx ./12_upload_remote_review_package.ts` from the repo root (`pg`, `tsx`, `dotenv`; see root `package.json`).
 - **Registry row** — `SOURCE_CODE` must exist in `system.system_source_registry` (see seeds under `infrastructure/database/seeds/local/`).
+- **Migration 153 (buildings)** — Stage 05 buildings extraction calls `system.pipeline_extract_building_names`. Apply `infrastructure/database/migrations/supabase/153_building_names_canonical_my_en_und.sql` on the local DB before running Stage 05 with buildings enabled.
 
 ---
 
@@ -225,10 +227,13 @@ Run:
 | Layer | Where | Written by this pipeline? |
 |-------|--------|---------------------------|
 | `tmp_import`, `raw`, `staging`, `system` | **Local** PostgreSQL only | Yes (stages 00–11, 13–14) |
+| `prod_mirror.*` | **Local** mirror of Supabase core/ref | Read-only (Stage 00b / 07 / 08c / 05c place-link) |
 | `import_review.*` | **Supabase** | Yes — **Stage K only** (`12_upload_remote_review_package.ts`) |
-| `core.*` | **Supabase** (production) | **No** — never written by local-osm |
+| `core.*` | **Supabase** (production) only | **No** — never written by local-osm; local lab has **no** `core` schema (Mode B) |
+| `tiles.*` | Not used by local-osm | Local lab has **no** `tiles` schema; PMTiles export needs views restored if rebuilt here |
 
 - **Local-osm** prepares candidates and outbound packages on your machine. It does **not** promote data into Supabase **`core`**.
+- Local comparison and township IDs use **`prod_mirror`**, never a local `core` copy (avoids ID collisions with production).
 - **Stage 12 (K)** upserts **`import_review.review_batches`** and family candidate tables (e.g. `import_review.admin_area_candidates`, `import_review.road_candidates`) only. It never touches **`core.*`**.
 - **Supabase `core` promotion** happens later through **dashboard / API promotion logic** after human or workflow review of `import_review` rows.
 
@@ -408,11 +413,14 @@ The path is printed at **start** as `log file: …`.
 | **02** | `02_import_to_tmp.sh` | osm2pgsql flex → `tmp_import`. Auto Lua + **osmium** pre-filter for `admin_areas` / `roads` only. |
 | **03** | `03_validate_tmp.sql` | Row counts, SRID, geometry sanity (fails fast on bad import). |
 | **04** | `04_tmp_to_raw.sql` | Copy tmp → raw; **clips to boundary** when `boundary_id` is set, otherwise copies all geometries (`WHOLE_REGION`). |
-| **05** | `05_raw_to_staging.sql` | Build **staging** candidates for enabled **`ENTITY_FAMILIES`**. **Delete+regenerate** current snapshot first (`pipeline_stage05_reset.sql`), then insert from raw; write `normalized_hash` fingerprints; **05b** sets `validation_status` (`valid`\|`warning`\|`invalid`). |
+| **05** | `05_raw_to_staging.sql` | Build **staging** candidates for enabled **`ENTITY_FAMILIES`**. **Delete+regenerate** current snapshot first (`pipeline_stage05_reset.sql`), then insert from raw; write `normalized_hash` fingerprints; **05b** sets `validation_status` (`valid`\|`warning`\|`invalid`). Reset deletes only current-snapshot **staging** rows — it does **not** touch **`basemap_source`**. After national buildings are archived, PMTiles export should use **`basemap_source.buildings`** (see [`../basemap-source/README.md`](../basemap-source/README.md)). |
 | **06** | `06_diff_current_vs_previous.sql` | F1 previous-snapshot compare via **identity key + `normalized_hash`**; writes `system_diff_items` and staging `source_status` (`source_new`\|`source_changed`\|`source_unchanged`). |
 | **07** | `07_compare_with_prod_mirror.sql` | **F2:** compare staging vs local **`prod_mirror`** → more `system.system_diff_items`. |
 | **08** | `08_assign_statuses.sql` | Merge latest F1+F2 per candidate → update **`staging.match_status`**, **`staging.auto_action`**, **`staging.review_status`**. **Bulk fast path** when all F2 items are `insert_candidate` (skips heavy F1 combine). **`RAISE NOTICE`** progress per step. Classification pass for places/addresses/links. Uses **`work_mem` 512MB** locally; apply migration **`007_system_diff_items_diff_run_local_entity_idx.sql`** once for large diffs. |
 | **08b** | `08b_assign_import_class.sql` | Final local **`import_class`** / **`import_class_reason`** from latest F2 + validation (family thresholds; no core writes). |
+| **08c** | `08c_assign_prod_admin_areas.sql` | Assign **production** township `admin_area_id` from **`prod_mirror`** (migration 146 rules) onto importable rows only (`safe_*` + IR conflict classes). Families: places, roads, buildings, landuse. |
+| **08d** | `08d_reclass_settlements_after_admin.sql` | Re-run settlement `import_class` after 08c so missing township admin becomes `conflict`. |
+| **18** | `18_classification_bucket_report.sql` | Classification bucket / suspicion report (runs when `CLASSIFICATION_REPORT_ENABLED=true`). |
 | **09** | `09_create_review_views.sql` | `CREATE OR REPLACE` convenience views (`v_no_conflict_*`, `v_review_*`, …). |
 | **10** | `10_summary_report.sql` | Read-only snapshot summary (counts by entity family / views). |
 | **11 (J)** | `11_prepare_remote_review_package.sql` | Optional: local outbound package → `system.system_remote_review_packages` + `_items`. Runner uses **`replace_package=false`**. |
@@ -617,6 +625,10 @@ psql "$LOCAL_DATABASE_URL" -v ON_ERROR_STOP=1 \
 
 ## Related docs
 
+- **[`../direct-core/README.md`](../direct-core/README.md)** — family-specific
+  safe-only CSV export, local invalid rejection reports, and one-transaction
+  regional Core bulk imports. The local pipeline still routes review classes
+  through Stages J/K and keeps PMTiles-only rows local.
 - **[`docs/myanmar-national-osm-dry-run.md`](../../../docs/myanmar-national-osm-dry-run.md)** — whole-country safety dry-run runbook (batched families, no core/IR write).
 - **[`reports/myanmar_national_admin_assignment_2026-07-23.md`](reports/myanmar_national_admin_assignment_2026-07-23.md)** — national admin covering / assignment precision + recommendations.
 - **[`docs/database-target-safety.md`](../../../docs/database-target-safety.md)** — canonical DB env names, `--target`, dry-run default, production confirmation.
@@ -630,6 +642,7 @@ psql "$LOCAL_DATABASE_URL" -v ON_ERROR_STOP=1 \
 
 ## Safety boundaries
 
+- **`basemap_source` is persistent.** Normal Stage 05 reset / staging cleanup must never `DROP`/`TRUNCATE`/`DELETE` `basemap_source.*`. Building footprint archive + restore: [`../basemap-source/README.md`](../basemap-source/README.md).
 - **Do not** point `LOCAL_DATABASE_URL` at production unless you intend to.
 - Stage K writes use **`SUPABASE_WRITE_DATABASE_URL`** (legacy `SUPABASE_DATABASE_URL` only as fallback). **`DATABASE_URL` is refused** as the write target.
 - When **`REMOTE_REVIEW_UPLOAD_ENABLED=true`**, also set **`REMOTE_REVIEW_UPLOAD_CONFIRMATION="UPLOAD remote_review <package_name>"`**. Enabling upload alone is not enough.

@@ -5,7 +5,7 @@ Entry point for Claude Code working in this repository.
 ## Read first
 
 1. [`AGENTS.md`](AGENTS.md) — product direction, architecture rules, V2 scope, security, testing (tool-neutral).
-2. [`docs/11-roadmap/v2-plan.md`](docs/11-roadmap/v2-plan.md) — V2 goals and implementation order summary.
+2. [`docs/roadmap.md`](docs/roadmap.md) — V2 goals and implementation order summary.
 
 ## Skills
 

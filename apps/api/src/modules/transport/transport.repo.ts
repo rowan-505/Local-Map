@@ -16,6 +16,7 @@ import {
     TransportMergeExecutionFailedError,
     TransportMergeTerminalConflictError,
     TransportMergeParentConflictError,
+    TransportMergeStalePreviewError,
     type TransportStopDeleteBlocker,
 } from "./transport.errors.js";
 import {
@@ -53,6 +54,7 @@ import {
 } from "./stopMergePreview.js";
 import {
     emptyStopMergeReferenceChanges,
+    emptyStopMergeReferenceCounts,
     sumStopMergeReferenceCounts,
 } from "./stopMergeGlobal.js";
 import {
@@ -340,6 +342,8 @@ type MergePreviewStopRow = {
     is_active: boolean;
     longitude: number | null;
     latitude: number | null;
+    /** Present when selected; ISO string for merge stale checks. */
+    updated_at?: Date | string | null;
 };
 
 type MergePreviewReferenceCountsRow = {
@@ -3266,6 +3270,13 @@ export class TransportRepository {
     }
 
     private mapMergePreviewStop(row: MergePreviewStopRow) {
+        const updatedAtRaw = row.updated_at;
+        const updatedAt =
+            updatedAtRaw instanceof Date
+                ? updatedAtRaw.toISOString()
+                : typeof updatedAtRaw === "string" && updatedAtRaw.trim()
+                  ? new Date(updatedAtRaw).toISOString()
+                  : null;
         return {
             publicId: row.public_id,
             name: row.name,
@@ -3280,6 +3291,7 @@ export class TransportRepository {
             isActive: row.is_active,
             lat: jsonSafeNumber(row.latitude),
             lng: jsonSafeNumber(row.longitude),
+            updatedAt,
         };
     }
 
@@ -3445,7 +3457,8 @@ export class TransportRepository {
                 s.confidence_score::float8 AS confidence_score,
                 s.is_active,
                 ST_X(s.geom)::float8 AS longitude,
-                ST_Y(s.geom)::float8 AS latitude
+                ST_Y(s.geom)::float8 AS latitude,
+                s.updated_at
             FROM transport.stops s
             LEFT JOIN core.core_admin_areas aa ON aa.id = s.admin_area_id
             LEFT JOIN LATERAL (
@@ -3500,7 +3513,8 @@ export class TransportRepository {
                     s.confidence_score::float8 AS confidence_score,
                     s.is_active,
                     ST_X(s.geom)::float8 AS longitude,
-                    ST_Y(s.geom)::float8 AS latitude
+                    ST_Y(s.geom)::float8 AS latitude,
+                    s.updated_at
                 FROM transport.stops s
                 LEFT JOIN core.core_admin_areas aa ON aa.id = s.admin_area_id
                 LEFT JOIN LATERAL (
@@ -3861,59 +3875,24 @@ export class TransportRepository {
             readonly candidateStopPublicId: string;
             readonly fieldSources?: StopMergeFieldSources;
             readonly acknowledgeSameVariantOccurrences?: boolean;
+            readonly canonicalUpdatedAt?: string;
+            readonly duplicateUpdatedAt?: string;
             readonly audit?: TransportAuditContext;
             readonly reason?: string;
         },
     ): Promise<TransportStopMergeGlobalResult> {
         await this.assertSchemaAvailable();
 
-        const preview = await this.getStopMergePreview(
-            options.currentStopPublicId,
-            options.candidateStopPublicId,
-        );
-        if (!preview.mergeAllowed) {
-            if (preview.terminalConflict.exists) {
-                const terminalForStop = (
-                    stopPublicId: string,
-                ): { id: string; publicId: string; name: string } | null => {
-                    if (stopPublicId === options.currentStopPublicId) {
-                        return preview.terminalConflict.canonicalTerminal;
-                    }
-                    if (stopPublicId === options.candidateStopPublicId) {
-                        return preview.terminalConflict.duplicateTerminal;
-                    }
-                    return null;
-                };
-                const canonicalTerminal = terminalForStop(canonicalStopPublicId);
-                const duplicateTerminal = terminalForStop(duplicateStopPublicId);
-                throw new TransportMergeTerminalConflictError(
-                    canonicalStopPublicId,
-                    duplicateStopPublicId,
-                    canonicalTerminal?.id ?? canonicalTerminal?.publicId ?? "unknown",
-                    duplicateTerminal?.id ?? duplicateTerminal?.publicId ?? "unknown",
-                );
-            }
-            throw new TransportReviewGuardError(
-                "MERGE_SEQUENCE_CONFLICT",
-                "Cannot merge stops that share the same stop_sequence in a variant.",
-                preview.mergeBlockers,
-            );
-        }
-        assertSameVariantMergeAcknowledged(
-            preview.sameVariantConflicts.length,
-            options.acknowledgeSameVariantOccurrences,
-        );
-
         const trimmedReason = typeof options.reason === "string" ? options.reason.trim() : "";
-        const sameVariantAcknowledged = preview.sameVariantConflicts.length > 0;
 
         let stage = "begin_transaction";
         let canonicalNumericId: string | null = null;
         let duplicateNumericId: string | null = null;
-        const routeIdsForLog = preview.affectedRoutes.map((row) => row.routeId);
-        const variantIdsForLog = preview.affectedVariants.map((row) => row.variantId);
+        const routeIdsForLog: string[] = [];
+        const variantIdsForLog: string[] = [];
+        let sameVariantConflictCount = 0;
         const mergePerf = startPerf("mergeStopsKeepCanonical");
-        mergePerf.mark("preview_validation");
+        mergePerf.mark("begin_transaction");
 
         try {
             const txStarted = performance.now();
@@ -3930,9 +3909,10 @@ export class TransportRepository {
                     mode: string;
                     review_status: string;
                     parent_stop_id: bigint | null;
+                    updated_at: Date;
                 }[]
             >`
-                SELECT id, public_id::text, mode, review_status, parent_stop_id
+                SELECT id, public_id::text, mode, review_status, parent_stop_id, updated_at
                 FROM transport.stops
                 WHERE public_id IN (${canonicalStopPublicId}::uuid, ${duplicateStopPublicId}::uuid)
                   AND deleted_at IS NULL
@@ -3948,6 +3928,24 @@ export class TransportRepository {
             }
             canonicalNumericId = String(canonical.id);
             duplicateNumericId = String(duplicate.id);
+
+            if (options.canonicalUpdatedAt || options.duplicateUpdatedAt) {
+                advanceStage("validate_preview_versions");
+                const canonicalIso = new Date(canonical.updated_at).toISOString();
+                const duplicateIso = new Date(duplicate.updated_at).toISOString();
+                if (
+                    (options.canonicalUpdatedAt &&
+                        new Date(options.canonicalUpdatedAt).toISOString() !== canonicalIso) ||
+                    (options.duplicateUpdatedAt &&
+                        new Date(options.duplicateUpdatedAt).toISOString() !== duplicateIso)
+                ) {
+                    throw new TransportMergeStalePreviewError(
+                        canonicalStopPublicId,
+                        duplicateStopPublicId,
+                    );
+                }
+            }
+
             if (canonical.mode !== duplicate.mode) {
                 throw new TransportReviewGuardError(
                     "MERGE_MODE_MISMATCH",
@@ -3997,9 +3995,73 @@ export class TransportRepository {
                 );
             }
 
-            advanceStage("validate_same_variant_ack");
+            advanceStage("validate_membership_conflicts");
+            const membershipRows = await tx.$queryRaw<
+                {
+                    stop_id: bigint;
+                    route_id: string;
+                    route_code: string;
+                    route_name: string;
+                    variant_id: string;
+                    variant_code: string;
+                    direction_name: string | null;
+                    route_stop_id: string;
+                    stop_sequence: number;
+                }[]
+            >`
+                SELECT
+                    rs.stop_id,
+                    r.id::text AS route_id,
+                    r.route_code,
+                    coalesce(r.public_name, r.route_code) AS route_name,
+                    v.id::text AS variant_id,
+                    v.variant_code,
+                    v.direction_name,
+                    rs.id::text AS route_stop_id,
+                    rs.stop_sequence
+                FROM transport.route_stops rs
+                JOIN transport.route_variants v
+                    ON v.id = rs.route_variant_id AND v.deleted_at IS NULL
+                JOIN transport.routes r
+                    ON r.id = v.route_id AND r.deleted_at IS NULL
+                WHERE rs.stop_id IN (${canonical.id}, ${duplicate.id})
+            `;
+            const toMembership = (
+                row: (typeof membershipRows)[number],
+            ): MergePreviewUsageMembership => ({
+                routeId: row.route_id,
+                routeCode: row.route_code,
+                routeName: row.route_name,
+                variantId: row.variant_id,
+                variantCode: row.variant_code,
+                directionName: row.direction_name,
+                routeStopId: row.route_stop_id,
+                stopSequence: num(row.stop_sequence),
+            });
+            const conflictAnalysis = buildStopMergeConflictAnalysis(
+                membershipRows
+                    .filter((row) => row.stop_id === canonical.id)
+                    .map(toMembership),
+                membershipRows
+                    .filter((row) => row.stop_id === duplicate.id)
+                    .map(toMembership),
+            );
+            for (const row of conflictAnalysis.affectedRoutes) {
+                routeIdsForLog.push(row.routeId);
+            }
+            for (const row of conflictAnalysis.affectedVariants) {
+                variantIdsForLog.push(row.variantId);
+            }
+            if (conflictAnalysis.sequenceConflicts.length > 0) {
+                throw new TransportReviewGuardError(
+                    "MERGE_SEQUENCE_CONFLICT",
+                    "Cannot merge stops that share the same stop_sequence in a variant.",
+                    conflictAnalysis.mergeBlockers,
+                );
+            }
+            sameVariantConflictCount = conflictAnalysis.duplicateMembershipConflicts.length;
             assertSameVariantMergeAcknowledged(
-                preview.sameVariantConflicts.length,
+                sameVariantConflictCount,
                 options.acknowledgeSameVariantOccurrences,
             );
 
@@ -4057,12 +4119,13 @@ export class TransportRepository {
                 });
             }
 
-            advanceStage("count_references_before");
-            const canonicalBefore = await this.countSingleStopReferences(tx, canonical.id);
-            const duplicateBefore = await this.countSingleStopReferences(tx, duplicate.id);
+            // Skip full before-counts; RETURNING + one post-repoint verify is enough.
+            const canonicalBefore = emptyStopMergeReferenceCounts();
+            const duplicateBefore = emptyStopMergeReferenceCounts();
             const referencesChanged = emptyStopMergeReferenceChanges();
             const affectedRouteCodes = new Set<string>();
             const affectedVariantCodes = new Set<string>();
+            const sameVariantAcknowledged = sameVariantConflictCount > 0;
 
             const collectAffected = async (variantIds: readonly bigint[]) => {
                 if (variantIds.length === 0) {
@@ -4284,7 +4347,7 @@ export class TransportRepository {
                         ? {
                               same_variant_occurrences_acknowledged: true,
                               same_variant_conflict_count:
-                                  preview.sameVariantConflicts.length,
+                                  sameVariantConflictCount,
                           }
                         : {}),
                 },
@@ -4320,6 +4383,7 @@ export class TransportRepository {
                 error instanceof TransportInvalidReferenceError ||
                 error instanceof TransportMergeTerminalConflictError ||
                 error instanceof TransportMergeParentConflictError ||
+                error instanceof TransportMergeStalePreviewError ||
                 error instanceof TransportMergeExecutionFailedError
             ) {
                 throw error;
@@ -4338,7 +4402,7 @@ export class TransportRepository {
                     stage,
                     routeIds: routeIdsForLog,
                     variantIds: variantIdsForLog,
-                    sameVariantConflictCount: preview.sameVariantConflicts.length,
+                    sameVariantConflictCount,
                     prismaCode: extractPrismaErrorCode(error),
                     sqlErrorCode: extractSqlErrorCode(error),
                     constraintName: constraint.constraintName,
@@ -7555,6 +7619,7 @@ export class TransportRepository {
         tx: Prisma.TransactionClient,
         variantId: bigint,
     ): Promise<void> {
+        const perf = startPerf("recalculateVariantTimetableOffsets");
         const stops = await tx.$queryRaw<VariantTimetableStopRow[]>`
             SELECT id, travel_time_from_previous_seconds, waiting_time_seconds
             FROM transport.route_stops
@@ -7562,6 +7627,12 @@ export class TransportRepository {
             ORDER BY stop_sequence ASC
             FOR UPDATE
         `;
+        perf.mark(`loaded ${stops.length} stops FOR UPDATE`);
+
+        if (stops.length === 0) {
+            perf.done();
+            return;
+        }
 
         const calculated = variantTimetableScheduleToOffsets(
             calculateVariantTimetableSchedule({
@@ -7569,17 +7640,26 @@ export class TransportRepository {
                 stops,
             }),
         );
-        for (let index = 0; index < stops.length; index += 1) {
-            const stop = stops[index]!;
+
+        // One set-based UPDATE instead of N sequential round trips (audit: ~47 ms/row).
+        const valueRows = stops.map((stop, index) => {
             const offsets = calculated[index]!;
-            await tx.$executeRaw(Prisma.sql`
-                UPDATE transport.route_stops
-                SET arrival_offset_seconds = ${offsets.arrival_offset_seconds},
-                    departure_offset_seconds = ${offsets.departure_offset_seconds},
-                    updated_at = now()
-                WHERE id = ${stop.id}
-            `);
-        }
+            return Prisma.sql`(
+                ${stop.id}::bigint,
+                ${offsets.arrival_offset_seconds}::int,
+                ${offsets.departure_offset_seconds}::int
+            )`;
+        });
+        await tx.$executeRaw(Prisma.sql`
+            UPDATE transport.route_stops AS rs
+            SET arrival_offset_seconds = v.arrival_offset_seconds,
+                departure_offset_seconds = v.departure_offset_seconds,
+                updated_at = now()
+            FROM (VALUES ${Prisma.join(valueRows)}) AS v(id, arrival_offset_seconds, departure_offset_seconds)
+            WHERE rs.id = v.id
+        `);
+        perf.mark(`updated ${stops.length} offset rows (batched)`);
+        perf.done();
     }
 
     /**
@@ -7774,13 +7854,6 @@ export class TransportRepository {
             `;
             const variantPublicId = variantRows[0]?.public_id ?? null;
 
-            // Compact new-sequence summary (post-resequence) for the audit trail.
-            const newSequence = remaining.map((r, idx) => ({
-                route_stop_id: String(r.id),
-                stop_id: String(r.stop_id),
-                stop_sequence: idx + 1,
-            }));
-
             await insertTransportAuditLog(tx, {
                 action: "transport.route_stop.remove",
                 entityType: "transport_route_stop",
@@ -7802,7 +7875,9 @@ export class TransportRepository {
                     variant_public_id: variantPublicId,
                     ...(trimmedReason ? { reason: trimmedReason } : {}),
                     resequenced_count: remaining.length,
-                    new_sequence: newSequence,
+                    removed_sequence: before.stop_sequence,
+                    first_sequence: remaining.length > 0 ? 1 : null,
+                    last_sequence: remaining.length > 0 ? remaining.length : null,
                 },
                 context: audit,
             });

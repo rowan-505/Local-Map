@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useMapUiText } from '@/features/map/i18n/mapUiText';
 import { createShareLink, type CreateShareLinkPayload } from '../api/shareApi';
 
 /** What the card shares. Detail fields feed the "Copy address/details" output. */
@@ -27,6 +28,7 @@ export type ShareCardTarget =
  * or expiry.
  */
 export function ShareCard({ target }: { readonly target: ShareCardTarget }) {
+  const t = useMapUiText();
   // Stable key over the meaningful fields (the target object is rebuilt each render).
   const identity =
     target.kind === 'place'
@@ -45,29 +47,36 @@ export function ShareCard({ target }: { readonly target: ShareCardTarget }) {
   });
 
   const url = data?.url ?? null;
-  const title = target.kind === 'point' ? 'Share location' : 'Share place';
+  const title =
+    target.kind === 'point'
+      ? t('တည်နေရာမျှဝေရန်', 'Share location')
+      : t('နေရာမျှဝေရန်', 'Share place');
   const detailsText = buildDetailsText(target, url);
 
   return (
     <section
-      className="rounded-2xl border border-neutral-100 bg-white p-3.5 shadow-sm shadow-neutral-950/3"
+      className="rounded-map-card border border-map-border bg-map-surface p-3.5 shadow-map-card"
       aria-label={title}
     >
-      <h3 className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-neutral-400">
+      <h3 className="map-kicker mb-2 text-map-primary">
         {title}
       </h3>
-      <p className="text-[11px] font-medium text-neutral-500">CoreMap short link</p>
-      <p className="mt-1 break-all font-mono text-sm leading-6 text-neutral-800" aria-live="polite">
-        {isPending ? 'Creating link…' : (url ?? '—')}
+      <p className="text-xs font-medium text-map-muted">
+        {t('CoreMap လင့်ခ်အတို', 'CoreMap short link')}
+      </p>
+      <p className="mt-1 break-all font-mono text-sm leading-5 text-map-ink" aria-live="polite">
+        {isPending ? t('လင့်ခ် ဖန်တီးနေသည်…', 'Creating link…') : (url ?? '—')}
       </p>
       {isError ? (
-        <p className="mt-1 text-xs text-red-600">Couldn’t create share link. Try again.</p>
+        <p className="mt-1 text-xs text-red-600">
+          {t('လင့်ခ် ဖန်တီး၍မရပါ။', 'Could not create link.')}
+        </p>
       ) : null}
 
       <div className="mt-3 grid grid-cols-2 gap-2">
-        <CopyButton label="Copy link" value={url} disabled={isPending || !url} />
+        <CopyButton label={t('လင့်ခ်ကူးယူရန်', 'Copy link')} value={url} disabled={isPending || !url} />
         <CopyButton
-          label="Copy address/details"
+          label={t('လိပ်စာ/အသေးစိတ် ကူးယူရန်', 'Copy address/details')}
           value={detailsText}
           disabled={detailsText.length === 0}
         />
@@ -85,6 +94,7 @@ function CopyButton({
   readonly value: string | null;
   readonly disabled?: boolean;
 }) {
+  const t = useMapUiText();
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -108,9 +118,9 @@ function CopyButton({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className="rounded-xl border border-neutral-200 bg-white px-2 py-2 text-xs font-semibold text-neutral-700 transition-colors hover:border-neutral-300 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-45"
+      className="rounded-map-control border border-map-border bg-map-surface px-2 py-2 text-xs font-semibold text-map-ink transition-[color,background-color,border-color,box-shadow,opacity,filter] duration-150 hover:border-map-primary/30 hover:bg-map-primary-soft hover:text-map-primary disabled:cursor-not-allowed disabled:opacity-45"
     >
-      {copied ? 'Copied' : label}
+      {copied ? t('ကူးယူပြီး', 'Copied') : label}
     </button>
   );
 }

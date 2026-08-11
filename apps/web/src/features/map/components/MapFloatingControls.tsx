@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useRef, useState, type ReactNode } from 'react';
 import { isMapModeAvailable, type MapMode } from '@/features/map/config';
+import { useMapUiText } from '@/features/map/i18n/mapUiText';
 import type { PlaceLanguageMode } from '@/features/poi/api/publicMapApi';
 import { useMapUiStore } from '@/features/map/state/mapUiStore';
 import type { BottomSheetState } from './MapSidebar';
@@ -17,43 +18,67 @@ type OpenControlsPanel = 'map' | 'language' | null;
 
 const LANGUAGE_OPTIONS: readonly {
   readonly mode: PlaceLanguageMode;
-  readonly label: string;
-  readonly displayLabel: string;
-  readonly popoverLabel: string;
+  readonly labelMy: string;
+  readonly labelEn: string;
+  readonly displayLabelMy: string;
+  readonly displayLabelEn: string;
   readonly icon?: ReactNode;
 }[] = [
   {
     mode: 'my',
-    label: 'Myanmar labels',
-    displayLabel: 'မြန်မာ',
-    popoverLabel: 'မြန်မာ',
+    labelMy: 'မြန်မာစာတန်းများ',
+    labelEn: 'Myanmar labels',
+    displayLabelMy: 'မြန်မာ',
+    displayLabelEn: 'Myanmar',
     icon: <LanguageIcon />,
   },
-  { mode: 'en', label: 'English labels', displayLabel: 'EN', popoverLabel: 'English' },
-  { mode: 'both', label: 'Both label languages', displayLabel: 'Both', popoverLabel: 'Both' },
+  {
+    mode: 'en',
+    labelMy: 'အင်္ဂလိပ်စာတန်းများ',
+    labelEn: 'English labels',
+    displayLabelMy: 'အင်္ဂလိပ်',
+    displayLabelEn: 'English',
+  },
+  {
+    mode: 'both',
+    labelMy: 'ဘာသာနှစ်မျိုး',
+    labelEn: 'Both label languages',
+    displayLabelMy: 'နှစ်မျိုး',
+    displayLabelEn: 'Both',
+  },
 ];
 
 const MAP_TYPE_OPTIONS: readonly {
   readonly id: MapMode;
-  readonly label: string;
-  readonly displayLabel: string;
-  readonly popoverLabel: string;
+  readonly labelMy: string;
+  readonly labelEn: string;
+  readonly displayLabelMy: string;
+  readonly displayLabelEn: string;
   readonly icon: ReactNode;
   readonly title?: string;
 }[] = [
-  { id: 'normal', label: 'Map', displayLabel: 'Map', popoverLabel: 'Map', icon: <MapIcon /> },
+  {
+    id: 'normal',
+    labelMy: 'မြေပုံ',
+    labelEn: 'Map',
+    displayLabelMy: 'မြေပုံ',
+    displayLabelEn: 'Map',
+    icon: <MapIcon />,
+  },
   {
     id: 'satellite',
-    label: 'Satellite',
-    displayLabel: 'Sat',
-    popoverLabel: 'Satellite',
+    labelMy: 'ဂြိုဟ်တုမြေပုံ',
+    labelEn: 'Satellite',
+    displayLabelMy: 'ဂြိုဟ်တု',
+    displayLabelEn: 'Satellite',
     icon: <ImageIcon />,
   },
   {
     id: 'hybrid',
-    label: 'Hybrid',
-    displayLabel: 'Hybrid',
-    popoverLabel: 'Hybrid',
+    labelMy: 'ပေါင်းစပ်မြေပုံ',
+    labelEn: 'Hybrid',
+    displayLabelMy: 'ပေါင်းစပ်',
+    displayLabelEn: 'Hybrid',
     icon: <LayersIcon />,
   },
 ];
@@ -132,7 +157,7 @@ export function MapFloatingControls({
       </MapRightControls>
       {locationSlot ? (
         <div
-          className={`pointer-events-none fixed right-3 z-20 transition-all duration-300 lg:bottom-8 lg:right-4 ${locateButtonMobilePositionClass(
+          className={`pointer-events-none fixed z-20 transition-all duration-300 lg:bottom-8 lg:left-auto lg:right-4 lg:top-auto ${locateButtonMobilePositionClass(
             isSidebarOpen,
             bottomSheetState,
           )}`}
@@ -146,11 +171,12 @@ export function MapFloatingControls({
 
 const MapRightControls = forwardRef<HTMLDivElement, { readonly children: ReactNode }>(
   function MapRightControls({ children }, ref) {
+    const t = useMapUiText();
     return (
       <div
         ref={ref}
         className="pointer-events-auto flex flex-col items-end gap-1.5"
-        aria-label="Map controls"
+        aria-label={t('မြေပုံထိန်းချုပ်ခလုတ်များ', 'Map controls')}
       >
         {children}
       </div>
@@ -171,11 +197,13 @@ function LayerModeSelect({
   readonly onOpenChange: (open: boolean) => void;
   readonly onSelect: (mode: MapMode) => void;
 }) {
+  const t = useMapUiText();
+
   return (
     <CompactControlSelect
       icon={selectedOption.icon}
-      label={selectedOption.displayLabel}
-      title="Map mode"
+      label={t(selectedOption.displayLabelMy, selectedOption.displayLabelEn)}
+      title={t('မြေပုံပုံစံ', 'Map mode')}
       isOpen={isOpen}
       onOpenChange={onOpenChange}
     >
@@ -186,11 +214,19 @@ function LayerModeSelect({
         return (
           <ControlOptionButton
             key={option.id}
-            label={option.popoverLabel}
+            label={t(option.displayLabelMy, option.displayLabelEn)}
             icon={option.icon}
             active={active}
             disabled={!available}
-            title={available ? option.label : option.title ?? `${option.label} coming soon`}
+            title={
+              available
+                ? t(option.labelMy, option.labelEn)
+                : option.title ??
+                  t(
+                    `${option.labelMy} မကြာမီ ရရှိနိုင်မည်`,
+                    `${option.labelEn} coming soon`,
+                  )
+            }
             onClick={() => {
               if (!available) return;
               onSelect(option.id);
@@ -215,21 +251,22 @@ function LanguageModeSelect({
   readonly onOpenChange: (open: boolean) => void;
   readonly onSelect: (mode: PlaceLanguageMode) => void;
 }) {
+  const t = useMapUiText();
+
   return (
     <CompactControlSelect
       icon={<LanguageIcon />}
-      label={selectedOption.displayLabel}
-      title="Label language"
+      label={t(selectedOption.displayLabelMy, selectedOption.displayLabelEn)}
+      title={t('ဘာသာစကား', 'Label language')}
       isOpen={isOpen}
       onOpenChange={onOpenChange}
     >
-      {LANGUAGE_OPTIONS.map((option) => (
+      {LANGUAGE_OPTIONS.filter((option) => option.mode !== selectedMode).map((option) => (
         <ControlOptionButton
           key={option.mode}
-          label={option.popoverLabel}
+          label={t(option.displayLabelMy, option.displayLabelEn)}
           icon={option.icon}
-          active={option.mode === selectedMode}
-          title={option.label}
+          title={t(option.labelMy, option.labelEn)}
           onClick={() => onSelect(option.mode)}
         />
       ))}
@@ -252,24 +289,18 @@ function CompactControlSelect({
   readonly isOpen: boolean;
   readonly onOpenChange: (open: boolean) => void;
 }) {
-  const openOnHover = () => {
-    if (typeof window === 'undefined') return;
-    if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
-    onOpenChange(true);
-  };
-
   return (
     <div className="relative">
       <button
         type="button"
-        className={`flex h-10 w-10 items-center justify-center gap-1.5 rounded-2xl border text-xs font-semibold shadow-lg shadow-neutral-900/10 backdrop-blur-xl transition-colors lg:h-9 lg:w-auto lg:min-w-18 lg:px-2.5 ${
+        className={`flex h-11 w-11 items-center justify-center gap-1.5 rounded-2xl border text-sm font-semibold shadow-map-control backdrop-blur-xl transition-[color,background-color,border-color,box-shadow,opacity,filter] duration-150 lg:h-10 lg:w-auto lg:min-w-20 lg:px-3 ${
           isOpen
-            ? 'border-sky-500 bg-sky-600 text-white shadow-sky-900/20'
-            : 'border-white/80 bg-white/95 text-neutral-700 hover:bg-neutral-100'
+            ? 'border-map-primary bg-map-primary text-white shadow-map-control'
+            : 'border-white/90 bg-white/94 text-map-ink hover:border-map-primary/25 hover:bg-map-primary-soft hover:text-map-primary'
         }`}
         aria-expanded={isOpen}
+        aria-haspopup="menu"
         title={title}
-        onMouseEnter={openOnHover}
         onClick={() => onOpenChange(!isOpen)}
       >
         <span className="grid h-4.5 w-4.5 shrink-0 place-items-center lg:h-4 lg:w-4">
@@ -278,7 +309,10 @@ function CompactControlSelect({
         <span className="hidden min-w-0 truncate lg:block">{label}</span>
       </button>
       {isOpen ? (
-        <div className="absolute right-full top-0 z-10 mr-2 grid min-w-32 gap-0.5 rounded-2xl border border-white/80 bg-white/95 p-1 shadow-xl shadow-neutral-900/15 backdrop-blur-xl">
+        <div
+          className="absolute right-full top-0 z-10 mr-2 grid min-w-36 gap-0.5 rounded-map-card border border-map-border bg-white/98 p-1.5 shadow-map-float backdrop-blur-xl"
+          role="menu"
+        >
           {children}
         </div>
       ) : null}
@@ -293,22 +327,26 @@ function TransportToggle({
   readonly active: boolean;
   readonly onToggle: () => void;
 }) {
+  const t = useMapUiText();
+
   return (
     <button
       type="button"
-      className={`flex h-10 w-10 items-center justify-center gap-1.5 rounded-2xl border text-xs font-semibold shadow-lg shadow-neutral-900/10 backdrop-blur-xl transition-colors lg:h-9 lg:w-auto lg:min-w-18 lg:px-2.5 ${
+      className={`flex h-11 w-11 items-center justify-center gap-1.5 rounded-2xl border text-sm font-semibold shadow-map-control backdrop-blur-xl transition-[color,background-color,border-color,box-shadow,opacity,filter] duration-150 lg:h-10 lg:w-auto lg:min-w-20 lg:px-3 ${
         active
-          ? 'border-sky-500 bg-sky-600 text-white shadow-sky-900/20'
-          : 'border-white/80 bg-white/95 text-neutral-700 hover:bg-neutral-100'
+          ? 'border-map-primary bg-map-primary text-white shadow-map-control'
+          : 'border-white/90 bg-white/94 text-map-ink hover:border-map-primary/25 hover:bg-map-primary-soft hover:text-map-primary'
       }`}
       aria-pressed={active}
-      title="Transport overlay"
+      title={t('အများသုံးယာဉ်လမ်းကြောင်းများ', 'Transport overlay')}
       onClick={onToggle}
     >
       <span className="grid h-4.5 w-4.5 shrink-0 place-items-center lg:h-4 lg:w-4">
         <TransportIcon />
       </span>
-      <span className="hidden min-w-0 truncate lg:block">Transport</span>
+      <span className="hidden min-w-0 truncate text-sm lg:block">
+        {t('အများသုံးယာဉ်', 'Transport')}
+      </span>
     </button>
   );
 }
@@ -320,16 +358,18 @@ function ZoomControls({
   readonly onZoomIn: () => void;
   readonly onZoomOut: () => void;
 }) {
+  const t = useMapUiText();
+
   return (
     <div
-      className="grid rounded-2xl border border-white/80 bg-white/95 p-1 shadow-lg shadow-neutral-900/10 backdrop-blur-xl"
-      aria-label="Map zoom controls"
+      className="grid rounded-2xl border border-white/90 bg-white/94 p-1 shadow-map-control backdrop-blur-xl"
+      aria-label={t('မြေပုံ အရွယ်အစားထိန်းချုပ်ရန်', 'Map zoom controls')}
     >
-      <UtilityButton label="Zoom in" onClick={onZoomIn}>
+      <UtilityButton label={t('ချဲ့ရန်', 'Zoom in')} onClick={onZoomIn}>
         +
       </UtilityButton>
       <Divider />
-      <UtilityButton label="Zoom out" onClick={onZoomOut}>
+      <UtilityButton label={t('ချုံ့ရန်', 'Zoom out')} onClick={onZoomOut}>
         -
       </UtilityButton>
     </div>
@@ -340,10 +380,10 @@ function locateButtonMobilePositionClass(
   isSidebarOpen: boolean,
   bottomSheetState: BottomSheetState,
 ): string {
-  if (!isSidebarOpen) return 'bottom-4';
-  if (bottomSheetState === 'collapsed') return 'bottom-[6.75rem]';
-  if (bottomSheetState === 'expanded') return 'bottom-[calc(86vh+0.75rem)] right-16';
-  return 'bottom-[calc(48vh+0.75rem)]';
+  if (!isSidebarOpen) return 'bottom-4 right-3';
+  if (bottomSheetState === 'collapsed') return 'bottom-[6.75rem] right-3';
+  if (bottomSheetState === 'expanded') return 'left-3 top-[4.5rem]';
+  return 'bottom-[calc(48vh+0.75rem)] right-3';
 }
 
 function ControlOptionButton({
@@ -364,12 +404,13 @@ function ControlOptionButton({
   return (
     <button
       type="button"
-      className={`flex h-9 items-center gap-2 rounded-xl px-2.5 text-left text-xs font-semibold transition-colors ${
+      className={`flex h-10 items-center gap-2 rounded-xl px-3 text-left text-sm font-semibold transition-[color,background-color,border-color,box-shadow,opacity,filter] duration-150 ${
         active
-          ? 'bg-sky-600 text-white shadow-sm shadow-sky-900/20'
-          : 'text-neutral-700 hover:bg-sky-50 hover:text-sky-700 disabled:cursor-not-allowed disabled:text-neutral-300 disabled:hover:bg-transparent'
+          ? 'bg-map-primary text-white shadow-map-control'
+          : 'text-map-ink hover:bg-map-primary-soft hover:text-map-primary disabled:cursor-not-allowed disabled:text-neutral-300 disabled:hover:bg-transparent'
       }`}
-      aria-pressed={active}
+      role="menuitemradio"
+      aria-checked={active}
       disabled={disabled}
       title={title}
       onClick={onClick}
@@ -392,7 +433,7 @@ function UtilityButton({
   return (
     <button
       type="button"
-      className="grid h-8 w-8 place-items-center rounded-xl text-sm font-semibold text-neutral-700 transition-colors hover:bg-neutral-100 lg:h-8.5 lg:w-8.5"
+      className="grid h-11 w-11 place-items-center rounded-xl text-sm font-semibold text-map-ink transition-[color,background-color,border-color,box-shadow,opacity,filter] duration-150 hover:bg-map-primary-soft hover:text-map-primary lg:h-10 lg:w-10"
       aria-label={label}
       title={label}
       onClick={onClick}
@@ -403,7 +444,7 @@ function UtilityButton({
 }
 
 function Divider({ className = '' }: { readonly className?: string }) {
-  return <span className={`mx-1 h-px bg-neutral-100 ${className}`} aria-hidden="true" />;
+  return <span className={`mx-1 h-px bg-map-border/70 ${className}`} aria-hidden="true" />;
 }
 
 function MapIcon() {
@@ -468,4 +509,3 @@ function LanguageIcon() {
     </svg>
   );
 }
-

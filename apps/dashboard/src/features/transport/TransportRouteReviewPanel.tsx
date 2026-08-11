@@ -33,6 +33,7 @@ export default function TransportRouteReviewPanel({
     readinessLoading: readinessLoadingProp,
     readinessUnavailable: readinessUnavailableProp,
     onReadinessReload,
+    onReadinessApplied,
 }: {
     readonly route: TransportRouteDetail;
     readonly path: TransportRoutePath | null;
@@ -42,6 +43,8 @@ export default function TransportRouteReviewPanel({
     readonly readinessLoading?: boolean;
     readonly readinessUnavailable?: boolean;
     readonly onReadinessReload?: () => Promise<void>;
+    /** Apply readiness from a mutation response without a second GET. */
+    readonly onReadinessApplied?: (readiness: RouteReviewReadiness) => void;
 }) {
     const [localReadiness, setLocalReadiness] = useState<RouteReviewReadiness | null>(null);
     const [localLoading, setLocalLoading] = useState(true);
@@ -91,35 +94,56 @@ export default function TransportRouteReviewPanel({
         await loadReadiness();
     }, [onReadinessReload, loadReadiness]);
 
+    const applyReadiness = useCallback(
+        (next: RouteReviewReadiness) => {
+            if (usesExternalReadiness) {
+                onReadinessApplied?.(next);
+            } else {
+                setLocalReadiness(next);
+            }
+        },
+        [usesExternalReadiness, onReadinessApplied],
+    );
+
     const handleAction = useCallback(
         async (action: TransportReviewAction) => {
             try {
                 const result = await applyTransportRouteReviewAction(route.public_id, action);
                 onRouteUpdated({ ...route, review_status: result.review_status });
-                await reloadReadiness();
+                if (result.readiness) {
+                    applyReadiness(result.readiness);
+                } else {
+                    await reloadReadiness();
+                }
             } catch (err) {
                 if (action === "mark_verified" && !isAbortError(err)) {
                     const fresh = await getTransportRouteReviewReadiness(route.public_id);
-                    if (usesExternalReadiness) {
+                    applyReadiness(fresh);
+                    if (usesExternalReadiness && !onReadinessApplied) {
                         await onReadinessReload?.();
-                    } else {
-                        setLocalReadiness(fresh);
                     }
                     return { blockers: fresh.blockers };
                 }
                 if (action === "mark_reviewed" && !isAbortError(err)) {
                     const fresh = await getTransportRouteReviewReadiness(route.public_id);
-                    if (usesExternalReadiness) {
+                    applyReadiness(fresh);
+                    if (usesExternalReadiness && !onReadinessApplied) {
                         await onReadinessReload?.();
-                    } else {
-                        setLocalReadiness(fresh);
                     }
                     return { blockers: fresh.mark_reviewed_blockers };
                 }
                 throw err;
             }
         },
-        [route, onRouteUpdated, reloadReadiness, usesExternalReadiness, onReadinessReload]
+        [
+            route,
+            onRouteUpdated,
+            reloadReadiness,
+            applyReadiness,
+            usesExternalReadiness,
+            onReadinessApplied,
+            onReadinessReload,
+        ],
     );
 
     const geomSource = pathGeomSource(path);

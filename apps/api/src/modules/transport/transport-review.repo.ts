@@ -281,10 +281,15 @@ export class TransportReviewOperations {
         action: TransportReviewAction,
         audit: TransportAuditContext,
         reason?: string,
-    ): Promise<{ public_id: string; review_status: string }> {
+    ): Promise<{
+        public_id: string;
+        review_status: string;
+        readiness: RouteReviewReadiness;
+    }> {
         const nextStatus = reviewActionToStatus(action);
+        let readiness: RouteReviewReadiness | null = null;
         if (action === "mark_verified") {
-            const readiness = await this.getRouteReviewReadiness(routePublicId);
+            readiness = await this.getRouteReviewReadiness(routePublicId);
             if (!readiness.can_verify) {
                 throw new TransportReviewGuardError(
                     "ROUTE_VERIFY_BLOCKED",
@@ -294,7 +299,7 @@ export class TransportReviewOperations {
             }
         }
         if (action === "mark_reviewed") {
-            const readiness = await this.getRouteReviewReadiness(routePublicId);
+            readiness = await this.getRouteReviewReadiness(routePublicId);
             if (!readiness.can_mark_reviewed) {
                 throw new TransportReviewGuardError(
                     "ROUTE_REVIEW_BLOCKED",
@@ -304,7 +309,7 @@ export class TransportReviewOperations {
             }
         }
 
-        return this.prisma.$transaction(async (tx) => {
+        const txResult = await this.prisma.$transaction(async (tx) => {
             const rows = await tx.$queryRaw<
                 { id: bigint; review_status: string }[]
             >`
@@ -343,6 +348,14 @@ export class TransportReviewOperations {
 
             return { public_id: routePublicId, review_status: nextStatus };
         });
+
+        // Reuse the gate readiness when already computed; otherwise one post-TX calc.
+        // Never run readiness twice for the same successful mutation.
+        if (!readiness) {
+            readiness = await this.getRouteReviewReadiness(routePublicId);
+        }
+
+        return { ...txResult, readiness };
     }
 
     async applyStopReviewAction(
@@ -398,16 +411,31 @@ export class TransportReviewOperations {
         action: TransportReviewAction,
         audit: TransportAuditContext,
         reason?: string,
-    ): Promise<{ id: string; review_status: string }> {
+    ): Promise<{
+        id: string;
+        review_status: string;
+        readiness: RouteReviewReadiness;
+    }> {
         const nextStatus = reviewActionToStatus(action);
-        return this.prisma.$transaction(async (tx) => {
+        const txResult = await this.prisma.$transaction(async (tx) => {
             const rows = await tx.$queryRaw<
-                { id: bigint; review_status: string; route_variant_id: bigint }[]
+                {
+                    id: bigint;
+                    review_status: string;
+                    route_variant_id: bigint;
+                    route_public_id: string;
+                }[]
             >`
-                SELECT id, review_status, route_variant_id
-                FROM transport.route_paths
-                WHERE id = ${pathId} AND deleted_at IS NULL
-                FOR UPDATE
+                SELECT
+                    rp.id,
+                    rp.review_status,
+                    rp.route_variant_id,
+                    r.public_id::text AS route_public_id
+                FROM transport.route_paths rp
+                JOIN transport.route_variants rv ON rv.id = rp.route_variant_id
+                JOIN transport.routes r ON r.id = rv.route_id
+                WHERE rp.id = ${pathId} AND rp.deleted_at IS NULL
+                FOR UPDATE OF rp
             `;
             const before = rows[0];
             if (!before) {
@@ -442,8 +470,21 @@ export class TransportReviewOperations {
                 context: audit,
             });
 
-            return { id: String(before.id), review_status: nextStatus };
+            return {
+                id: String(before.id),
+                review_status: nextStatus,
+                route_public_id: before.route_public_id,
+            };
         });
+
+        // One readiness calc after commit so path-reviewed blockers update without a
+        // second dashboard GET.
+        const readiness = await this.getRouteReviewReadiness(txResult.route_public_id);
+        return {
+            id: txResult.id,
+            review_status: txResult.review_status,
+            readiness,
+        };
     }
 
     async replaceRouteStop(

@@ -10,6 +10,7 @@ import {
     coreReviewVerificationFilterCondition,
     type CoreReviewVerificationStatus,
 } from "../core-review/core-review-verification-filter.js";
+import { parseCoreReviewExactIdSearch } from "../core-review/core-review-id-search.js";
 import {
     buildingClassCodeCoalesceSql,
     buildingClassCodeSelectSql,
@@ -27,6 +28,11 @@ const dashboardBuildingClause = Prisma.sql`b.source_refs @> '{"source":"dashboar
 const activeBuildingWriteClause = Prisma.sql`b.deleted_at IS NULL AND b.is_active IS TRUE`;
 
 type BuildingWriteScope = "dashboard" | "active";
+
+type BuildingManualEditAudit = {
+    editorId: bigint | null;
+    protectAttributes: boolean;
+};
 
 function buildingWriteScopeClause(scope: BuildingWriteScope) {
     return scope === "dashboard"
@@ -49,6 +55,7 @@ export type BuildingDetailRow = {
     name_mm: string | null;
     name_en: string | null;
     fallback_name: string | null;
+    names_json?: unknown;
     class_code: string;
     building_type_id: string | null;
     ref_bt_id: string | null;
@@ -82,7 +89,10 @@ export type BuildingDetailRow = {
 
 /** Resolved column snapshot after dashboard merge (always explicit — supports clearing nullable fields). */
 export type BuildingPersistSnapshot = {
-    /** Legacy `core_map_buildings.name` (imported / fallback label). */
+    /**
+     * Deprecated: no longer written to `core_map_buildings.name`.
+     * Kept on snapshot for patch-diff / compat only.
+     */
     name: string | null;
     /** When set, upserts primary official rows in core_map_building_names. */
     name_mm?: string | null | undefined;
@@ -124,25 +134,53 @@ function buildingsListOrderBy(
                     SELECT n.name
                     FROM core.core_map_building_names AS n
                     WHERE n.building_id = b.id
-                      AND n.is_primary IS TRUE
-                      AND n.name_type = 'official'
+                      AND nullif(btrim(n.name), '') IS NOT NULL
                       AND (
                           lower(trim(n.language_code)) = 'my'
                           OR upper(trim(coalesce(n.script_code, ''))) = 'MYMR'
                       )
-                    ORDER BY n.search_weight DESC, n.id ASC
+                    ORDER BY
+                        CASE
+                            WHEN n.name_type = 'official' AND n.is_primary IS TRUE THEN 0
+                            WHEN n.name_type = 'local' AND n.is_primary IS TRUE THEN 1
+                            WHEN n.name_type = 'imported' AND n.is_primary IS TRUE THEN 2
+                            WHEN n.name_type = 'alternate' THEN 3
+                            ELSE 4
+                        END,
+                        n.search_weight DESC NULLS LAST,
+                        n.id ASC
                     LIMIT 1
                 ),
                 (
                     SELECT n.name
                     FROM core.core_map_building_names AS n
                     WHERE n.building_id = b.id
-                      AND n.is_primary IS TRUE
-                      AND n.name_type = 'official'
-                      AND lower(trim(n.language_code)) = 'en'
-                    ORDER BY n.search_weight DESC, n.id ASC
+                      AND nullif(btrim(n.name), '') IS NOT NULL
+                      AND (
+                          lower(trim(n.language_code)) = 'en'
+                          OR upper(trim(coalesce(n.script_code, ''))) = 'LATN'
+                      )
+                    ORDER BY
+                        CASE
+                            WHEN n.name_type = 'official' AND n.is_primary IS TRUE THEN 0
+                            WHEN n.name_type = 'local' AND n.is_primary IS TRUE THEN 1
+                            WHEN n.name_type = 'imported' AND n.is_primary IS TRUE THEN 2
+                            WHEN n.name_type = 'alternate' THEN 3
+                            ELSE 4
+                        END,
+                        n.search_weight DESC NULLS LAST,
+                        n.id ASC
                     LIMIT 1
                 ),
+                (
+                    SELECT n.name
+                    FROM core.core_map_building_names AS n
+                    WHERE n.building_id = b.id
+                      AND nullif(btrim(n.name), '') IS NOT NULL
+                    ORDER BY n.search_weight DESC NULLS LAST, n.id ASC
+                    LIMIT 1
+                ),
+                -- deprecated: legacy column soft fallback
                 b.name,
                 ''
             )) ${dir} NULLS LAST, b.public_id ASC`;
@@ -187,8 +225,20 @@ function activeBuildingsWhereClause(
     ];
 
     if (params.q !== undefined) {
-        parts.push(Prisma.sql`(
+        const exactId = parseCoreReviewExactIdSearch(params.q);
+        if (exactId.numericId !== null) {
+            parts.push(Prisma.sql`b.id = ${exactId.numericId}`);
+        } else if (exactId.publicId) {
+            parts.push(Prisma.sql`b.public_id = CAST(${exactId.publicId} AS uuid)`);
+        } else {
+            parts.push(Prisma.sql`(
                     COALESCE(b.name, '') ILIKE ${`%${params.q}%`}
+                    OR EXISTS (
+                        SELECT 1
+                        FROM core.core_map_building_names AS n
+                        WHERE n.building_id = b.id
+                          AND n.name ILIKE ${`%${params.q}%`}
+                    )
                     OR COALESCE(bt.name, '') ILIKE ${`%${params.q}%`}
                     OR COALESCE(bt.code, '') ILIKE ${`%${params.q}%`}
                     OR COALESCE(${buildingClassCodeCoalesceSql}, '') ILIKE ${`%${params.q}%`}
@@ -200,6 +250,7 @@ function activeBuildingsWhereClause(
                     OR b.created_at::text ILIKE ${`%${params.q}%`}
                     OR b.updated_at::text ILIKE ${`%${params.q}%`}
                 )`);
+        }
     }
 
     const verificationCondition = coreReviewVerificationFilterCondition("b", {
@@ -631,7 +682,7 @@ export class BuildingsRepository {
             SELECT
                 NULL,
                 NULL,
-                ${snapshot.name},
+                NULL::text,
                 ${normalizedJson}::jsonb,
                 '{"source":"dashboard"}'::jsonb,
                 ready.geom,
@@ -672,7 +723,11 @@ export class BuildingsRepository {
         publicId: string,
         geojsonText: string,
         snapshot: BuildingPersistSnapshot,
-        scope: BuildingWriteScope = "dashboard"
+        scope: BuildingWriteScope = "dashboard",
+        audit: BuildingManualEditAudit = {
+            editorId: null,
+            protectAttributes: false,
+        }
     ): Promise<BuildingDetailRow | null> {
         const normalizedJson = JSON.stringify(snapshot.normalized_data);
 
@@ -726,7 +781,6 @@ export class BuildingsRepository {
                     geom = ready.geom,
                     centroid = ready.centroid,
                     area_m2 = ready.area_m2,
-                    name = ${snapshot.name},
                     building_type_id = ${snapshot.building_type_id},
                     admin_area_id = ${persistedAdminFk},
                     normalized_data = ${normalizedJson}::jsonb,
@@ -735,6 +789,13 @@ export class BuildingsRepository {
                     confidence_score = ${snapshot.confidence_score},
                     verification_status = ${snapshot.verification_status},
                     is_verified = ${snapshot.is_verified},
+                    is_geometry_manually_edited =
+                        coalesce(b.is_geometry_manually_edited, false)
+                        OR NOT ST_Equals(b.geom, ready.geom),
+                    is_attributes_manually_edited =
+                        coalesce(b.is_attributes_manually_edited, false)
+                        OR ${audit.protectAttributes},
+                    updated_by = coalesce(${audit.editorId}, b.updated_by),
                     updated_at = NOW()
                 FROM ready, lbl
                 WHERE b.public_id = CAST(${publicId} AS uuid)
@@ -762,14 +823,17 @@ export class BuildingsRepository {
     async updateDashboardBuildingScalars(
         publicId: string,
         snapshot: BuildingPersistSnapshot,
-        scope: BuildingWriteScope = "dashboard"
+        scope: BuildingWriteScope = "dashboard",
+        audit: BuildingManualEditAudit = {
+            editorId: null,
+            protectAttributes: false,
+        }
     ): Promise<BuildingDetailRow | null> {
         const normalizedJson = JSON.stringify(snapshot.normalized_data);
 
         const updatedCount = await this.prisma.$executeRaw(Prisma.sql`
             UPDATE core.core_map_buildings AS b
             SET
-                name = ${snapshot.name},
                 building_type_id = ${snapshot.building_type_id},
                 admin_area_id = ${snapshot.admin_area_id},
                 normalized_data = ${normalizedJson}::jsonb,
@@ -778,6 +842,10 @@ export class BuildingsRepository {
                 confidence_score = ${snapshot.confidence_score},
                 verification_status = ${snapshot.verification_status},
                 is_verified = ${snapshot.is_verified},
+                is_attributes_manually_edited =
+                    coalesce(b.is_attributes_manually_edited, false)
+                    OR ${audit.protectAttributes},
+                updated_by = coalesce(${audit.editorId}, b.updated_by),
                 centroid = ST_PointOnSurface(b.geom)::geometry(Point, 4326),
                 area_m2 = ST_Area(b.geom::geography)::double precision,
                 updated_at = NOW()

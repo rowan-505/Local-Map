@@ -981,4 +981,17 @@ describe("stopMergeGlobalBodySchema", () => {
         });
         assert.equal(parsed.acknowledgeSameVariantOccurrences, true);
     });
+
+    it("accepts optional preview version stamps", () => {
+        const parsed = stopMergeGlobalBodySchema.parse({
+            canonicalStopId: "11111111-1111-4111-8111-111111111111",
+            duplicateStopId: "22222222-2222-4222-8222-222222222222",
+            currentStopId: "11111111-1111-4111-8111-111111111111",
+            candidateStopId: "22222222-2222-4222-8222-222222222222",
+            canonicalUpdatedAt: "2026-01-01T00:00:00.000Z",
+            duplicateUpdatedAt: "2026-01-01T00:00:01.000Z",
+        });
+        assert.equal(parsed.canonicalUpdatedAt, "2026-01-01T00:00:00.000Z");
+        assert.equal(parsed.duplicateUpdatedAt, "2026-01-01T00:00:01.000Z");
+    });
 });

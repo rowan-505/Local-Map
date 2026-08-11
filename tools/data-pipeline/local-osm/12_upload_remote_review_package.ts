@@ -33,6 +33,7 @@ import {
   resolveDbTarget,
 } from '../lib/database-target-safety.js';
 import {
+  assertReviewOnlyPackageItems,
   emptyPerFamilyCounts,
   emptyPerFamilyUploadStats,
   familiesFromPackageItemCounts,
@@ -729,6 +730,7 @@ async function main(): Promise<number> {
 
     const itemsAll = await fetchItems(localPool, pkgSummary.id);
     assertKnownPackageItemFamilies(itemsAll);
+    assertReviewOnlyPackageItems(itemsAll);
     const packageItemCounts = countItemsByFamily(itemsAll);
     const familiesInPackage = familiesFromPackageItemCounts(packageItemCounts);
     const metaFamilies = (pkgSummary.entity_families ?? []).filter(isEntityFamilySlug);

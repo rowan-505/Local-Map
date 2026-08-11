@@ -99,7 +99,7 @@ const CATEGORY_GROUPS: readonly CategoryGroup[] = [
   },
 ];
 
-const DEFAULT_STYLE = 'bg-neutral-100 text-neutral-500 border-neutral-200';
+const DEFAULT_STYLE = 'bg-map-primary-soft text-map-primary border-map-primary/15';
 
 /** Returns the soft avatar style for a place's normalized category. */
 export function getPlaceCategoryStyle(

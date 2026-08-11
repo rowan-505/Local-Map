@@ -162,7 +162,10 @@ const optionalAdminAreaIdCreateSchema = z.preprocess((value) => {
 export const createBuildingBodySchema = z
     .object({
         geometry: buildingGeometrySchema,
-        /** Fallback/imported label stored on core_map_buildings.name. */
+        /**
+         * Deprecated write field. Not stored on core_map_buildings.name.
+         * Prefer name_mm / name_en (synced to core_map_building_names).
+         */
         name: optionalNameSchema,
         name_mm: optionalNameSchema,
         name_en: optionalNameSchema,
@@ -233,3 +236,33 @@ export type BuildingValidationIssue = {
     path: string;
     message: string;
 };
+
+/** Canonical building name row from core.core_map_building_names. */
+export const buildingNameEntrySchema = z
+    .object({
+        id: z.number().int().optional(),
+        name: z.string().min(1),
+        languageCode: z.enum(["my", "en", "und"]),
+        scriptCode: z.string().nullable().optional(),
+        nameType: z.enum(["official", "alternate", "short", "local", "old", "imported"]),
+        isPrimary: z.boolean(),
+        searchWeight: z.number().int(),
+    })
+    .strict();
+
+export type BuildingNameEntry = z.infer<typeof buildingNameEntrySchema>;
+
+/**
+ * Response name contract:
+ * - `names` = canonical rows from core_map_building_names
+ * - `name_mm` / `name_en` = derived primary labels (dashboard compat)
+ * - `name` = derived display name (priority coalesce)
+ */
+export const buildingNamesResponseFieldsSchema = z.object({
+    names: z.array(buildingNameEntrySchema).default([]),
+    name_mm: z.string().nullable(),
+    name_en: z.string().nullable(),
+    fallback_name: z.string().nullable(),
+    /** Derived display name from names priority / name_mm → name_en → fallback. */
+    name: z.string().nullable(),
+});

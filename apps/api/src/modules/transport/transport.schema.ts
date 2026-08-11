@@ -1100,6 +1100,9 @@ export const stopMergeGlobalBodySchema = z
         candidateStopId: z.string().uuid(),
         fieldSources: stopMergeFieldSourcesSchema.optional(),
         acknowledgeSameVariantOccurrences: z.boolean().optional(),
+        /** ISO timestamps from preview `updatedAt` — optional stale-check hints. */
+        canonicalUpdatedAt: z.string().min(10).max(64).optional(),
+        duplicateUpdatedAt: z.string().min(10).max(64).optional(),
         reason: z.string().trim().min(1).max(500).optional(),
     })
     .superRefine((body, ctx) => {

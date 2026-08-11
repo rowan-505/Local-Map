@@ -1,3 +1,4 @@
+import { useMapUiText } from '@/features/map/i18n/mapUiText';
 import { useAuth } from '../state/useAuth';
 import { AuthDrawerPanel } from './AuthDrawerPanel';
 import { ProfileDrawerPanel } from './ProfileDrawerPanel';
@@ -14,12 +15,15 @@ export function AccountPanel({
   readonly onOpenSaved?: () => void;
   readonly onOpenReports?: () => void;
 }) {
+  const t = useMapUiText();
   const { isAuthenticated, initializing } = useAuth();
 
   if (initializing) {
     return (
       <section className="p-4">
-        <p className="text-sm text-neutral-500">Loading your account…</p>
+        <p className="text-sm text-map-muted">
+          {t('သင့်အကောင့်ကို ဖွင့်နေသည်…', 'Loading your account…')}
+        </p>
       </section>
     );
   }

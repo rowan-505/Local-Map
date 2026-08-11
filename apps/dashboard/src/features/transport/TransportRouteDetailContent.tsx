@@ -649,6 +649,15 @@ export default function TransportRouteDetailContent({
         return loadReadiness();
     }, [loadReadiness]);
 
+    const applyReadinessFromMutation = useCallback(
+        (next: RouteReviewReadiness) => {
+            setReadiness(next);
+            setReadinessUnavailable(false);
+            readinessLastRequestedPublicIdRef.current = publicId;
+        },
+        [publicId],
+    );
+
     // --- Load route detail + variants when publicId changes. -----------------
     useEffect(() => {
         const controller = new AbortController();
@@ -1386,9 +1395,13 @@ export default function TransportRouteDetailContent({
         }
         const result = await applyTransportRoutePathReviewAction(path.id, "mark_reviewed");
         setPath((prev) => (prev ? { ...prev, review_status: result.review_status } : prev));
-        void reloadReadiness();
+        if (result.readiness) {
+            applyReadinessFromMutation(result.readiness);
+        } else {
+            void reloadReadiness();
+        }
         showReviewMapToast("success", "Route path marked reviewed");
-    }, [path, reloadReadiness, showReviewMapToast]);
+    }, [path, applyReadinessFromMutation, reloadReadiness, showReviewMapToast]);
 
     const markRouteReviewed = useCallback(async () => {
         if (!route) {
@@ -1396,20 +1409,28 @@ export default function TransportRouteDetailContent({
         }
         const result = await applyTransportRouteReviewAction(route.public_id, "mark_reviewed");
         setRoute({ ...route, review_status: result.review_status });
-        void reloadReadiness();
+        if (result.readiness) {
+            applyReadinessFromMutation(result.readiness);
+        } else {
+            void reloadReadiness();
+        }
         showReviewMapToast("success", "Route marked reviewed");
-    }, [route, reloadReadiness, showReviewMapToast]);
+    }, [route, applyReadinessFromMutation, reloadReadiness, showReviewMapToast]);
 
     const refreshOrderedStops = useCallback(async (): Promise<TransportRouteStopItem[] | null> => {
         if (!selectedVariantId) return null;
         const items = await loadStops(selectedVariantId, undefined, true);
+        // Quality is secondary — do not block mutation UI settle on it.
         if (selectedVariantId) {
-            try {
-                const quality = await getTransportVariantStopQuality(selectedVariantId);
-                setStopQuality(new Map(quality.items.map((item) => [item.route_stop_id, item])));
-            } catch {
-                // non-fatal
-            }
+            const variantId = selectedVariantId;
+            void (async () => {
+                try {
+                    const quality = await getTransportVariantStopQuality(variantId);
+                    setStopQuality(new Map(quality.items.map((item) => [item.route_stop_id, item])));
+                } catch {
+                    // non-fatal
+                }
+            })();
         }
         return items;
     }, [selectedVariantId, loadStops]);
@@ -1889,15 +1910,18 @@ export default function TransportRouteDetailContent({
     );
 
     const refreshReviewMapAfterGlobalMerge = useCallback(
-        async (survivingStopPublicId: string) => {
-            const refreshed = await refreshOrderedStops();
-            const surviving = refreshed?.find(
-                (row) => row.stop.public_id === survivingStopPublicId,
-            );
-            if (surviving) {
-                setSelectedRouteStopId(surviving.id);
-            }
-            reloadSelectedStopRouteUsage();
+        (survivingStopPublicId: string) => {
+            // Background only — overlay/dialog already settled after API commit.
+            void (async () => {
+                const refreshed = await refreshOrderedStops();
+                const surviving = refreshed?.find(
+                    (row) => row.stop.public_id === survivingStopPublicId,
+                );
+                if (surviving) {
+                    setSelectedRouteStopId(surviving.id);
+                }
+                reloadSelectedStopRouteUsage();
+            })();
         },
         [refreshOrderedStops, reloadSelectedStopRouteUsage],
     );
@@ -1914,16 +1938,40 @@ export default function TransportRouteDetailContent({
     }, []);
 
     const handleGlobalMergeSuccess = useCallback(
-        async (result: TransportStopMergeGlobalResult, currentStopPublicId: string) => {
+        (result: TransportStopMergeGlobalResult, currentStopPublicId: string) => {
             setMergeResultOverlay({ kind: "success", result, currentStopPublicId });
             setSelectedNearbyCandidateId(null);
             setCandidateCompareTarget(null);
-            await refreshReviewMapAfterGlobalMerge(result.canonicalStop.publicId);
+            // Locally promote canonical stop fields where the deleted id still appears.
+            const canonical = result.canonicalStop;
+            const deletedId = result.deletedStopId;
+            setStops((prev) =>
+                prev.map((row) => {
+                    if (row.stop.public_id !== deletedId && row.stop.public_id !== canonical.publicId) {
+                        return row;
+                    }
+                    return {
+                        ...row,
+                        stop: {
+                            ...row.stop,
+                            public_id: canonical.publicId,
+                            name: canonical.name,
+                            name_mm: canonical.nameMy,
+                            name_en: canonical.nameEn,
+                            mode: canonical.mode,
+                            stop_type: canonical.stopType,
+                            review_status: canonical.reviewStatus,
+                            confidence_score: canonical.confidenceScore,
+                            is_active: canonical.isActive,
+                            longitude: canonical.lng,
+                            latitude: canonical.lat,
+                        },
+                    };
+                }),
+            );
+            refreshReviewMapAfterGlobalMerge(result.canonicalStop.publicId);
         },
-        [
-            setSelectedNearbyCandidateId,
-            refreshReviewMapAfterGlobalMerge,
-        ],
+        [setSelectedNearbyCandidateId, refreshReviewMapAfterGlobalMerge],
     );
 
     const openMergeCompareDialog = useCallback(
@@ -2146,6 +2194,7 @@ export default function TransportRouteDetailContent({
                                 readinessLoading={readinessLoading}
                                 readinessUnavailable={readinessUnavailable}
                                 onReadinessReload={reloadReadiness}
+                                onReadinessApplied={applyReadinessFromMutation}
                             />
                         ) : null}
 

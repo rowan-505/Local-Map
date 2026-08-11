@@ -1,5 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useDialogFocus } from '@/components/ui/useDialogFocus';
 import { useAuth } from '@/features/auth/state/useAuth';
+import { useMapUiText } from '@/features/map/i18n/mapUiText';
 import {
   REPORT_TYPE_OPTIONS,
   submitReport,
@@ -17,33 +19,22 @@ type ReportModalProps = {
 const DEFAULT_TYPE: ReportTypeCode = 'wrong_info';
 
 export function ReportModal({ open, target, onClose }: ReportModalProps) {
+  const t = useMapUiText();
   const { isAuthenticated } = useAuth();
   const [reportTypeCode, setReportTypeCode] = useState<ReportTypeCode>(DEFAULT_TYPE);
   const [description, setDescription] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SubmittedReport | null>(null);
-
-  // Reset the form each time the modal is (re)opened for a new target.
-  useEffect(() => {
-    if (open) {
-      setReportTypeCode(DEFAULT_TYPE);
-      setDescription('');
-      setBusy(false);
-      setError(null);
-      setResult(null);
-    }
-  }, [open]);
-
-  // Close on Escape while open.
-  useEffect(() => {
-    if (!open) return undefined;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+  const closeAndReset = () => {
+    setReportTypeCode(DEFAULT_TYPE);
+    setDescription('');
+    setBusy(false);
+    setError(null);
+    setResult(null);
+    onClose();
+  };
+  const dialogRef = useDialogFocus(open, closeAndReset);
 
   if (!open) return null;
 
@@ -69,7 +60,7 @@ export function ReportModal({ open, target, onClose }: ReportModalProps) {
       setError(
         submitError instanceof Error
           ? submitError.message
-          : 'Could not submit your report. Please try again.',
+          : t('ပေးပို့၍မရပါ။', 'Could not submit.'),
       );
     } finally {
       setBusy(false);
@@ -78,69 +69,76 @@ export function ReportModal({ open, target, onClose }: ReportModalProps) {
 
   return (
     <div
-      className="fixed inset-0 z-[1000] flex items-end justify-center bg-neutral-950/40 p-0 sm:items-center sm:p-4"
+      ref={dialogRef}
+      className="fixed inset-0 z-[1000] flex items-end justify-center bg-slate-950/45 p-0 backdrop-blur-[2px] sm:items-center sm:p-4"
       role="dialog"
       aria-modal="true"
-      aria-label="Report an issue"
+      aria-label={t('ပြဿနာတိုင်ကြားရန်', 'Report an issue')}
+      tabIndex={-1}
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
+        if (event.target === event.currentTarget) closeAndReset();
       }}
     >
-      <div className="w-full max-w-md rounded-t-2xl bg-white shadow-xl sm:rounded-2xl">
-        <div className="flex items-start justify-between gap-3 border-b border-neutral-100 p-4">
+      <div className="w-full max-w-md rounded-t-3xl border border-white/80 bg-map-surface shadow-map-float sm:rounded-3xl">
+        <div className="flex items-start justify-between gap-3 border-b border-map-border/70 bg-[linear-gradient(135deg,#fff,#eaf4ff)] p-4 sm:rounded-t-3xl">
           <div className="min-w-0">
-            <h2 className="text-base font-semibold text-neutral-950">Report an issue</h2>
+            <h2 className="text-sm font-semibold text-map-ink">{t('ပြဿနာတိုင်ကြားရန်', 'Report an issue')}</h2>
             {target.contextLabel ? (
-              <p className="mt-0.5 truncate text-xs text-neutral-500">{target.contextLabel}</p>
+              <p className="mt-0.5 truncate text-xs text-map-muted">{target.contextLabel}</p>
             ) : null}
           </div>
           <button
             type="button"
-            className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-neutral-200 text-neutral-500 transition-colors hover:bg-neutral-50"
-            aria-label="Close"
-            onClick={onClose}
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-map-border text-map-muted transition-colors hover:bg-map-primary-soft hover:text-map-primary"
+            aria-label={t('ပိတ်ရန်', 'Close')}
+            onClick={closeAndReset}
           >
             <CloseIcon />
           </button>
         </div>
 
         {result ? (
-          <SuccessView report={result} onClose={onClose} />
+          <SuccessView report={result} onClose={closeAndReset} />
         ) : (
           <div className="space-y-4 p-4">
             {isAuthenticated ? (
               <p className="rounded-lg bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-700 ring-1 ring-emerald-100">
-                You may receive points if accepted by admin.
+                {t('လက်ခံပါက အမှတ်ရနိုင်သည်။', 'Accepted reports may earn points.')}
               </p>
             ) : (
               <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-700 ring-1 ring-amber-100">
-                Anonymous reports do not receive points or status updates. Log in if you want
-                rewards.
+                {t(
+                  'အမည်မဖော်သော တိုင်ကြားချက်များသည် အမှတ်မရပါ။',
+                  'Anonymous reports do not earn points.',
+                )}
               </p>
             )}
 
             <label className="block">
-              <span className="mb-1 block text-xs font-semibold text-neutral-600">Issue type</span>
+              <span className="mb-1 block text-xs font-semibold text-map-muted">
+                {t('ပြဿနာအမျိုးအစား', 'Issue type')}
+              </span>
               <select
-                className="w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 outline-none focus:border-sky-400"
+                data-dialog-autofocus
+                className="w-full rounded-map-control border border-map-border bg-map-surface px-3 py-2 text-sm text-map-ink outline-none focus:border-map-primary "
                 value={reportTypeCode}
                 onChange={(event) => setReportTypeCode(event.target.value as ReportTypeCode)}
               >
                 {REPORT_TYPE_OPTIONS.map((option) => (
                   <option key={option.code} value={option.code}>
-                    {option.label}
+                    {reportTypeLabel(option.code, option.label, t)}
                   </option>
                 ))}
               </select>
             </label>
 
             <label className="block">
-              <span className="mb-1 block text-xs font-semibold text-neutral-600">
-                Description
+              <span className="mb-1 block text-xs font-semibold text-map-muted">
+                {t('ဖော်ပြချက်', 'Description')}
               </span>
               <textarea
-                className="h-28 w-full resize-none rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 outline-none focus:border-sky-400"
-                placeholder="Tell us what is wrong…"
+                className="h-28 w-full resize-none rounded-map-control border border-map-border bg-map-surface px-3 py-2 text-sm text-map-ink outline-none focus:border-map-primary "
+                placeholder={t('ဘာမှားနေသည်ကို ပြောပြပါ…', 'Tell us what is wrong…')}
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
                 maxLength={4000}
@@ -152,18 +150,18 @@ export function ReportModal({ open, target, onClose }: ReportModalProps) {
             <div className="flex items-center justify-end gap-2">
               <button
                 type="button"
-                className="rounded-full px-4 py-2 text-sm font-semibold text-neutral-600 transition-colors hover:bg-neutral-100"
-                onClick={onClose}
+                className="rounded-full px-4 py-2 text-sm font-semibold text-map-muted transition-colors hover:bg-map-primary-soft hover:text-map-primary"
+                onClick={closeAndReset}
               >
-                Cancel
+                {t('ပယ်ဖျက်ရန်', 'Cancel')}
               </button>
               <button
                 type="button"
-                className="rounded-full bg-sky-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-full bg-map-primary px-4 py-2 text-sm font-semibold text-white shadow-map-control transition-colors hover:bg-map-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={!canSubmit}
                 onClick={() => void onSubmit()}
               >
-                {busy ? 'Submitting…' : 'Submit report'}
+                {busy ? t('ပေးပို့နေသည်…', 'Submitting…') : t('တိုင်ကြားချက်ပို့ရန်', 'Submit report')}
               </button>
             </div>
           </div>
@@ -180,25 +178,28 @@ function SuccessView({
   readonly report: SubmittedReport;
   readonly onClose: () => void;
 }) {
+  const t = useMapUiText();
   return (
     <div className="space-y-3 p-4">
       <div className="rounded-lg bg-emerald-50 px-3 py-3 text-sm text-emerald-800 ring-1 ring-emerald-100">
         <p className="font-semibold">
-          {report.duplicate_warning ? 'Already reported' : 'Thanks for your report!'}
+          {report.duplicate_warning
+            ? t('တိုင်ကြားပြီးဖြစ်သည်', 'Already reported')
+            : t('တိုင်ကြားပေးသည့်အတွက် ကျေးဇူးတင်ပါသည်။', 'Thanks for your report!')}
         </p>
         <p className="mt-1 text-xs leading-5">
           {report.message ??
             (report.is_anonymous
-              ? 'Your report was submitted anonymously.'
-              : 'Our team will review it soon.')}
+              ? t('တိုင်ကြားချက်ကို အမည်မဖော်ဘဲ ပေးပို့ပြီးပါပြီ။', 'Your report was submitted anonymously.')
+              : t('မကြာမီ စစ်ဆေးမည်။', 'We will review it soon.'))}
         </p>
       </div>
 
-      <div className="rounded-lg border border-neutral-100 bg-neutral-50 px-3 py-2">
-        <span className="block text-[11px] font-semibold uppercase tracking-wide text-neutral-400">
-          Report reference
+      <div className="rounded-map-control border border-map-border bg-map-bg px-3 py-2">
+        <span className="map-kicker block text-map-muted">
+          {t('တိုင်ကြားချက် ရည်ညွှန်းနံပါတ်', 'Report reference')}
         </span>
-        <span className="block break-all font-mono text-xs text-neutral-800">
+        <span className="block break-all font-mono text-xs text-map-ink">
           {report.public_id}
         </span>
       </div>
@@ -206,14 +207,32 @@ function SuccessView({
       <div className="flex justify-end">
         <button
           type="button"
-          className="rounded-full bg-neutral-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-neutral-800"
+          className="rounded-full bg-map-primary px-4 py-2 text-sm font-semibold text-white shadow-map-control transition-colors hover:bg-map-primary-hover"
           onClick={onClose}
         >
-          Done
+          {t('ပြီးပါပြီ', 'Done')}
         </button>
       </div>
     </div>
   );
+}
+
+function reportTypeLabel(
+  code: ReportTypeCode,
+  english: string,
+  t: (myanmar: string, english: string) => string,
+): string {
+  const labels: Record<ReportTypeCode, string> = {
+    wrong_info: 'အချက်အလက် မှားနေသည်',
+    wrong_location: 'တည်နေရာ မှားနေသည်',
+    missing_item: 'အချက်အလက် ပျောက်နေသည်',
+    closed_or_removed: 'ပိတ်ထားသည် သို့မဟုတ် ဖယ်ရှားပြီး',
+    duplicate_item: 'ထပ်နေသော အချက်အလက်',
+    transport_issue: 'အများသုံးယာဉ် ပြဿနာ',
+    community_info: 'လူထုအချက်အလက်',
+    other_map_issue: 'အခြားပြဿနာ',
+  };
+  return t(labels[code], english);
 }
 
 function CloseIcon() {

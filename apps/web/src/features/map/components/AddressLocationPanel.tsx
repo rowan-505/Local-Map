@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useMapUiText } from '@/features/map/i18n/mapUiText';
 import type { MapClickedLocation } from '@/features/map/types';
 import { useReverseAddress } from '@/features/map/api/useReverseAddress';
 import { useAuth } from '@/features/auth/state/useAuth';
@@ -16,9 +17,12 @@ type AddressLocationPanelProps = {
   readonly onUseAsRouteDestination: (point: RoutePoint) => void;
 };
 
-/** Neutral, full-width report button styling so it matches Save in the action row (parity with the POI detail card). */
+/** Neutral report button styling so it matches Save in the compact action row. */
 const REPORT_BUTTON_CLASS =
-  'flex w-full items-center justify-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2.5 text-sm font-medium text-neutral-700 transition-colors hover:border-neutral-300 hover:bg-neutral-50';
+  'flex min-h-10 w-full items-center justify-center gap-2 rounded-map-control border border-map-border bg-map-surface px-2.5 py-2 text-xs font-semibold text-map-ink transition-[color,background-color,border-color,box-shadow,opacity,filter] duration-150 hover:border-map-primary/30 hover:bg-map-primary-soft hover:text-map-primary';
+
+const SAVE_BUTTON_CLASS =
+  'flex min-h-10 w-full items-center justify-center gap-2 rounded-map-control border border-map-border bg-map-surface px-2.5 py-2 text-xs font-semibold text-map-ink transition-[color,background-color,border-color,box-shadow,opacity,filter] duration-150 hover:border-map-primary/30 hover:bg-map-primary-soft hover:text-map-primary';
 
 export function AddressLocationPanel({
   location,
@@ -26,21 +30,18 @@ export function AddressLocationPanel({
   onUseAsRouteStart,
   onUseAsRouteDestination,
 }: AddressLocationPanelProps) {
+  const t = useMapUiText();
   const reverse = useReverseAddress(location?.coordinates ?? null);
   const { isAuthenticated, openAuthModal } = useAuth();
   const [showShare, setShowShare] = useState(false);
 
   if (!location) {
     return (
-      <section className="p-3" aria-label="Inspect map location">
+      <section className="p-3" aria-label={t('မြေပုံတည်နေရာ စစ်ဆေးရန်', 'Inspect map location')}>
         <article className={sidebarCard}>
-          <div className="px-4 pb-4 pt-3">
-            <p className={locationLabelClass}>Location</p>
-            <h2 className="mt-1 text-base font-semibold leading-6 text-neutral-900">
-              Click anywhere on the map
-            </h2>
-            <p className="mt-1 text-xs leading-5 text-neutral-500">
-              Click anywhere on the map to inspect a location.
+          <div className="px-4 py-4 text-center">
+            <p className="text-sm font-medium leading-5 text-map-muted">
+              {t('မြေပုံပေါ်တွင် နှိပ်ပါ', 'Click the map')}
             </p>
           </div>
         </article>
@@ -51,7 +52,7 @@ export function AddressLocationPanel({
   const [lng, lat] = location.coordinates;
   const coordinates = formatCoordinates(lng, lat);
   const routePoint: RoutePoint = {
-    label: `Clicked location (${coordinates})`,
+    label: t(`ရွေးထားသောတည်နေရာ (${coordinates})`, `Clicked location (${coordinates})`),
     coordinates: location.coordinates,
   };
 
@@ -62,47 +63,56 @@ export function AddressLocationPanel({
   const plusCode = reverse.data?.plus_code ?? location.plusCode ?? null;
 
   return (
-    <section className="p-3" aria-label="Inspect map location">
+    <section className="p-3" aria-label={t('မြေပုံတည်နေရာ စစ်ဆေးရန်', 'Inspect map location')}>
       <article className={sidebarCard}>
         <div className="px-4 pb-3.5 pt-3">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className={locationLabelClass}>Location</p>
-              <h2 className="mt-1 text-base font-semibold leading-6 text-neutral-900">
-                Inspect location
-              </h2>
-            </div>
+          <div className="flex items-center justify-between gap-3">
+            <p className="truncate text-xs font-medium text-map-muted">
+              {t('ရွေးထားသောနေရာ', 'Selected point')}
+            </p>
             <MapPointBadge />
           </div>
 
-          <div className="mt-3 grid grid-cols-4 gap-1.5">
-            <ActionButton primary title="Route start" onClick={() => onUseAsRouteStart(routePoint)}>
-              Start
+          <div className="mt-2.5 grid grid-cols-2 gap-2">
+            <ActionButton primary title={t('လမ်းကြောင်းစတင်ရာ', 'Route start')} onClick={() => onUseAsRouteStart(routePoint)}>
+              {t('မှ', 'From')}
             </ActionButton>
             <ActionButton
               primary
-              title="Route destination"
+              title={t('သွားမည့်နေရာ', 'Route destination')}
               onClick={() => onUseAsRouteDestination(routePoint)}
             >
-              To
+              {t('သို့', 'To')}
             </ActionButton>
-            <ActionButton title="Share location" onClick={() => setShowShare((open) => !open)}>
-              Share
+            <ActionButton title={t('တည်နေရာမျှဝေရန်', 'Share location')} onClick={() => setShowShare((open) => !open)}>
+              {t('မျှဝေ', 'Share')}
             </ActionButton>
-            <ActionButton title="Copy coordinates" onClick={() => copyText(coordinates)}>
-              Copy
+            <ActionButton title={t('ကိုဩဒိနိတ်ကူးယူရန်', 'Copy coordinates')} onClick={() => copyText(coordinates)}>
+              {t('ကူးယူ', 'Copy')}
             </ActionButton>
           </div>
 
-          <div className={`mt-1.5 grid gap-1.5 ${isAuthenticated ? 'grid-cols-2' : 'grid-cols-1'}`}>
+          <div className="mt-2 grid grid-cols-2 gap-2">
             {isAuthenticated ? (
               <SaveLocationControl
+                key={`${lat}:${lng}`}
                 latitude={lat}
                 longitude={lng}
                 addressLine={addressLine}
                 plusCode={plusCode}
               />
-            ) : null}
+            ) : (
+              <button
+                type="button"
+                className={SAVE_BUTTON_CLASS}
+                onClick={() => openAuthModal('login')}
+              >
+                <span className="grid h-3.5 w-3.5 place-items-center">
+                  <BookmarkIcon />
+                </span>
+                {t('သိမ်း', 'Save')}
+              </button>
+            )}
             <ReportEntryButton
               target={{
                 targetEntityType: 'map_point',
@@ -110,34 +120,26 @@ export function AddressLocationPanel({
                 longitude: lng,
                 contextLabel: `Map point (${coordinates})`,
               }}
-              label="Report here"
+              label={t('တိုင်ကြား', 'Report')}
               className={REPORT_BUTTON_CLASS}
             />
           </div>
-
-          {!isAuthenticated ? (
-            <button
-              type="button"
-              className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-sky-600 transition-colors hover:text-sky-700"
-              onClick={() => openAuthModal('login')}
-            >
-              <span className="grid h-3.5 w-3.5 place-items-center">
-                <BookmarkIcon />
-              </span>
-              Sign in to save this location
-            </button>
-          ) : null}
         </div>
 
         <MetadataList>
-          <MetadataRow label="Address" stacked muted={!addressLine}>
-            {addressLine ?? (reverse.loading ? 'Loading address…' : 'Address unavailable')}
+          <MetadataRow label={t('လိပ်စာ', 'Address')} stacked muted={!addressLine}>
+            <span className="line-clamp-2 text-sm leading-5">
+              {addressLine ??
+                (reverse.loading
+                  ? t('လိပ်စာ ဖွင့်နေသည်…', 'Loading address…')
+                  : t('လိပ်စာ မရရှိနိုင်ပါ', 'Address unavailable'))}
+            </span>
           </MetadataRow>
-          <MetadataRow label="Coordinates" mono>
+          <MetadataRow label={t('တည်နေရာ', 'Coords')} mono>
             {coordinates}
           </MetadataRow>
           {plusCode ? (
-            <MetadataRow label="Plus Code" mono>
+            <MetadataRow label="Plus code" mono>
               {plusCode}
             </MetadataRow>
           ) : null}
@@ -162,13 +164,11 @@ export function AddressLocationPanel({
   );
 }
 
-/** Blue uppercase accent label, matching the POI card's muted label typography. */
-const locationLabelClass = 'text-[11px] font-semibold uppercase tracking-[0.16em] text-sky-600';
-
 function MapPointBadge() {
+  const t = useMapUiText();
   return (
-    <span className="shrink-0 rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-700 ring-1 ring-sky-100">
-      Map point
+    <span className="shrink-0 rounded-full bg-map-primary-soft px-2 py-0.5 text-xs font-semibold text-map-primary ring-1 ring-map-primary/15">
+      {t('မြေပုံ', 'Map')}
     </span>
   );
 }
@@ -190,16 +190,11 @@ function SaveLocationControl({
   readonly addressLine: string | null;
   readonly plusCode: string | null;
 }) {
+  const t = useMapUiText();
   const { saveMapPoint } = useSavedPlaces();
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Reset saved/error state whenever a new point is inspected.
-  useEffect(() => {
-    setSaved(false);
-    setError(null);
-  }, [latitude, longitude]);
 
   const onSave = async () => {
     if (busy || saved) return;
@@ -214,7 +209,7 @@ function SaveLocationControl({
       });
       setSaved(true);
     } catch {
-      setError('Could not save. Try again.');
+      setError(t('သိမ်း၍မရပါ။', 'Could not save.'));
     } finally {
       setBusy(false);
     }
@@ -224,10 +219,10 @@ function SaveLocationControl({
     <div>
       <button
         type="button"
-        className={`flex w-full items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${
+        className={`flex min-h-10 w-full items-center justify-center gap-2 rounded-map-control border px-2.5 py-2 text-xs font-semibold transition-[color,background-color,border-color,box-shadow,opacity,filter] duration-150 disabled:cursor-not-allowed disabled:opacity-45 ${
           saved
-            ? 'border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100'
-            : 'border-neutral-200 bg-white text-neutral-700 hover:border-neutral-300 hover:bg-neutral-50'
+            ? 'border-map-primary/25 bg-map-primary-soft text-map-primary hover:bg-blue-100'
+            : 'border-map-border bg-map-surface text-map-ink hover:border-map-primary/30 hover:bg-map-primary-soft hover:text-map-primary'
         }`}
         disabled={busy || saved}
         aria-pressed={saved}
@@ -236,7 +231,11 @@ function SaveLocationControl({
         <span className="grid h-4 w-4 place-items-center">
           {saved ? <CheckIcon /> : <BookmarkIcon />}
         </span>
-        {saved ? 'Saved' : busy ? 'Saving…' : 'Save location'}
+        {saved
+          ? t('သိမ်းပြီး', 'Saved')
+          : busy
+            ? t('သိမ်းနေသည်…', 'Saving…')
+            : t('သိမ်း', 'Save')}
       </button>
       {error ? <p className="mt-1 text-xs text-red-600">{error}</p> : null}
     </div>

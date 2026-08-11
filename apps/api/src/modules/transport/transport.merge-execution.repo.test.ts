@@ -203,6 +203,7 @@ function createMergePrisma(fixture: MergeFixture): PrismaClient {
             }
             return [
                 {
+                    stop_id: 1n,
                     stop_internal_id: 1n,
                     route_stop_id: "101",
                     route_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
@@ -215,6 +216,7 @@ function createMergePrisma(fixture: MergeFixture): PrismaClient {
                     stop_sequence: 10,
                 },
                 {
+                    stop_id: 2n,
                     stop_internal_id: 2n,
                     route_stop_id: "202",
                     route_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
@@ -241,6 +243,7 @@ function createMergePrisma(fixture: MergeFixture): PrismaClient {
                     mode: "bus",
                     review_status: "needs_review",
                     parent_stop_id: fixture.canonicalParentStopId ?? null,
+                    updated_at: new Date("2026-01-01T00:00:00.000Z"),
                 },
                 {
                     id: 2n,
@@ -248,6 +251,7 @@ function createMergePrisma(fixture: MergeFixture): PrismaClient {
                     mode: "bus",
                     review_status: "needs_review",
                     parent_stop_id: null,
+                    updated_at: new Date("2026-01-01T00:00:00.000Z"),
                 },
             ];
         }

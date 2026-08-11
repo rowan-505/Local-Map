@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef } from 'react';
+import { mapUiText, useMapUiText } from '@/features/map/i18n/mapUiText';
 import { useMapUiStore } from '@/features/map/state/mapUiStore';
-import type { PublicSearchResult } from '@/features/poi/api/publicMapApi';
+import type { PlaceLanguageMode, PublicSearchResult } from '@/features/poi/api/publicMapApi';
 import { shouldAutoLoadMorePublicSearch } from '@/features/poi/api/publicSearchRetry';
 import {
   getVisiblePublicSearchCategoryFilterChips,
@@ -44,6 +45,8 @@ type SearchPanelProps = {
   readonly onViewSelectedResultDetails?: () => void;
   readonly onClearSearch: () => void;
   readonly referenceCoordinates?: readonly [number, number] | null;
+  /** Current map zoom for “in this area” copy (presentation only). */
+  readonly mapZoom?: number | null;
   readonly pois: readonly Poi[];
   readonly placesCount?: number;
   readonly selectedPoiId: string | null;
@@ -87,6 +90,7 @@ function SearchPanelInner({
   onViewSelectedResultDetails,
   onClearSearch,
   referenceCoordinates = null,
+  mapZoom = null,
   pois,
   placesCount,
   selectedPoiId,
@@ -108,81 +112,82 @@ function SearchPanelInner({
   placesError = null,
   placesLoadMoreError = null,
 }: SearchPanelProps) {
+  const t = useMapUiText();
+  const languageMode = useMapUiStore((state) => state.languageMode);
   const showSearchResults = searchQuery.trim().length > 0;
   const categoryFilterChips = getVisiblePublicSearchCategoryFilterChips();
   const showTransportFilters = searchCategory === 'transport';
+  const orderedCategories = orderBrowseCategories(categories);
+  const placesShown = placesCount ?? pois.length;
+  const zoomTooLow = typeof mapZoom === 'number' && mapZoom < 12;
 
   return (
-    <section className="space-y-3 p-3.5" aria-label="Search places">
-      <div className="space-y-2">
-        <label className="block text-[11px] font-semibold uppercase tracking-[0.18em] text-neutral-400">
-          Find on map
-        </label>
-        <div className="relative">
-          <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400">
-            <SearchIcon />
-          </span>
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => onSearchQueryChange(e.target.value)}
-            placeholder="Search places, streets, bus routes..."
-            className="h-12 w-full rounded-[18px] border border-neutral-200 bg-white py-2 pl-11 pr-16 text-sm text-neutral-900 shadow-sm shadow-neutral-950/5 outline-none transition placeholder:text-neutral-400 focus:border-sky-400 focus:ring-4 focus:ring-sky-500/15"
-            autoComplete="off"
-          />
-          {searchLoading ? (
-            <span className="absolute right-10 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin rounded-full border-2 border-neutral-200 border-t-sky-500" />
-          ) : null}
-          {searchQuery.length > 0 ? (
-            <button
-              type="button"
-              className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full px-2 py-1 text-sm leading-none text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700"
-              aria-label="Clear search"
-              onClick={onClearSearch}
-            >
-              <ClearIcon />
-            </button>
-          ) : null}
-        </div>
+    <section className="space-y-4 p-4 text-sm" aria-label={t('နေရာရှာဖွေရန်', 'Search places')}>
+      <div className="relative">
+        <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-map-muted">
+          <SearchIcon />
+        </span>
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => onSearchQueryChange(e.target.value)}
+          placeholder={t('နေရာ သို့မဟုတ် လမ်း ရှာရန်', 'Search the map')}
+          className="h-12 w-full rounded-map-control border border-map-border bg-map-surface py-2 pl-11 pr-16 text-sm text-map-ink shadow-map-control transition-colors placeholder:text-map-muted focus:border-map-primary"
+          autoComplete="off"
+          aria-label={t('မြေပုံ ရှာရန်', 'Search the map')}
+        />
+        {searchLoading ? (
+          <span className="absolute right-10 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin rounded-full border-2 border-map-border border-t-map-primary" />
+        ) : null}
+        {searchQuery.length > 0 ? (
+          <button
+            type="button"
+            className="absolute right-2 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-full text-sm leading-none text-map-muted transition-colors fine-hover:bg-map-bg fine-hover:text-map-ink"
+            aria-label={t('ရှာဖွေမှုကို ရှင်းရန်', 'Clear search')}
+            onClick={onClearSearch}
+          >
+            <ClearIcon />
+          </button>
+        ) : null}
       </div>
 
       {showSearchResults ? (
-        <div className="space-y-2">
-          <ChipRow label="Filter results by type">
+        <div className="space-y-3">
+          <ChipRow label={t('ရလဒ်အမျိုးအစား စစ်ထုတ်ရန်', 'Filter results by type')}>
             {categoryFilterChips.map((chip) => (
               <Chip
                 key={chip.id}
                 selected={searchCategory === chip.id}
                 onClick={() => onSearchCategoryChange(chip.id)}
               >
-                {chip.label}
+                {searchFilterLabel(chip.id, languageMode, chip.label)}
               </Chip>
             ))}
           </ChipRow>
           {showTransportFilters ? (
-            <div className="space-y-1.5 rounded-xl border border-neutral-100 bg-neutral-50/70 px-2 py-2">
-              <p className="px-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-400">
-                Transport filters
+            <div className="space-y-2 rounded-map-card border border-map-border bg-map-bg px-2 py-2">
+              <p className="map-kicker px-1 text-map-muted">
+                {t('အများသုံးယာဉ် စစ်ထုတ်ရန်', 'Transport filters')}
               </p>
-              <ChipRow label="Transport subtype">
+              <ChipRow label={t('အများသုံးယာဉ်အမျိုးအစား', 'Transport subtype')}>
                 {PUBLIC_SEARCH_TRANSPORT_TYPE_FILTER_CHIPS.map((chip) => (
                   <Chip
                     key={chip.id}
                     selected={searchTransportType === chip.id}
                     onClick={() => onSearchTransportTypeChange(chip.id)}
                   >
-                    {chip.label}
+                    {transportTypeLabel(chip.id, languageMode, chip.label)}
                   </Chip>
                 ))}
               </ChipRow>
-              <ChipRow label="Transport mode">
+              <ChipRow label={t('သွားလာမှုပုံစံ', 'Transport mode')}>
                 {PUBLIC_SEARCH_TRANSPORT_MODE_FILTER_CHIPS.map((chip) => (
                   <Chip
                     key={chip.id}
                     selected={searchTransportMode === chip.id}
                     onClick={() => onSearchTransportModeChange(chip.id)}
                   >
-                    {chip.label}
+                    {transportModeLabel(chip.id, languageMode, chip.label)}
                   </Chip>
                 ))}
               </ChipRow>
@@ -204,68 +209,86 @@ function SearchPanelInner({
           />
         </div>
       ) : (
-        <SearchEmptyState />
-      )}
-
-      <div className="space-y-2">
-        <SidebarSectionTitle trailing={categoriesLoading ? 'Loading…' : undefined}>
-          Categories
-        </SidebarSectionTitle>
-        <ChipRow label="Filter places by category">
-          <Chip selected={selectedCategoryCode === null} onClick={() => onSelectCategory(null)}>
-            All
-          </Chip>
-          {categories.map((category) => (
-            <Chip
-              key={category.id}
-              selected={selectedCategoryCode === category.code}
-              onClick={() => onSelectCategory(category.code)}
-            >
-              {category.name}
-            </Chip>
-          ))}
-        </ChipRow>
-        {categoriesError ? (
-          <p className="mt-2 text-xs text-red-600">Could not load categories.</p>
-        ) : null}
-      </div>
-
-      <div className={sidebarCard}>
-        <div className="border-b border-neutral-100 px-3.5 py-2">
-          <SidebarSectionTitle
-            trailing={placesLoading ? 'Loading…' : `${placesCount ?? pois.length} shown`}
-          >
-            Visible places
-          </SidebarSectionTitle>
-        </div>
-        <PoiList
-          pois={pois}
-          selectedPoiId={selectedPoiId}
-          onSelectPoiId={onSelectPoiId}
-          isLoading={placesLoading}
-          error={placesError}
-        />
-        {!placesLoading && !placesError && hasMorePlaces ? (
-          <div className="border-t border-neutral-100 p-2.5">
-            <button
-              type="button"
-              className="flex h-10 w-full items-center justify-center rounded-xl border border-neutral-200 bg-white px-3 text-sm font-medium text-neutral-800 transition-colors hover:border-sky-200 hover:bg-sky-50 hover:text-sky-700 disabled:cursor-wait disabled:opacity-60"
-              onClick={onLoadMorePlaces}
-              disabled={placesLoadingMore}
-            >
-              {placesLoadingMore ? 'Loading more...' : 'Load more in this area'}
-            </button>
-            {placesLoadMoreError ? (
-              <p className="mt-2 text-center text-xs text-red-600">
-                Could not load more places. Try again.
+        <>
+          <div className="space-y-2">
+            <SidebarSectionTitle trailing={categoriesLoading ? t('ဖွင့်နေသည်…', 'Loading…') : undefined}>
+              {t('အမျိုးအစားများ', 'Categories')}
+            </SidebarSectionTitle>
+            <ChipRow label={t('နေရာအမျိုးအစား စစ်ထုတ်ရန်', 'Filter places by category')}>
+              <Chip selected={selectedCategoryCode === null} onClick={() => onSelectCategory(null)}>
+                {t('အားလုံး', 'All')}
+              </Chip>
+              {orderedCategories.map((category) => (
+                <Chip
+                  key={category.id}
+                  selected={selectedCategoryCode === category.code}
+                  onClick={() => onSelectCategory(category.code)}
+                >
+                  {categoryDisplayName(category, languageMode)}
+                </Chip>
+              ))}
+            </ChipRow>
+            {categoriesError ? (
+              <p className="mt-2 text-xs text-map-error">
+                {t('အမျိုးအစားများ မရပါ။', 'Categories unavailable.')}
               </p>
             ) : null}
           </div>
-        ) : null}
-      </div>
+
+          <div className={sidebarCard}>
+            <div className="border-b border-map-border px-3.5 py-2.5">
+              <SidebarSectionTitle
+                trailing={
+                  placesLoading
+                    ? t('ဖွင့်နေသည်…', 'Loading…')
+                    : zoomTooLow
+                      ? undefined
+                      : t(`${placesShown} နေရာ`, `${placesShown} places`)
+                }
+              >
+                {t('အနီးအနား', 'Nearby')}
+              </SidebarSectionTitle>
+            </div>
+            {zoomTooLow ? (
+              <p className="px-3.5 py-4 text-sm leading-6 text-map-muted">
+                {t('အနီးအနားကြည့်ရန် ချဲ့ပါ။', 'Zoom in to browse nearby.')}
+              </p>
+            ) : (
+              <>
+                <PoiList
+                  pois={pois}
+                  selectedPoiId={selectedPoiId}
+                  onSelectPoiId={onSelectPoiId}
+                  isLoading={placesLoading}
+                  error={placesError}
+                />
+                {!placesLoading && !placesError && hasMorePlaces ? (
+                  <div className="border-t border-map-border p-2.5">
+                    <button
+                      type="button"
+                      className="flex h-11 w-full items-center justify-center rounded-map-control border border-map-border bg-map-surface px-3 text-sm font-semibold text-map-ink transition-colors fine-hover:bg-map-bg disabled:cursor-wait disabled:opacity-60 lg:h-10"
+                      onClick={onLoadMorePlaces}
+                      disabled={placesLoadingMore}
+                    >
+                      {placesLoadingMore
+                        ? t('ထပ်မံဖွင့်နေသည်…', 'Loading more...')
+                        : t('ထပ်ကြည့်ရန်', 'Load more')}
+                    </button>
+                    {placesLoadMoreError ? (
+                      <p className="mt-2 text-center text-xs text-map-error">
+                        {t('ထပ်ဖွင့်၍မရပါ။', 'Could not load more.')}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+              </>
+            )}
+          </div>
+        </>
+      )}
 
       {selectedSearchResult ? (
-        <div className="sticky bottom-0 z-10 -mx-3.5 -mb-3.5 mt-1 border-t border-neutral-200 bg-white/95 px-3.5 pb-3.5 pt-2.5 backdrop-blur">
+        <div className="sticky bottom-0 z-10 -mx-4 -mb-4 mt-1 border-t border-map-border bg-map-surface px-4 pb-4 pt-2.5">
           <SelectedResultCard
             result={selectedSearchResult}
             referenceCoordinates={referenceCoordinates}
@@ -279,13 +302,99 @@ function SearchPanelInner({
   );
 }
 
-function SearchEmptyState() {
-  return (
-    <p className="px-1 text-xs leading-5 text-neutral-500">
-      Search places, streets, and bus routes. Results stay in the sidebar so the map stays
-      visible.
-    </p>
-  );
+const PREFERRED_CATEGORY_ORDER = [
+  'food',
+  'health',
+  'transport',
+  'transit',
+  'bus',
+  'shopping',
+  'education',
+] as const;
+
+function orderBrowseCategories(categories: readonly PoiCategory[]): readonly PoiCategory[] {
+  const preferred: PoiCategory[] = [];
+  const rest: PoiCategory[] = [];
+  const preferredSet = new Set<string>(PREFERRED_CATEGORY_ORDER);
+
+  for (const category of categories) {
+    const code = category.code.toLowerCase();
+    if (preferredSet.has(code) || PREFERRED_CATEGORY_ORDER.some((p) => code.includes(p))) {
+      preferred.push(category);
+    } else {
+      rest.push(category);
+    }
+  }
+
+  preferred.sort((a, b) => {
+    const ai = PREFERRED_CATEGORY_ORDER.findIndex((p) => a.code.toLowerCase().includes(p));
+    const bi = PREFERRED_CATEGORY_ORDER.findIndex((p) => b.code.toLowerCase().includes(p));
+    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+  });
+
+  return [...preferred, ...rest];
+}
+
+function categoryDisplayName(category: PoiCategory, languageMode: PlaceLanguageMode): string {
+  const code = category.code.toLowerCase();
+  if (code.includes('food')) return mapUiText(languageMode, 'စားသောက်ဆိုင်', 'Food');
+  if (code.includes('health')) return mapUiText(languageMode, 'ကျန်းမာရေး', 'Health');
+  if (code.includes('transport') || code.includes('transit') || code.includes('bus')) {
+    return mapUiText(languageMode, 'အများသုံးယာဉ်', 'Transport');
+  }
+  if (code.includes('shop')) return mapUiText(languageMode, 'ဈေးဝယ်ရန်', 'Shopping');
+  if (code.includes('educat') || code.includes('school')) {
+    return mapUiText(languageMode, 'ပညာရေး', 'Education');
+  }
+  return category.name;
+}
+
+function searchFilterLabel(
+  id: PublicSearchCategory,
+  languageMode: PlaceLanguageMode,
+  fallback: string,
+): string {
+  const labels: Partial<Record<PublicSearchCategory, string>> = {
+    all: 'အားလုံး',
+    places: 'နေရာများ',
+    areas: 'ဧရိယာများ',
+    roads: 'လမ်းများ',
+    transport: 'အများသုံးယာဉ်',
+    addresses: 'လိပ်စာများ',
+  };
+  return mapUiText(languageMode, labels[id] ?? fallback, fallback);
+}
+
+function transportTypeLabel(
+  id: PublicSearchTransportType,
+  languageMode: PlaceLanguageMode,
+  fallback: string,
+): string {
+  const labels: Record<PublicSearchTransportType, string> = {
+    all: 'အားလုံး',
+    stops: 'မှတ်တိုင်များ',
+    stations: 'ဘူတာများ',
+    terminals: 'ဂိတ်များ',
+    routes: 'လမ်းကြောင်းများ',
+  };
+  return mapUiText(languageMode, labels[id], fallback);
+}
+
+function transportModeLabel(
+  id: PublicSearchTransportMode,
+  languageMode: PlaceLanguageMode,
+  fallback: string,
+): string {
+  const labels: Record<PublicSearchTransportMode, string> = {
+    all: 'အားလုံး',
+    bus: 'ဘတ်စ်',
+    train: 'ရထား',
+    express: 'အဝေးပြေး',
+    ferry: 'ကူးတို့',
+    flight: 'လေယာဉ်',
+    other: 'အခြား',
+  };
+  return mapUiText(languageMode, labels[id], fallback);
 }
 
 /** Compact card for the currently selected result; keeps the list visible below. */
@@ -303,38 +412,39 @@ function SelectedResultCard({
   readonly onViewDetails?: () => void;
 }) {
   const languageMode = useMapUiStore((s) => s.languageMode);
+  const t = useMapUiText();
   const entityType = (result.entityType ?? result.type) as SearchResultType;
   const title = getLocalizedName(result, languageMode);
   const titleClass =
     languageMode === 'both'
-      ? 'block whitespace-pre-line break-words text-sm font-semibold text-neutral-950'
-      : 'block truncate text-sm font-semibold text-neutral-950';
+      ? 'block whitespace-pre-line break-words text-sm font-semibold text-map-ink'
+      : 'block truncate text-sm font-semibold text-map-ink';
   const subtitle =
     entityType === 'coordinate'
-      ? 'Coordinate location'
-      : searchResultSubtitle(result, entityType, referenceCoordinates ?? null);
+      ? t('ကိုဩဒိနိတ်', 'Coordinates')
+      : searchResultSubtitle(result, entityType, referenceCoordinates ?? null, languageMode);
   // Reverse admin line (township · district · region) for pin-type results.
   const reverseLine = reverseAdminLine(result);
   const canViewDetails = entityType === 'place' && typeof onViewDetails === 'function';
 
   return (
-    <div className="rounded-2xl border border-sky-200 bg-sky-50/70 p-3 shadow-sm shadow-sky-950/3">
+    <div className="rounded-map-card border border-map-primary/20 bg-map-primary-soft p-3">
       <div className="flex items-start gap-2.5">
         <SearchResultBadge type={entityType} />
         <span className="min-w-0 flex-1">
-          <span className="block text-[10px] font-semibold uppercase tracking-[0.16em] text-sky-700">
-            Selected
+          <span className="map-kicker block text-map-primary">
+            {t('ရွေးထားသည်', 'Selected')}
           </span>
           <span className={titleClass}>{title}</span>
-          <span className="block truncate text-xs text-neutral-600">{subtitle}</span>
+          <span className="block truncate text-xs text-map-muted">{subtitle}</span>
           {reverseLine ? (
-            <span className="block truncate text-xs text-neutral-500">{reverseLine}</span>
+            <span className="block truncate text-xs text-map-muted">{reverseLine}</span>
           ) : null}
           <SearchResultBadges result={result} entityType={entityType} />
           {loading ? (
-            <span className="mt-1 inline-flex items-center gap-1.5 text-[11px] font-medium text-sky-700">
-              <span className="h-3 w-3 animate-spin rounded-full border-2 border-sky-200 border-t-sky-600" />
-              Loading shape…
+            <span className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-map-primary">
+              <span className="h-3 w-3 animate-spin rounded-full border-2 border-map-primary/20 border-t-map-primary" />
+              {t('နယ်နိမိတ် ဖွင့်နေသည်…', 'Loading boundary…')}
             </span>
           ) : null}
         </span>
@@ -344,28 +454,19 @@ function SelectedResultCard({
         {canViewDetails ? (
           <button
             type="button"
-            className="h-9 flex-1 basis-24 rounded-xl border border-sky-300 bg-sky-600 px-3 text-sm font-medium text-white transition-colors hover:bg-sky-500"
+            className="h-11 flex-1 basis-24 rounded-map-control border border-map-primary bg-map-primary px-3 text-sm font-semibold text-white shadow-map-control transition-colors fine-hover:bg-map-primary-hover lg:h-10"
             onClick={onViewDetails}
           >
-            View details
+            {t('အသေးစိတ်ကြည့်ရန်', 'View details')}
           </button>
         ) : null}
-        <button
-          type="button"
-          className="h-9 flex-1 basis-24 cursor-not-allowed rounded-xl border border-neutral-200 bg-white px-3 text-sm font-medium text-neutral-400"
-          title="Directions coming soon"
-          aria-disabled="true"
-          disabled
-        >
-          Directions
-        </button>
         {onClear ? (
           <button
             type="button"
-            className="h-9 flex-1 basis-20 rounded-xl border border-neutral-200 bg-white px-3 text-sm font-medium text-neutral-700 transition-colors hover:border-neutral-300 hover:bg-neutral-50"
+            className="h-11 flex-1 basis-20 rounded-map-control border border-map-border bg-map-surface px-3 text-sm font-semibold text-map-ink transition-colors fine-hover:bg-map-bg lg:h-10"
             onClick={onClear}
           >
-            Clear
+            {t('ရှင်းရန်', 'Clear')}
           </button>
         ) : null}
       </div>
@@ -401,6 +502,7 @@ function SearchResults({
   readonly onRetrySearch?: () => void;
 }) {
   const languageMode = useMapUiStore((s) => s.languageMode);
+  const t = useMapUiText();
   const hasResults = results.length > 0;
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const initialLoading = searchLoading && !hasResults;
@@ -435,35 +537,45 @@ function SearchResults({
 
   return (
     <div className={sidebarCard}>
-      <div className="border-b border-neutral-100 px-3.5 py-2">
-        <SidebarSectionTitle>Search results</SidebarSectionTitle>
+      <div className="border-b border-map-border/70 px-3.5 py-2">
+        <SidebarSectionTitle>{t('ရှာဖွေမှုရလဒ်များ', 'Search results')}</SidebarSectionTitle>
       </div>
       {initialLoading ? (
-        <SearchStateMessage title="Searching..." body="Looking across available map data." />
+        <SearchStateMessage
+          title={t('ရှာဖွေနေသည်…', 'Searching...')}
+          body={t('မြေပုံဒေတာကို စစ်ဆေးနေသည်။', 'Checking map data.')}
+        />
       ) : null}
       {searchError ? (
         <div className="px-3.5 py-3">
           <SearchStateMessage
             tone="error"
-            title="Could not load search results."
-            body="Check the connection and try again."
+            title={t('ရလဒ်များ မရပါ။', 'Results unavailable.')}
+            body={t('ချိတ်ဆက်မှုကို စစ်ဆေးပါ။', 'Check your connection.')}
           />
           {onRetrySearch ? (
             <button
               type="button"
-              className="mt-2 text-sm font-medium text-sky-700 hover:text-sky-800"
+              className="mt-2 inline-flex min-h-10 items-center rounded-map-control px-2 text-sm font-semibold text-map-primary fine-hover:bg-map-primary-soft fine-hover:text-map-primary-hover"
               onClick={onRetrySearch}
             >
-              Retry search
+              {t('ပြန်ရှာရန်', 'Retry search')}
             </button>
           ) : null}
         </div>
       ) : null}
       {!initialLoading && !searchError && !hasResults ? (
-        <SearchStateMessage title="No results found." body="Try another place, street, or route name." />
+        <SearchStateMessage
+          title={t('ရလဒ်မတွေ့ပါ။', 'No results found.')}
+          body={t('အခြားအမည်ဖြင့် ရှာပါ။', 'Try another name.')}
+        />
       ) : null}
       {!searchError && hasResults ? (
-        <ul className="divide-y divide-neutral-100" role="listbox" aria-label="Search results">
+        <ul
+          className="divide-y divide-map-border/65"
+          role="listbox"
+          aria-label={t('ရှာဖွေမှုရလဒ်များ', 'Search results')}
+        >
           {results.map((result) => {
             const selected = result.id === selectedSearchResultId;
             const entityType = (result.entityType ?? result.type) as SearchResultType;
@@ -472,8 +584,11 @@ function SearchResults({
             const referenceRequired =
               entityType === 'plus_code' && result.plusCode?.referenceRequired === true;
             const subtitle = referenceRequired
-              ? 'Short Plus Code needs map area or current location.'
-              : searchResultSubtitle(result, entityType, referenceCoordinates ?? null);
+              ? t(
+                  'Plus Code အတိုအတွက် တည်နေရာလိုသည်။',
+                  'Short Plus Code needs a location.',
+                )
+              : searchResultSubtitle(result, entityType, referenceCoordinates ?? null, languageMode);
 
             return (
               <li key={`${result.type}:${result.id}`}>
@@ -488,7 +603,7 @@ function SearchResults({
                     <>
                       <span
                         className={`block truncate text-xs ${
-                          referenceRequired ? 'text-amber-700' : 'text-neutral-500'
+                          referenceRequired ? 'text-amber-700' : 'text-map-muted'
                         }`}
                       >
                         {subtitle}
@@ -506,22 +621,25 @@ function SearchResults({
         </ul>
       ) : null}
       {searchLoadingMore ? (
-        <SearchStateMessage title="Loading more results..." body="Fetching the next page." />
+        <SearchStateMessage
+          title={t('ရလဒ်များ ထပ်ဖွင့်နေသည်…', 'Loading more results...')}
+          body={t('နောက်ထပ်ရလဒ်များ ရယူနေသည်။', 'Fetching more results.')}
+        />
       ) : null}
       {searchFetchMoreError ? (
-        <div className="border-t border-neutral-100 px-3.5 py-3">
+        <div className="border-t border-map-border/70 px-3.5 py-3">
           <SearchStateMessage
             tone="error"
-            title="Could not load more results."
-            body="Scroll again or tap retry."
+            title={t('ထပ်ဖွင့်၍မရပါ။', 'Could not load more.')}
+            body={t('ပြန်ကြိုးစားပါ။', 'Try again.')}
           />
           {onLoadMoreSearch ? (
             <button
               type="button"
-              className="mt-2 text-sm font-medium text-sky-700 hover:text-sky-800"
+              className="mt-2 inline-flex min-h-10 items-center rounded-map-control px-2 text-sm font-semibold text-map-primary fine-hover:bg-map-primary-soft fine-hover:text-map-primary-hover"
               onClick={onLoadMoreSearch}
             >
-              Retry
+              {t('ပြန်ကြိုးစားရန်', 'Retry')}
             </button>
           ) : null}
         </div>
@@ -532,10 +650,10 @@ function SearchResults({
       !hasMoreSearch &&
       !searchLoadingMore &&
       !searchFetchMoreError ? (
-        <p className="border-t border-neutral-100 px-3.5 py-2.5 text-xs text-neutral-500">
+        <p className="border-t border-map-border/70 px-3.5 py-2.5 text-xs text-map-muted">
           {searchReachedCap
-            ? 'Showing the maximum results for this search.'
-            : 'No more relevant results.'}
+            ? t('ရလဒ်အားလုံး ပြထားသည်။', 'All results shown.')
+            : t('ရလဒ်ကုန်ပါပြီ။', 'End of results.')}
         </p>
       ) : null}
     </div>
@@ -547,15 +665,16 @@ function searchResultSubtitle(
   result: PublicSearchResult,
   entityType: SearchResultType,
   reference: readonly [number, number] | null,
+  languageMode: PlaceLanguageMode,
 ): string {
-  const typeLabel = searchResultTypeLabel(entityType);
+  const typeLabel = searchResultTypeLabel(entityType, languageMode);
   const area =
     trimmedOrNull(result.adminAreaNameEn) ??
     trimmedOrNull(result.adminAreaNameMy) ??
     trimmedOrNull(result.categoryName) ??
     trimmedOrNull(result.categoryCode) ??
     trimmedOrNull(result.subtitle);
-  const distance = formatSearchDistance(result, reference);
+  const distance = formatSearchDistance(result, reference, languageMode);
   const parts = [typeLabel];
   if (area && area !== typeLabel) parts.push(area);
   if (distance) parts.push(distance);
@@ -581,6 +700,7 @@ function SearchResultBadges({
   readonly result: PublicSearchResult;
   readonly entityType: SearchResultType;
 }) {
+  const t = useMapUiText();
   const verified = result.isVerified === true;
   const approximateBoundary =
     entityType === 'admin_area' &&
@@ -592,13 +712,13 @@ function SearchResultBadges({
   return (
     <span className="mt-1 flex flex-wrap gap-1">
       {verified ? (
-        <span className="inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
-          Verified
+        <span className="inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-xs font-semibold text-emerald-700">
+          {t('အတည်ပြုပြီး', 'Verified')}
         </span>
       ) : null}
       {approximateBoundary ? (
-        <span className="inline-flex items-center rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
-          Approx. boundary
+        <span className="inline-flex items-center rounded-full bg-amber-50 px-1.5 py-0.5 text-xs font-semibold text-amber-700">
+          {t('ခန့်မှန်းနယ်နိမိတ်', 'Approx. boundary')}
         </span>
       ) : null}
     </span>
@@ -627,14 +747,18 @@ function searchResultCoordinates(result: PublicSearchResult): readonly [number, 
 function formatSearchDistance(
   result: PublicSearchResult,
   reference: readonly [number, number] | null,
+  languageMode: PlaceLanguageMode,
 ): string | null {
   if (!reference) return null;
   const coords = searchResultCoordinates(result);
   if (!coords) return null;
   const meters = haversineMeters(reference[1], reference[0], coords[1], coords[0]);
   if (!Number.isFinite(meters)) return null;
-  if (meters < 1000) return `${Math.round(meters)} m away`;
-  return `${(meters / 1000).toFixed(meters >= 10_000 ? 0 : 1)} km away`;
+  if (meters < 1000) {
+    return mapUiText(languageMode, `${Math.round(meters)} မီတာ အကွာ`, `${Math.round(meters)} m away`);
+  }
+  const kilometers = (meters / 1000).toFixed(meters >= 10_000 ? 0 : 1);
+  return mapUiText(languageMode, `${kilometers} ကီလိုမီတာ အကွာ`, `${kilometers} km away`);
 }
 
 function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -657,9 +781,9 @@ function SearchStateMessage({
   readonly tone?: 'neutral' | 'error';
 }) {
   return (
-    <div className={`px-3.5 py-3 ${tone === 'error' ? 'text-red-700' : 'text-neutral-700'}`}>
-      <p className="text-[13px] font-medium">{title}</p>
-      <p className="mt-0.5 text-xs leading-5 text-neutral-500">{body}</p>
+    <div className={`px-3.5 py-3 ${tone === 'error' ? 'text-red-700' : 'text-map-ink/80'}`}>
+      <p className="text-sm font-medium">{title}</p>
+      <p className="mt-0.5 text-xs leading-5 text-map-muted">{body}</p>
     </div>
   );
 }
@@ -669,54 +793,56 @@ function SearchResultBadge({ type }: { readonly type: SearchResultType }) {
 
   return (
     <span
-      className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${meta.className}`}
+      className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${meta.className}`}
     >
       {meta.badge}
     </span>
   );
 }
 
-function searchResultTypeLabel(type: SearchResultType): string {
-  return searchResultTypeMeta(type).label;
+function searchResultTypeLabel(type: SearchResultType, languageMode: PlaceLanguageMode): string {
+  const meta = searchResultTypeMeta(type);
+  return mapUiText(languageMode, meta.labelMy, meta.label);
 }
 
 function searchResultTypeMeta(type: SearchResultType): {
   readonly badge: string;
   readonly label: string;
+  readonly labelMy: string;
   readonly className: string;
 } {
   switch (type) {
     case 'street':
     case 'street_group':
-      return { badge: 'St', label: 'Street', className: 'bg-orange-50 text-orange-700' };
+      return { badge: 'St', label: 'Street', labelMy: 'လမ်း', className: 'bg-orange-50 text-orange-700' };
     case 'admin_area':
-      return { badge: 'A', label: 'Area', className: 'bg-violet-50 text-violet-800' };
+      return { badge: 'A', label: 'Area', labelMy: 'ဧရိယာ', className: 'bg-violet-50 text-violet-800' };
     case 'address':
-      return { badge: 'Ad', label: 'Address', className: 'bg-blue-50 text-blue-700' };
+      return { badge: 'Ad', label: 'Address', labelMy: 'လိပ်စာ', className: 'bg-blue-50 text-blue-700' };
     case 'bus_route':
     case 'bus_route_variant':
     case 'transport_route':
     case 'transport_route_variant':
-      return { badge: 'R', label: 'Route', className: 'bg-cyan-50 text-cyan-700' };
+      return { badge: 'R', label: 'Route', labelMy: 'လမ်းကြောင်း', className: 'bg-cyan-50 text-cyan-700' };
     case 'bus_stop':
     case 'transport_stop':
-      return { badge: 'S', label: 'Stop', className: 'bg-amber-50 text-amber-700' };
+      return { badge: 'S', label: 'Stop', labelMy: 'မှတ်တိုင်', className: 'bg-amber-50 text-amber-700' };
     case 'transport_terminal':
-      return { badge: 'T', label: 'Terminal', className: 'bg-amber-50 text-amber-800' };
+      return { badge: 'T', label: 'Terminal', labelMy: 'ဂိတ်', className: 'bg-amber-50 text-amber-800' };
     case 'building':
-      return { badge: 'Bd', label: 'Building', className: 'bg-stone-100 text-stone-700' };
+      return { badge: 'Bd', label: 'Building', labelMy: 'အဆောက်အအုံ', className: 'bg-stone-100 text-stone-700' };
     case 'water_line':
     case 'water_polygon':
-      return { badge: 'W', label: 'Water', className: 'bg-sky-50 text-sky-700' };
+      return { badge: 'W', label: 'Water', labelMy: 'ရေ', className: 'bg-sky-50 text-sky-700' };
     case 'landuse':
-      return { badge: 'L', label: 'Land use', className: 'bg-lime-50 text-lime-700' };
+      return { badge: 'L', label: 'Land use', labelMy: 'မြေအသုံးပြုမှု', className: 'bg-lime-50 text-lime-700' };
     case 'plus_code':
-      return { badge: '+', label: 'Plus Code', className: 'bg-indigo-50 text-indigo-700' };
+      return { badge: '+', label: 'Plus Code', labelMy: 'Plus Code', className: 'bg-indigo-50 text-indigo-700' };
     case 'coordinate':
-      return { badge: 'GPS', label: 'Coordinate', className: 'bg-slate-100 text-slate-700' };
+      return { badge: 'GPS', label: 'Coordinate', labelMy: 'ကိုဩဒိနိတ်', className: 'bg-slate-100 text-slate-700' };
     case 'place':
     default:
-      return { badge: 'P', label: 'Place', className: 'bg-emerald-50 text-emerald-700' };
+      return { badge: 'P', label: 'Place', labelMy: 'နေရာ', className: 'bg-emerald-50 text-emerald-700' };
   }
 }
 

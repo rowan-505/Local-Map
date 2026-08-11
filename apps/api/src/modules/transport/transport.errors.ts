@@ -180,6 +180,24 @@ export class TransportMergeTerminalConflictError extends Error {
 }
 
 /**
+ * Preview versions no longer match locked stop rows. Client must refresh preview.
+ * Surfaced as HTTP 409.
+ */
+export class TransportMergeStalePreviewError extends Error {
+    readonly code = "MERGE_STALE_PREVIEW" as const;
+    readonly statusCode = 409 as const;
+
+    constructor(
+        public readonly canonicalStopId: string,
+        public readonly duplicateStopId: string,
+        message = "One or both stops changed since the merge preview. Refresh the comparison and try again.",
+    ) {
+        super(message);
+        this.name = "TransportMergeStalePreviewError";
+    }
+}
+
+/**
  * Merging would create an invalid parent_stop_id cycle. Surfaced as HTTP 409.
  */
 export class TransportMergeParentConflictError extends Error {

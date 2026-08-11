@@ -76,6 +76,7 @@ const buildingRowSchema = {
         "source_staging_id",
         "external_id",
         "name",
+        "names",
         "building_type_id",
         "building_type",
         "building_type_code",
@@ -102,10 +103,35 @@ const buildingRowSchema = {
         public_id: { type: "string", format: "uuid" },
         source_staging_id: { type: "string", nullable: true },
         external_id: { type: "string", nullable: true },
-        name_mm: { type: "string", nullable: true },
-        name_en: { type: "string", nullable: true },
-        fallback_name: { type: "string", nullable: true },
-        name: { type: "string", nullable: true, description: "Coalesced display label (mm → en → fallback)" },
+        name_mm: { type: "string", nullable: true, description: "Derived Myanmar label from core_map_building_names (dashboard compat)" },
+        name_en: { type: "string", nullable: true, description: "Derived English label from core_map_building_names (dashboard compat)" },
+        fallback_name: { type: "string", nullable: true, description: "First available name from core_map_building_names" },
+        name: {
+            type: "string",
+            nullable: true,
+            description: "Derived display name (official/local/imported primary priority, then name_mm → name_en → fallback)",
+        },
+        names: {
+            type: "array",
+            description: "Canonical name rows from core.core_map_building_names",
+            items: {
+                type: "object",
+                required: ["name", "languageCode", "nameType", "isPrimary", "searchWeight"],
+                properties: {
+                    id: { type: "number" },
+                    name: { type: "string" },
+                    languageCode: { type: "string", enum: ["my", "en", "und"] },
+                    scriptCode: { type: "string", nullable: true },
+                    nameType: {
+                        type: "string",
+                        enum: ["official", "alternate", "short", "local", "old", "imported"],
+                    },
+                    isPrimary: { type: "boolean" },
+                    searchWeight: { type: "number" },
+                },
+                additionalProperties: false,
+            },
+        },
         building_type_id: { type: "string", nullable: true },
         building_type: { oneOf: [buildingTypeRefSchema, { type: "null" }] },
         building_type_code: { type: "string", nullable: true },
@@ -181,7 +207,11 @@ const createBuildingBodyOpenApi = {
     required: ["geometry"],
     properties: {
         geometry: buildingGeometrySchema,
-        name: { type: "string", nullable: true, description: "Fallback/imported label (core_map_buildings.name)" },
+        name: {
+            type: "string",
+            nullable: true,
+            description: "Deprecated write field; not stored on core_map_buildings.name. Prefer name_mm/name_en.",
+        },
         name_mm: { type: "string", nullable: true },
         name_en: { type: "string", nullable: true },
         building_type: {
@@ -210,7 +240,11 @@ const updateBuildingBodyOpenApi = {
     minProperties: 1,
     properties: {
         geometry: buildingGeometrySchema,
-        name: { type: "string", nullable: true, description: "Fallback/imported label (core_map_buildings.name)" },
+        name: {
+            type: "string",
+            nullable: true,
+            description: "Deprecated write field; not stored on core_map_buildings.name. Prefer name_mm/name_en.",
+        },
         name_mm: { type: "string", nullable: true },
         name_en: { type: "string", nullable: true },
         building_type: {

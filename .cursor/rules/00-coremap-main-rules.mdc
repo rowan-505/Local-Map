@@ -38,4 +38,4 @@ CoreMap is a Myanmar map platform. V2 extends the existing system. Do not restar
 | `08-agent-workflow.mdc` | Workflow pointer |
 | `09-supabase-cursor-setup.mdc` | Supabase MCP setup |
 
-Full detail: [`AGENTS.md`](../../AGENTS.md). V2 roadmap: [`docs/11-roadmap/v2-plan.md`](../../docs/11-roadmap/v2-plan.md).
+Full detail: [`AGENTS.md`](../../AGENTS.md). V2 roadmap: [`docs/roadmap.md`](../../docs/roadmap.md).

@@ -31,18 +31,18 @@ export function LocationToast({ toast }: { readonly toast: LocationToastModel | 
   return (
     <div className="pointer-events-none absolute left-1/2 top-3 z-30 flex -translate-x-1/2 justify-center px-3">
       <div
-        className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium shadow-lg shadow-neutral-900/10 backdrop-blur-xl transition-all duration-300 ${
+        className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium shadow-map-control backdrop-blur-xl transition-all duration-300 ${
           shown ? 'translate-y-0 opacity-100' : '-translate-y-1 opacity-0'
         } ${
           warn
             ? 'border-amber-200 bg-amber-50/95 text-amber-900'
-            : 'border-white/80 bg-white/95 text-neutral-700'
+            : 'border-white/90 bg-white/95 text-map-ink'
         }`}
         role="status"
         aria-live="polite"
       >
         <span
-          className={`h-1.5 w-1.5 shrink-0 rounded-full ${warn ? 'bg-amber-500' : 'bg-sky-500'}`}
+          className={`h-1.5 w-1.5 shrink-0 rounded-full ${warn ? 'bg-amber-500' : 'bg-map-primary'}`}
           aria-hidden="true"
         />
         <span className="truncate">{toast.message}</span>

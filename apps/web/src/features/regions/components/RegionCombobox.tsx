@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useDebouncedValue } from '@/features/filters/useDebouncedValue';
 import { searchRegions, type RegionOption } from '../api/regionsApi';
@@ -27,6 +27,8 @@ export function RegionCombobox({
 }) {
   const [editing, setEditing] = useState(false);
   const [query, setQuery] = useState('');
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const listboxId = useId();
   const debounced = useDebouncedValue(query, 250);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -40,6 +42,7 @@ export function RegionCombobox({
     enabled,
     staleTime: 30_000,
   });
+  const options = results.data ?? [];
 
   // Close the dropdown / exit editing when clicking outside.
   useEffect(() => {
@@ -58,26 +61,28 @@ export function RegionCombobox({
     onChange(option.id, option.display_name);
     setEditing(false);
     setQuery('');
+    setActiveIndex(-1);
   };
 
   const clear = () => {
     onChange(null, null);
     setEditing(true);
     setQuery('');
+    setActiveIndex(-1);
   };
 
   return (
     <div className="block" ref={containerRef}>
-      <span className="mb-1 block text-xs font-semibold text-neutral-600">{label}</span>
+      <span className="mb-1 block text-xs font-semibold text-map-muted">{label}</span>
 
       {value !== null && !editing ? (
-        <div className="flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2">
-          <span className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-900">
+        <div className="flex items-center gap-2 rounded-map-control border border-map-border bg-map-surface px-3 py-2">
+          <span className="min-w-0 flex-1 truncate text-sm font-medium text-map-ink">
             {selectedLabel ?? `Selected region #${value}`}
           </span>
           <button
             type="button"
-            className="shrink-0 text-xs font-semibold text-sky-600 hover:text-sky-700"
+            className="shrink-0 text-xs font-semibold text-map-primary hover:text-map-primary-hover"
             onClick={() => {
               setEditing(true);
               setQuery('');
@@ -87,7 +92,7 @@ export function RegionCombobox({
           </button>
           <button
             type="button"
-            className="shrink-0 text-xs font-semibold text-neutral-400 hover:text-neutral-600"
+            className="shrink-0 text-xs font-semibold text-map-muted/75 hover:text-map-primary"
             onClick={clear}
           >
             Clear
@@ -96,37 +101,67 @@ export function RegionCombobox({
       ) : (
         <div className="relative">
           <input
-            className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 outline-none transition-colors focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+            className="w-full rounded-map-control border border-map-border bg-map-surface px-3 py-2 text-sm text-map-ink outline-none transition-colors focus:border-map-primary "
             type="text"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                setActiveIndex((index) => Math.min(index + 1, options.length - 1));
+              } else if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                setActiveIndex((index) => Math.max(index - 1, 0));
+              } else if (event.key === 'Enter' && activeIndex >= 0 && options[activeIndex]) {
+                event.preventDefault();
+                select(options[activeIndex]);
+              } else if (event.key === 'Escape') {
+                setActiveIndex(-1);
+                if (value !== null) setEditing(false);
+              }
+            }}
             placeholder={placeholder}
             autoComplete="off"
-            // eslint-disable-next-line jsx-a11y/no-autofocus
+            role="combobox"
+            aria-label={label}
+            aria-autocomplete="list"
+            aria-controls={enabled ? listboxId : undefined}
+            aria-expanded={enabled}
+            aria-activedescendant={activeIndex >= 0 ? `${listboxId}-${activeIndex}` : undefined}
             autoFocus={editing}
           />
 
           {enabled ? (
-            <div className="absolute z-20 mt-1 max-h-60 w-full overflow-auto rounded-xl border border-neutral-200 bg-white py-1 shadow-lg shadow-neutral-950/5">
+            <div
+              id={listboxId}
+              role="listbox"
+              className="absolute z-20 mt-1 max-h-60 w-full overflow-auto rounded-map-card border border-map-border bg-map-surface py-1 shadow-map-float"
+            >
               {results.isLoading ? (
-                <p className="px-3 py-2 text-xs text-neutral-500">Searching…</p>
+                <p className="px-3 py-2 text-xs text-map-muted">Searching…</p>
               ) : results.isError ? (
                 <p className="px-3 py-2 text-xs text-red-600">Could not load regions.</p>
               ) : (results.data?.length ?? 0) === 0 ? (
-                <p className="px-3 py-2 text-xs text-neutral-500">No regions found.</p>
+                <p className="px-3 py-2 text-xs text-map-muted">No regions found.</p>
               ) : (
-                results.data?.map((option) => (
+                options.map((option, index) => (
                   <button
                     key={option.id}
+                    id={`${listboxId}-${index}`}
                     type="button"
-                    className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left hover:bg-neutral-50"
+                    role="option"
+                    aria-selected={index === activeIndex}
+                    className={`map-focus-inset flex min-h-11 w-full flex-col items-start gap-0.5 px-3 py-2 text-left transition-colors ${
+                      index === activeIndex ? 'bg-map-primary-soft' : 'hover:bg-map-primary-soft'
+                    }`}
+                    onMouseEnter={() => setActiveIndex(index)}
                     onClick={() => select(option)}
                   >
-                    <span className="truncate text-sm font-medium text-neutral-900">
+                    <span className="truncate text-sm font-medium text-map-ink">
                       {option.display_name}
                     </span>
                     {option.name_my && option.name_my !== option.name ? (
-                      <span className="truncate text-[11px] text-neutral-500">
+                      <span className="truncate text-xs text-map-muted">
                         {option.name_my}
                       </span>
                     ) : null}
@@ -139,7 +174,7 @@ export function RegionCombobox({
           {value !== null && editing ? (
             <button
               type="button"
-              className="mt-1 text-xs font-semibold text-neutral-400 hover:text-neutral-600"
+              className="mt-1 text-xs font-semibold text-map-muted/75 hover:text-map-primary"
               onClick={() => {
                 setEditing(false);
                 setQuery('');

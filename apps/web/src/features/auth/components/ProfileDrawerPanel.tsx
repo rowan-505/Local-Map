@@ -51,14 +51,14 @@ export function ProfileDrawerPanel({
 
   return (
     <section className="space-y-3 p-3.5" aria-label="Account profile">
-      <div className="rounded-2xl border border-neutral-100 bg-white p-4 shadow-sm shadow-neutral-950/3">
+      <div className="rounded-map-card border border-map-border bg-map-surface p-4 shadow-map-card">
         <div className="flex items-start gap-3">
-          <span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-sky-600 text-base font-bold text-white">
+          <span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-[linear-gradient(135deg,#0f68e8,#087c8f)] text-base font-bold text-white shadow-map-control">
             {initial}
           </span>
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-neutral-950">{user.display_name}</p>
-            <p className="truncate text-xs text-neutral-500">{user.email}</p>
+            <p className="truncate text-sm font-semibold text-map-ink">{user.display_name}</p>
+            <p className="truncate text-xs text-map-muted">{user.email}</p>
             <div className="mt-1.5 flex flex-wrap gap-1.5">
               {isDevBypass ? (
                 <Badge tone="purple">Development bypass account</Badge>
@@ -77,20 +77,19 @@ export function ProfileDrawerPanel({
         </div>
 
         {isDevBypass ? (
-          <p className="mt-3 rounded-xl bg-purple-50 px-3 py-2 text-[11px] leading-4 text-purple-700">
-            Development bypass is on. Real account verification cannot be tested while
-            AUTH_BYPASS=true — set it to false to register and verify a real account.
+          <p className="mt-3 rounded-xl bg-purple-50 px-3 py-2 text-xs leading-4 text-purple-700">
+            Development bypass is active. Verification is unavailable.
           </p>
         ) : null}
       </div>
 
       {!verified && !isDevBypass ? (
-        <div className="rounded-2xl border border-neutral-100 bg-white p-4 shadow-sm shadow-neutral-950/3">
+        <div className="rounded-map-card border border-map-border bg-map-surface p-4 shadow-map-card">
           <EmailVerifySection />
         </div>
       ) : null}
 
-      <div className="rounded-2xl border border-neutral-100 bg-white p-1.5 shadow-sm shadow-neutral-950/3">
+      <div className="rounded-map-card border border-map-border bg-map-surface p-1.5 shadow-map-card">
         <InfoRow label="Phone" value={user.phone ?? 'Not set'} />
         <InfoRow label="Preferred language" value={languageLabel} />
         <RegionInfoRow regionId={user.primary_region_id} />
@@ -103,7 +102,7 @@ export function ProfileDrawerPanel({
 
       <button
         type="button"
-        className="w-full rounded-2xl bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-sky-700"
+        className="w-full rounded-map-control bg-map-primary px-4 py-2.5 text-sm font-semibold text-white shadow-map-control transition-[color,background-color,border-color,box-shadow,opacity,filter] duration-150 hover:bg-map-primary-hover"
         onClick={() => setEditing(true)}
       >
         Edit profile
@@ -111,25 +110,25 @@ export function ProfileDrawerPanel({
 
       <button
         type="button"
-        className="flex w-full items-center justify-between rounded-2xl border border-neutral-100 bg-white px-4 py-3 text-sm font-semibold text-neutral-800 shadow-sm shadow-neutral-950/3 transition-colors hover:bg-neutral-50"
+        className="flex w-full items-center justify-between rounded-map-card border border-map-border bg-map-surface px-4 py-3 text-sm font-semibold text-map-ink shadow-map-card transition-[color,background-color,border-color,box-shadow,opacity,filter] duration-150 hover:border-map-primary/30 hover:bg-map-primary-soft"
         onClick={onOpenSaved}
       >
         <span>View saved places</span>
-        <span className="text-neutral-400">›</span>
+        <span className="text-map-primary">›</span>
       </button>
 
       <button
         type="button"
-        className="flex w-full items-center justify-between rounded-2xl border border-neutral-100 bg-white px-4 py-3 text-sm font-semibold text-neutral-800 shadow-sm shadow-neutral-950/3 transition-colors hover:bg-neutral-50"
+        className="flex w-full items-center justify-between rounded-map-card border border-map-border bg-map-surface px-4 py-3 text-sm font-semibold text-map-ink shadow-map-card transition-[color,background-color,border-color,box-shadow,opacity,filter] duration-150 hover:border-map-primary/30 hover:bg-map-primary-soft"
         onClick={onOpenReports}
       >
         <span>My reports</span>
-        <span className="text-neutral-400">›</span>
+        <span className="text-map-primary">›</span>
       </button>
 
       <button
         type="button"
-        className="w-full rounded-2xl border border-neutral-200 bg-white px-4 py-2.5 text-sm font-semibold text-neutral-700 transition-colors hover:bg-neutral-50"
+        className="w-full rounded-map-control border border-map-border bg-map-surface px-4 py-2.5 text-sm font-semibold text-map-muted transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600"
         onClick={() => void logout()}
       >
         Log out
@@ -204,7 +203,7 @@ function ProfileEditForm({ onClose }: { readonly onClose: () => void }) {
 
   return (
     <section className="space-y-3 p-3.5" aria-label="Edit profile">
-      <div className="rounded-2xl border border-neutral-100 bg-white p-4 shadow-sm shadow-neutral-950/3">
+      <div className="rounded-map-card border border-map-border bg-map-surface p-4 shadow-map-card">
         <form className="space-y-3" onSubmit={onSubmit}>
           <TextField
             label="Display name"
@@ -221,11 +220,11 @@ function ProfileEditForm({ onClose }: { readonly onClose: () => void }) {
             placeholder="e.g. 09xxxxxxxxx"
           />
           <label className="block">
-            <span className="mb-1 block text-xs font-semibold text-neutral-600">
+            <span className="mb-1 block text-xs font-semibold text-map-muted">
               Preferred language
             </span>
             <select
-              className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 outline-none transition-colors focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+              className="w-full rounded-map-control border border-map-border bg-map-surface px-3 py-2 text-sm text-map-ink outline-none transition-colors focus:border-map-primary "
               value={preferredLanguage}
               onChange={(e) => setPreferredLanguage(e.target.value === 'en' ? 'en' : 'my')}
             >
@@ -243,9 +242,8 @@ function ProfileEditForm({ onClose }: { readonly onClose: () => void }) {
             }}
           />
 
-          <div className="rounded-xl bg-neutral-50 px-3 py-2 text-[11px] leading-4 text-neutral-500">
-            Email, verification status, roles, and points are managed elsewhere and
-            can't be edited here.
+          <div className="rounded-map-control bg-map-bg px-3 py-2 text-xs leading-4 text-map-muted ring-1 ring-map-border/70">
+            Security and points are managed separately.
           </div>
 
           {error ? (
@@ -262,14 +260,14 @@ function ProfileEditForm({ onClose }: { readonly onClose: () => void }) {
           <div className="flex gap-2">
             <button
               type="submit"
-              className="flex-1 rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-sky-700 disabled:opacity-60"
+              className="flex-1 rounded-map-control bg-map-primary px-4 py-2.5 text-sm font-semibold text-white shadow-map-control transition-colors hover:bg-map-primary-hover disabled:opacity-60"
               disabled={busy}
             >
               {busy ? 'Saving…' : 'Save changes'}
             </button>
             <button
               type="button"
-              className="rounded-xl border border-neutral-200 bg-white px-4 py-2.5 text-sm font-semibold text-neutral-700 transition-colors hover:bg-neutral-50"
+              className="rounded-map-control border border-map-border bg-map-surface px-4 py-2.5 text-sm font-semibold text-map-muted transition-colors hover:bg-map-primary-soft hover:text-map-primary"
               onClick={onClose}
             >
               {success ? 'Back' : 'Cancel'}
@@ -302,9 +300,9 @@ function TextField({
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs font-semibold text-neutral-600">{label}</span>
+      <span className="mb-1 block text-xs font-semibold text-map-muted">{label}</span>
       <input
-        className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 outline-none transition-colors focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+        className="w-full rounded-map-control border border-map-border bg-map-surface px-3 py-2 text-sm text-map-ink outline-none transition-colors focus:border-map-primary "
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -347,8 +345,8 @@ function RegionInfoRow({ regionId }: { readonly regionId: string | null }) {
 function InfoRow({ label, value }: { readonly label: string; readonly value: string }) {
   return (
     <div className="flex items-center justify-between gap-3 px-2.5 py-2">
-      <span className="text-xs font-medium text-neutral-500">{label}</span>
-      <span className="truncate text-sm font-semibold text-neutral-900">{value}</span>
+      <span className="text-xs font-medium text-map-muted">{label}</span>
+      <span className="truncate text-sm font-semibold text-map-ink">{value}</span>
     </div>
   );
 }
@@ -369,7 +367,7 @@ function Badge({
 }) {
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${BADGE_TONES[tone]}`}
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ${BADGE_TONES[tone]}`}
     >
       {children}
     </span>

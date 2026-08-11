@@ -15,6 +15,11 @@
 --
 -- Prefer delete+regenerate over upsert so stale normalized values cannot remain.
 -- Upsert paths left in Stage 05 become no-ops after this reset (documented).
+--
+-- HARD RULE: this reset never touches basemap_source.* .
+-- basemap_source.buildings is the persistent national building archive for
+-- PMTiles export after temporary staging.staging_building_candidates rows are
+-- cleaned. Do not add basemap_source tables to the delete list below.
 -- =============================================================================
 
 CREATE SCHEMA IF NOT EXISTS system;

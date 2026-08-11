@@ -55,25 +55,25 @@ export default function ShareResolver() {
   const notFound = isError || !code;
 
   return (
-    <div className="flex flex-1 items-center justify-center bg-neutral-100 p-6">
-      <div className="w-full max-w-sm rounded-2xl border border-neutral-200 bg-white p-6 text-center shadow-sm">
+    <div className="flex flex-1 items-center justify-center bg-map-bg p-6">
+      <div className="w-full max-w-sm rounded-3xl border border-map-border bg-map-surface p-6 text-center shadow-map-float">
         {notFound ? (
           <>
-            <h1 className="text-base font-semibold text-neutral-950">Shared link not found.</h1>
-            <p className="mt-2 text-sm leading-6 text-neutral-600">
-              This share link is invalid or no longer available.
+            <h1 className="text-sm font-semibold text-map-ink">Shared link not found.</h1>
+            <p className="mt-2 text-sm leading-6 text-map-muted">
+              Link unavailable.
             </p>
             <Link
               to="/"
-              className="mt-4 inline-block rounded-xl bg-sky-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-sky-700"
+              className="mt-4 inline-block rounded-map-control bg-map-primary px-4 py-2 text-sm font-semibold text-white shadow-map-control transition-colors hover:bg-map-primary-hover"
             >
               Open the map
             </Link>
           </>
         ) : (
           <>
-            <h1 className="text-base font-semibold text-neutral-950">Opening shared location…</h1>
-            <p className="mt-2 text-sm leading-6 text-neutral-600">Resolving your CoreMap link.</p>
+            <h1 className="text-sm font-semibold text-map-ink">Opening shared location…</h1>
+            <p className="mt-2 text-sm leading-6 text-map-muted">Resolving your CoreMap link.</p>
           </>
         )}
       </div>

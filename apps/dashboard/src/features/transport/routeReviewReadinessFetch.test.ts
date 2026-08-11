@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { shouldFetchRouteReviewReadiness } from "./routeReviewReadinessFetch";
+import {
+    shouldFetchRouteReviewReadiness,
+    shouldReloadReadinessAfterReview,
+} from "./routeReviewReadinessFetch";
 
 describe("shouldFetchRouteReviewReadiness", () => {
     it("skips while route is loading", () => {
@@ -57,5 +60,27 @@ describe("shouldFetchRouteReviewReadiness", () => {
             }),
             true,
         );
+    });
+});
+
+describe("shouldReloadReadinessAfterReview", () => {
+    it("skips reload when mutation returned readiness", () => {
+        assert.equal(
+            shouldReloadReadinessAfterReview({
+                readiness: {
+                    can_verify: true,
+                    can_mark_reviewed: true,
+                    blockers: [],
+                    mark_reviewed_blockers: [],
+                    warnings: [],
+                },
+            }),
+            false,
+        );
+    });
+
+    it("reloads when readiness is absent", () => {
+        assert.equal(shouldReloadReadinessAfterReview({}), true);
+        assert.equal(shouldReloadReadinessAfterReview({ readiness: undefined }), true);
     });
 });

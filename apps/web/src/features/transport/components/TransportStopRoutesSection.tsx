@@ -26,8 +26,8 @@ export function TransportStopRoutesSection({
             ))}
           </ul>
         ) : (
-          <p className="mt-2 text-sm leading-6 text-neutral-500">
-            No route information available yet.
+          <p className="mt-2 text-sm leading-6 text-map-muted">
+            No route data.
           </p>
         )}
       </div>
@@ -64,20 +64,20 @@ function RouteServingChip({
   return (
     <button
       type="button"
-      className="flex w-full flex-col gap-0.5 rounded-xl border border-neutral-200 bg-neutral-50/80 px-3 py-2.5 text-left transition-colors hover:border-neutral-300 hover:bg-white"
+      className="flex w-full flex-col gap-0.5 rounded-map-control border border-map-border bg-map-bg px-3 py-2.5 text-left transition-[color,background-color,border-color,box-shadow,opacity,filter] duration-150 hover:border-map-primary/30 hover:bg-map-surface"
       aria-label={buildRouteChipAriaLabel(route, title, corridor)}
       onClick={() => {
         // Route open-on-map selection is not wired yet; keep the chip stable.
       }}
     >
-      <span className="text-sm font-medium leading-5 text-neutral-900">{title}</span>
+      <span className="text-sm font-medium leading-5 text-map-ink">{title}</span>
       {route.directionName ? (
-        <span className="text-xs leading-5 text-neutral-600">{route.directionName}</span>
+        <span className="text-xs leading-5 text-map-muted">{route.directionName}</span>
       ) : null}
       {corridor ? (
-        <span className="text-xs leading-5 text-neutral-500">{corridor}</span>
+        <span className="text-xs leading-5 text-map-muted">{corridor}</span>
       ) : null}
-      <span className="text-[11px] font-medium uppercase tracking-wide text-neutral-400">
+      <span className="map-kicker text-map-muted">
         Stop #{route.stopSequence}
       </span>
     </button>

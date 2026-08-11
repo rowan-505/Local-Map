@@ -204,7 +204,27 @@ export class ReverseAddressRepository {
             SELECT
                 b.id,
                 b.public_id::text AS public_id,
-                b.name,
+                COALESCE(
+                    (
+                        SELECT n.name
+                        FROM core.core_map_building_names AS n
+                        WHERE n.building_id = b.id
+                          AND nullif(btrim(n.name), '') IS NOT NULL
+                        ORDER BY
+                            CASE
+                                WHEN n.name_type = 'official' AND n.is_primary IS TRUE THEN 0
+                                WHEN n.name_type = 'local' AND n.is_primary IS TRUE THEN 1
+                                WHEN n.name_type = 'imported' AND n.is_primary IS TRUE THEN 2
+                                WHEN n.name_type = 'alternate' THEN 3
+                                ELSE 4
+                            END,
+                            n.search_weight DESC NULLS LAST,
+                            n.id ASC
+                        LIMIT 1
+                    ),
+                    -- deprecated: legacy core_map_buildings.name
+                    NULLIF(btrim(b.name), '')
+                ) AS name,
                 a.id AS linked_address_id,
                 a.public_id::text AS linked_address_public_id
             FROM core.core_map_buildings AS b

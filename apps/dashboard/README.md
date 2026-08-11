@@ -12,10 +12,10 @@ Default: `http://localhost:3000`
 
 ## Documentation
 
-- **Canonical:** [`docs/05-dashboard/dashboard-overview.md`](../../docs/05-dashboard/dashboard-overview.md)
+- **Canonical:** [`docs/dashboard.md`](../../docs/dashboard.md)
 - **Full index:** [`docs/README.md`](../../docs/README.md)
 - **Architecture:** [`AGENTS.md`](../../AGENTS.md)
 
 ## Environment
 
-Set `NEXT_PUBLIC_API_BASE_URL` — see [`docs/01-getting-started/environment-variables.md`](../../docs/01-getting-started/environment-variables.md).
+Set `NEXT_PUBLIC_API_BASE_URL` — see [`docs/getting-started.md`](../../docs/getting-started.md).

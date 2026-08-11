@@ -21,3 +21,10 @@ export function shouldFetchRouteReviewReadiness(input: {
     }
     return true;
 }
+
+/** True when a review mutation already returned readiness — skip a second GET. */
+export function shouldReloadReadinessAfterReview(result: {
+    readonly readiness?: unknown;
+}): boolean {
+    return result.readiness == null;
+}

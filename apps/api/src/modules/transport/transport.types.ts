@@ -470,6 +470,7 @@ export type TransportStopMergePreviewStop = {
     isActive: boolean;
     lat: number | null;
     lng: number | null;
+    updatedAt?: string | null;
 };
 
 export type TransportStopMergeReferenceCounts = {

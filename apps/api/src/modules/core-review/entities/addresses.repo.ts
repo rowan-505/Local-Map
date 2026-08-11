@@ -7,6 +7,7 @@ import {
 import { getCoreReviewLifecycleConfig } from "../core-review-lifecycle.config.js";
 import type { CoreReviewEntityListParams } from "../core-review-entities.repo.js";
 import { coreReviewVerificationFilterClause } from "../core-review-verification-filter.js";
+import { parseCoreReviewExactIdSearch } from "../core-review-id-search.js";
 
 export type CoreAddressComponentRowDb = {
     id: bigint;
@@ -152,6 +153,13 @@ function statusClause(status?: CoreReviewListStatus): Prisma.Sql {
 function searchClause(search?: string): Prisma.Sql {
     if (!search?.trim()) {
         return Prisma.empty;
+    }
+    const exactId = parseCoreReviewExactIdSearch(search);
+    if (exactId.numericId !== null) {
+        return Prisma.sql`AND a.id = ${exactId.numericId}`;
+    }
+    if (exactId.publicId) {
+        return Prisma.sql`AND a.public_id = CAST(${exactId.publicId} AS uuid)`;
     }
     const q = `%${search.trim()}%`;
     return Prisma.sql`

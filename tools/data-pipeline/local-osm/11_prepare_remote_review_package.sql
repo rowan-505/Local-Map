@@ -183,6 +183,10 @@ BEGIN
     IF EXISTS (SELECT 1 FROM stage11_params WHERE snapshot_version IS NULL) THEN
         RAISE EXCEPTION 'missing psql variable: snapshot_version';
     END IF;
+    IF EXISTS (SELECT 1 FROM stage11_params WHERE NOT conflict_only) THEN
+        RAISE EXCEPTION
+            'full-candidate Import Review packages are retired; conflict_only must be true';
+    END IF;
 END
 $v$;
 
@@ -414,6 +418,10 @@ DECLARE
     v_matched_table_expr text;
     v_conflict_filter text;
     v_has_import_class boolean;
+    v_has_validation_status boolean;
+    v_has_promotion_status boolean;
+    v_row_filter text;
+    v_import_class_expr text;
     v_valid bigint;
     v_direct bigint;
     v_unchanged bigint;
@@ -541,18 +549,65 @@ BEGIN
               AND column_name = 'import_class'
         ) INTO v_has_import_class;
 
+        SELECT EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = v_schema
+              AND table_name = v_fe.staging_table
+              AND column_name = 'validation_status'
+        ) INTO v_has_validation_status;
+
+        SELECT EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = v_schema
+              AND table_name = v_fe.staging_table
+              AND column_name = 'promotion_status'
+        ) INTO v_has_promotion_status;
+
         IF prm.conflict_only AND NOT v_has_import_class THEN
             RAISE EXCEPTION
                 'conflict_only package requires %.%.import_class — run Stage 08b first',
                 v_schema, v_fe.staging_table;
         END IF;
 
+        -- Use the real import_class column — never to_jsonb(s), which serializes
+        -- geom and stalls on multi-million-row families (e.g. national buildings).
         IF prm.conflict_only THEN
             v_conflict_filter := $cf$
-              AND system.pipeline_is_ir_conflict_class(to_jsonb(s) ->> 'import_class')
+              AND s.import_class = ANY (system.pipeline_ir_conflict_classes())
             $cf$;
         ELSE
             v_conflict_filter := '';
+        END IF;
+
+        IF v_has_import_class THEN
+            EXECUTE format(
+                'CREATE INDEX IF NOT EXISTS %I ON %I.%I (source_snapshot_id, import_class)',
+                v_fe.staging_table || '_snd_import_class_idx',
+                v_schema,
+                v_fe.staging_table
+            );
+            v_import_class_expr := 's.import_class';
+        ELSE
+            v_import_class_expr := 'NULL::text';
+        END IF;
+
+        v_row_filter := '';
+        IF v_has_promotion_status THEN
+            v_row_filter := v_row_filter || $rf$
+      AND coalesce(s.promotion_status, '') IS DISTINCT FROM 'promoted'
+$rf$;
+        END IF;
+        IF v_has_validation_status THEN
+            v_row_filter := v_row_filter || $rf$
+      AND coalesce(s.validation_status, 'valid') <> 'invalid'
+$rf$;
+        END IF;
+        IF v_has_import_class THEN
+            v_row_filter := v_row_filter || $rf$
+      AND coalesce(s.import_class, '') IS DISTINCT FROM 'invalid'
+$rf$;
         END IF;
 
         IF prm.settlements_only AND v_fe.entity_family = 'places' THEN
@@ -626,6 +681,7 @@ $cj$,
         END IF;
 
         -- Always fold typed place/settlement fields into normalized_data for IR upload.
+        -- Prefer Stage 08c production admin_area_id from normalized_data (not local typed column).
         IF v_fe.entity_family = 'places' THEN
             v_child_nd := format(
                 $nd$
@@ -635,66 +691,55 @@ $cj$,
     'category_id', to_jsonb(s) -> 'category_id',
     'poi_category_id', to_jsonb(s) -> 'poi_category_id',
     'place_class_id', to_jsonb(s) -> 'place_class_id',
-    'admin_area_id', to_jsonb(s) -> 'admin_area_id',
+    'admin_area_id', coalesce(
+        nullif((%s) -> 'admin_area_id', 'null'::jsonb),
+        nullif((%s) -> 'core_admin_area_id', 'null'::jsonb),
+        to_jsonb(s) -> 'admin_area_id'
+    ),
     'lat', to_jsonb(s) -> 'lat',
     'lng', to_jsonb(s) -> 'lng',
     'import_class', to_jsonb(s) -> 'import_class',
     'source_hash', coalesce(to_jsonb(s) -> 'normalized_hash', to_jsonb(s) -> 'source_hash')
 ))
 $nd$,
+                v_child_nd,
+                v_child_nd,
+                v_child_nd
+            );
+        ELSIF v_fe.entity_family IN ('roads', 'buildings', 'landuse') THEN
+            v_child_nd := format(
+                $nd$
+(%s) || jsonb_strip_nulls(jsonb_build_object(
+    'admin_area_id', coalesce(
+        nullif((%s) -> 'admin_area_id', 'null'::jsonb),
+        nullif((%s) -> 'core_admin_area_id', 'null'::jsonb)
+    ),
+    'admin_assign_source', (%s) -> 'admin_assign_source',
+    'import_class', to_jsonb(s) -> 'import_class'
+))
+$nd$,
+                v_child_nd,
+                v_child_nd,
+                v_child_nd,
                 v_child_nd
             );
         END IF;
 
         IF v_fe.matched_core_id_col IS NOT NULL AND btrim(v_fe.matched_core_id_col) <> '' THEN
-            v_matched_col := format('coalesce(f.core_id_hint, s.%I)', v_fe.matched_core_id_col);
+            v_matched_col := format('s.%I', v_fe.matched_core_id_col);
         ELSE
-            v_matched_col := 'f.core_id_hint';
+            v_matched_col := 'NULL::bigint';
         END IF;
 
         IF v_fe.matched_core_table IS NOT NULL THEN
-            v_matched_table_expr := format(
-                $mt$
-CASE
-    WHEN coalesce(f.core_before, '{}'::jsonb) <> '{}'::jsonb THEN %L::text
-    WHEN %s IS NOT NULL THEN %L::text
-    ELSE NULL::text
-END
-$mt$,
-                v_fe.matched_core_table,
-                v_matched_col,
-                v_fe.matched_core_table
-            );
+            v_matched_table_expr := format('%L::text', v_fe.matched_core_table);
         ELSE
             v_matched_table_expr := 'NULL::text';
         END IF;
 
         v_sql := format(
             $ex$
-WITH latest_slice AS (
-    SELECT DISTINCT ON (di.local_entity_id)
-        di.local_entity_id AS staging_pk,
-        di.before_data AS core_before,
-        di.after_data -> 'f1_comparison' AS f1_comparison,
-        di.after_data -> 'f2_comparison' AS f2_cmp,
-        CASE
-            WHEN di.before_data IS NULL OR trim(coalesce(di.before_data ->> 'id', '')) = '' THEN NULL
-            WHEN trim(coalesce(di.before_data ->> 'id', '')) ~ '^[-+]?[0-9]+$'
-                THEN trim(di.before_data ->> 'id')::bigint
-            ELSE NULL
-        END AS core_id_hint
-    FROM system.system_diff_items AS di
-    INNER JOIN system.system_diff_runs AS dr ON dr.id = di.diff_run_id
-    WHERE dr.status = 'completed'
-      AND dr.current_snapshot_id = $1::bigint
-      AND dr.entity_family = %L
-      AND coalesce(dr.summary->>'comparison_type', '') IN ('staging_vs_prod_mirror', '')
-    ORDER BY di.local_entity_id ASC,
-        CASE WHEN dr.summary->>'comparison_type' = 'staging_vs_prod_mirror' THEN 0 ELSE 1 END,
-        dr.finished_at DESC NULLS LAST,
-        dr.started_at DESC NULLS LAST, di.created_at DESC, di.id DESC
-),
-ranked AS (
+WITH filtered AS (
     SELECT
         s.id AS local_staging_id,
         %L::text AS entity_family,
@@ -704,11 +749,11 @@ ranked AS (
         %s AS class_code_text,
         s.confidence_score,
         CASE
-            WHEN %s::boolean THEN system.pipeline_import_class_to_match_status(to_jsonb(s) ->> 'import_class')
+            WHEN %s::boolean THEN system.pipeline_import_class_to_match_status(%s)
             ELSE coalesce(nullif(trim(s.match_status), ''), 'needs_review')
         END AS match_status,
         CASE
-            WHEN %s::boolean THEN system.pipeline_import_class_to_auto_action(to_jsonb(s) ->> 'import_class')
+            WHEN %s::boolean THEN system.pipeline_import_class_to_auto_action(%s)
             ELSE coalesce(nullif(trim(s.auto_action), ''), 'needs_review')
         END AS auto_action,
         'pending'::text AS review_status,
@@ -716,29 +761,14 @@ ranked AS (
         %s AS normalized_data,
         %s AS source_refs,
         %s AS geometry_geojson,
-        system.pipeline_compact_core_snapshot(f.core_before) AS matched_core_data,
-        f.f2_cmp AS f2_comparison,
-        f.f1_comparison AS f1_comparison,
-        %s AS resolved_core_pk,
-        %s AS matched_core_table_hint,
-        jsonb_strip_nulls(
-            (%s)
-            || jsonb_build_object(
-                'import_class', to_jsonb(s) ->> 'import_class',
-                'apply_status', 'not_ready',
-                'promotion_status', 'not_ready',
-                'imported_values', system.pipeline_compact_imported_place_values(to_jsonb(s)),
-                'core_snapshot', system.pipeline_compact_core_snapshot(f.core_before),
-                'difference_summary', system.pipeline_conflict_difference_summary(
-                    system.pipeline_compact_imported_place_values(to_jsonb(s)),
-                    system.pipeline_compact_core_snapshot(f.core_before)
-                )
-            )
-        ) AS extra_payload,
+        %s AS staging_matched_core_pk,
+        %s AS matched_core_table_base,
+        (%s) AS base_extra_payload,
+        %s AS import_class_value,
+        to_jsonb(s) - 'geom' - 'point_geom' - 'line_geom' - 'polygon_geom' AS staging_row_json,
         row_number() OVER (ORDER BY s.id) AS rn
     FROM %I.%I AS s
     %s
-    LEFT JOIN latest_slice AS f ON f.staging_pk = s.id
     WHERE s.source_snapshot_id = $1::bigint
       AND (
           s.review_status IS NULL
@@ -746,12 +776,7 @@ ranked AS (
               'pending', 'needs_review', 'approved', 'rejected', 'ignored', 'merged'
           )
       )
-      AND NOT (
-          to_jsonb(s) ? 'promotion_status'
-          AND to_jsonb(s) ->> 'promotion_status' = 'promoted'
-      )
-      AND coalesce(to_jsonb(s) ->> 'validation_status', 'valid') <> 'invalid'
-      AND coalesce(to_jsonb(s) ->> 'import_class', '') IS DISTINCT FROM 'invalid'
+      %s
       %s
       AND (
           (s.match_status IS NOT NULL AND s.auto_action IS NOT NULL)
@@ -759,11 +784,78 @@ ranked AS (
           OR coalesce(s.normalized_data, '{}'::jsonb) <> '{}'::jsonb
           OR coalesce(s.source_refs, '{}'::jsonb) <> '{}'::jsonb
           OR nullif(trim(s.external_id::text), '') IS NOT NULL
-          OR system.pipeline_is_ir_conflict_class(to_jsonb(s) ->> 'import_class')
+          OR %s = ANY (system.pipeline_ir_conflict_classes())
       )
 ),
 lim AS (
-    SELECT * FROM ranked r WHERE $3::bigint IS NULL OR r.rn <= $3::bigint
+    SELECT * FROM filtered r WHERE $3::bigint IS NULL OR r.rn <= $3::bigint
+),
+ranked AS (
+    SELECT
+        lim.local_staging_id,
+        lim.entity_family,
+        lim.source_table,
+        lim.external_id,
+        lim.canonical_name,
+        lim.class_code_text,
+        lim.confidence_score,
+        lim.match_status,
+        lim.auto_action,
+        lim.review_status,
+        lim.review_decision_text,
+        lim.normalized_data,
+        lim.source_refs,
+        lim.geometry_geojson,
+        system.pipeline_compact_core_snapshot(f.core_before) AS matched_core_data,
+        f.f2_cmp AS f2_comparison,
+        f.f1_comparison AS f1_comparison,
+        coalesce(f.core_id_hint, lim.staging_matched_core_pk) AS resolved_core_pk,
+        CASE
+            WHEN coalesce(f.core_before, '{}'::jsonb) <> '{}'::jsonb THEN lim.matched_core_table_base
+            WHEN coalesce(f.core_id_hint, lim.staging_matched_core_pk) IS NOT NULL THEN lim.matched_core_table_base
+            ELSE NULL::text
+        END AS matched_core_table_hint,
+        jsonb_strip_nulls(
+            coalesce(lim.base_extra_payload, '{}'::jsonb)
+            || jsonb_build_object(
+                'import_class', lim.import_class_value,
+                'apply_status', 'not_ready',
+                'promotion_status', 'not_ready',
+                'imported_values', system.pipeline_compact_imported_place_values(lim.staging_row_json),
+                'core_snapshot', system.pipeline_compact_core_snapshot(f.core_before),
+                'difference_summary', system.pipeline_conflict_difference_summary(
+                    system.pipeline_compact_imported_place_values(lim.staging_row_json),
+                    system.pipeline_compact_core_snapshot(f.core_before)
+                )
+            )
+        ) AS extra_payload
+    FROM lim
+    LEFT JOIN LATERAL (
+        SELECT
+            di.before_data AS core_before,
+            di.after_data -> 'f1_comparison' AS f1_comparison,
+            di.after_data -> 'f2_comparison' AS f2_cmp,
+            CASE
+                WHEN di.before_data IS NULL OR trim(coalesce(di.before_data ->> 'id', '')) = '' THEN NULL
+                WHEN trim(coalesce(di.before_data ->> 'id', '')) ~ '^[-+]?[0-9]+$'
+                    THEN trim(di.before_data ->> 'id')::bigint
+                ELSE NULL
+            END AS core_id_hint
+        FROM system.system_diff_items AS di
+        INNER JOIN system.system_diff_runs AS dr ON dr.id = di.diff_run_id
+        WHERE dr.status = 'completed'
+          AND dr.current_snapshot_id = $1::bigint
+          AND dr.entity_family = %L
+          AND coalesce(dr.summary->>'comparison_type', '') IN ('staging_vs_prod_mirror', '')
+          AND di.local_entity_id = lim.local_staging_id
+        ORDER BY
+            CASE WHEN dr.summary->>'comparison_type' = 'staging_vs_prod_mirror' THEN 0 ELSE 1 END,
+            dr.finished_at DESC NULLS LAST,
+            dr.started_at DESC NULLS LAST,
+            di.created_at DESC,
+            di.id DESC
+        LIMIT 1
+    ) AS f ON true
 )
 INSERT INTO system.system_remote_review_package_items (
     package_id, entity_family, source_table, local_staging_id, external_id,
@@ -812,26 +904,31 @@ SELECT
             '_lineage_stage', 'J_prepare_remote_review_package'
         ) || coalesce(extra_payload, '{}'::jsonb)
     )
-FROM lim;
+FROM ranked;
 $ex$,
-            v_fe.diff_entity_family,
             v_fe.entity_family,
             v_fe.staging_table,
             v_fe.canonical_expr,
             v_fe.class_code_expr,
             prm.conflict_only::text,
+            v_import_class_expr,
             prm.conflict_only::text,
+            v_import_class_expr,
             v_child_nd,
             v_child_sr,
             v_fe.geom_expr,
             v_matched_col,
             v_matched_table_expr,
             v_fe.extra_payload_expr,
+            v_import_class_expr,
             v_schema,
             v_fe.staging_table,
             v_child_join,
+            v_row_filter,
             v_conflict_filter,
-            v_fe.eligibility_geom_expr
+            v_fe.eligibility_geom_expr,
+            v_import_class_expr,
+            v_fe.diff_entity_family
         );
 
         EXECUTE v_sql
@@ -1259,6 +1356,47 @@ $ex$,
             CONTINUE;
         END IF;
 
+        SELECT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = v_schema
+              AND table_name = v_fe.staging_table
+              AND column_name = 'import_class'
+        ) INTO v_has_import_class;
+
+        SELECT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = v_schema
+              AND table_name = v_fe.staging_table
+              AND column_name = 'validation_status'
+        ) INTO v_has_validation_status;
+
+        SELECT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = v_schema
+              AND table_name = v_fe.staging_table
+              AND column_name = 'promotion_status'
+        ) INTO v_has_promotion_status;
+
+        v_row_filter := '';
+        IF v_has_promotion_status THEN
+            v_row_filter := v_row_filter || $rf$
+              AND coalesce(s.promotion_status, '') IS DISTINCT FROM 'promoted'
+$rf$;
+        END IF;
+        IF v_has_validation_status THEN
+            v_row_filter := v_row_filter || $rf$
+              AND coalesce(s.validation_status, 'valid') <> 'invalid'
+$rf$;
+        END IF;
+        IF v_has_import_class THEN
+            v_row_filter := v_row_filter || $rf$
+              AND coalesce(s.import_class, '') IS DISTINCT FROM 'invalid'
+$rf$;
+            v_import_class_expr := 's.import_class';
+        ELSE
+            v_import_class_expr := 'NULL::text';
+        END IF;
+
         v_eligible_sql := format(
             $el$
             SELECT count(*)::bigint
@@ -1270,15 +1408,10 @@ $ex$,
                       'pending', 'needs_review', 'approved', 'rejected', 'ignored', 'merged'
                   )
               )
-              AND NOT (
-                  to_jsonb(s) ? 'promotion_status'
-                  AND to_jsonb(s) ->> 'promotion_status' = 'promoted'
-              )
-              AND coalesce(to_jsonb(s) ->> 'validation_status', 'valid') <> 'invalid'
-              AND coalesce(to_jsonb(s) ->> 'import_class', '') IS DISTINCT FROM 'invalid'
+              %s
               AND (
                   NOT $2::boolean
-                  OR system.pipeline_is_ir_conflict_class(to_jsonb(s) ->> 'import_class')
+                  OR %s = ANY (system.pipeline_ir_conflict_classes())
               )
               AND (
                   (s.match_status IS NOT NULL AND s.auto_action IS NOT NULL)
@@ -1286,12 +1419,15 @@ $ex$,
                   OR coalesce(s.normalized_data, '{}'::jsonb) <> '{}'::jsonb
                   OR coalesce(s.source_refs, '{}'::jsonb) <> '{}'::jsonb
                   OR nullif(trim(s.external_id::text), '') IS NOT NULL
-                  OR system.pipeline_is_ir_conflict_class(to_jsonb(s) ->> 'import_class')
+                  OR %s = ANY (system.pipeline_ir_conflict_classes())
               )
             $el$,
             v_schema,
             v_fe.staging_table,
-            v_fe.eligibility_geom_expr
+            v_row_filter,
+            v_import_class_expr,
+            v_fe.eligibility_geom_expr,
+            v_import_class_expr
         );
 
         EXECUTE v_eligible_sql INTO v_staging_cnt
@@ -1367,6 +1503,37 @@ $ex$,
                 CONTINUE;
             END IF;
 
+            -- Fast path when settlement filters are off: index-friendly GROUP BY.
+            IF v_fe.entity_family <> 'places'
+               OR (NOT prm.settlements_only AND NOT prm.exclude_settlements) THEN
+                EXECUTE format(
+                    $a$
+                    SELECT
+                        coalesce(sum(c_cnt), 0),
+                        coalesce(sum(c_cnt) FILTER (
+                            WHERE import_class = ANY (system.pipeline_direct_core_classes())
+                        ), 0),
+                        coalesce(sum(c_cnt) FILTER (WHERE import_class = 'unchanged'), 0),
+                        coalesce(sum(c_cnt) FILTER (
+                            WHERE import_class IN (
+                                'duplicate', 'conflict', 'manual_protected', 'verified_conflict'
+                            )
+                        ), 0),
+                        coalesce(sum(c_cnt) FILTER (WHERE import_class = 'pmtiles_only'), 0)
+                    FROM (
+                        SELECT import_class, count(*)::bigint AS c_cnt
+                        FROM %I.%I AS s
+                        WHERE s.source_snapshot_id = $1
+                          AND coalesce(s.import_class, '') IS DISTINCT FROM 'invalid'
+                        GROUP BY import_class
+                    ) AS g
+                    $a$,
+                    v_schema,
+                    v_fe.staging_table
+                )
+                INTO v_fam_valid, v_fam_direct, v_fam_unchanged, v_fam_ir, v_fam_pmtiles
+                USING ctx.source_snapshot_id;
+            ELSE
             EXECUTE format(
                 $a$
                 SELECT
@@ -1471,6 +1638,7 @@ $ex$,
             )
             INTO v_fam_valid, v_fam_direct, v_fam_unchanged, v_fam_ir, v_fam_pmtiles
             USING ctx.source_snapshot_id, prm.settlements_only, prm.exclude_settlements;
+            END IF;
 
             v_valid := v_valid + v_fam_valid;
             v_direct := v_direct + v_fam_direct;

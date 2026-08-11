@@ -201,7 +201,7 @@ function oceanLayer(source: string): FillLayerSpecification {
     source,
     'source-layer': 'ocean',
     maxzoom: LAYER_MAX_ZOOM,
-    paint: { 'fill-color': '#b8ddea', 'fill-opacity': 1 },
+    paint: { 'fill-color': '#bfe8fa', 'fill-opacity': 1 },
   };
 }
 
@@ -212,7 +212,7 @@ function landLayer(source: string): FillLayerSpecification {
     source,
     'source-layer': 'land',
     maxzoom: LAYER_MAX_ZOOM,
-    paint: { 'fill-color': '#e8ebe0', 'fill-opacity': 1 },
+    paint: { 'fill-color': '#f5f8f1', 'fill-opacity': 1 },
   };
 }
 
@@ -226,7 +226,7 @@ function lakesLayer(source: string): FillLayerSpecification {
     maxzoom: LAYER_MAX_ZOOM,
     filter: OVERVIEW_LAKES_FILTER as unknown as ExpressionSpecification,
     paint: {
-      'fill-color': '#c5dde8',
+      'fill-color': '#b9e2f4',
       'fill-opacity': ['interpolate', ['linear'], ['zoom'], 6, 0.45, 7, 0.62, 8, 0.72],
     },
   };
@@ -243,7 +243,7 @@ function riversLayer(source: string): LineLayerSpecification {
     filter: OVERVIEW_RIVERS_FILTER as unknown as ExpressionSpecification,
     layout: { 'line-cap': 'round', 'line-join': 'round' },
     paint: {
-      'line-color': '#9cc6d8',
+      'line-color': '#8fd3ec',
       'line-opacity': ['interpolate', ['linear'], ['zoom'], 6, 0.4, 7, 0.58, 8, 0.7],
       'line-width': [
         'interpolate',
@@ -269,7 +269,7 @@ function countriesFillLayer(source: string): FillLayerSpecification {
     maxzoom: OVERVIEW_BOUNDARY_MAX_ZOOM,
     paint: {
       // No duplicate outline — `neighbor-country-boundary-line` draws neighbor borders.
-      'fill-color': '#e4e2dc',
+      'fill-color': '#edf1e9',
       'fill-outline-color': 'rgba(0, 0, 0, 0)',
       'fill-opacity': [
         'interpolate',
@@ -304,11 +304,11 @@ function mmrAdmin1FillLayer(source: string): FillLayerSpecification {
         ['linear'],
         ['%', ['to-number', ['coalesce', ['get', 'PCode_V'], 0]], 16],
         0,
-        '#e8e8f0',
+        '#e8f1f8',
         8,
-        '#dfe8e4',
+        '#e1f1e6',
         15,
-        '#ece6ea',
+        '#f1eaf2',
       ],
       'fill-opacity': [
         'interpolate',
@@ -353,7 +353,7 @@ function coastlineLayer(source: string): LineLayerSpecification {
     maxzoom: OVERVIEW_BOUNDARY_MAX_ZOOM,
     layout: { 'line-cap': 'round', 'line-join': 'round' },
     paint: {
-      'line-color': '#8BBFD0',
+      'line-color': '#77c7e4',
       'line-width': ['interpolate', ['linear'], ['zoom'], 2, 0.3, 5, 0.5, 8, 0.35, 9, 0.2],
       'line-opacity': OVERVIEW_COASTLINE_OPACITY,
     },

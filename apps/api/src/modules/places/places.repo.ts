@@ -13,6 +13,7 @@ import {
     coreReviewVerificationFilterCondition,
     type CoreReviewVerificationStatus,
 } from "../core-review/core-review-verification-filter.js";
+import { parseCoreReviewExactIdSearch } from "../core-review/core-review-id-search.js";
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
@@ -44,9 +45,15 @@ function placesListConditions(params: ListPlacesParams): Prisma.Sql[] {
     }
 
     if (params.q) {
-        const searchTerm = `%${params.q}%`;
-        conditions.push(
-            Prisma.sql`(
+        const exactId = parseCoreReviewExactIdSearch(params.q);
+        if (exactId.numericId !== null) {
+            conditions.push(Prisma.sql`p.id = ${exactId.numericId}`);
+        } else if (exactId.publicId) {
+            conditions.push(Prisma.sql`p.public_id = CAST(${exactId.publicId} AS uuid)`);
+        } else {
+            const searchTerm = `%${params.q}%`;
+            conditions.push(
+                Prisma.sql`(
                     COALESCE(p.primary_name, '') ILIKE ${searchTerm}
                     OR COALESCE(p.display_name, mm_name.name, en_name.name, p.primary_name) ILIKE ${searchTerm}
                     OR COALESCE(mm_name.name, '') ILIKE ${searchTerm}
@@ -58,7 +65,8 @@ function placesListConditions(params: ListPlacesParams): Prisma.Sql[] {
                     OR (CASE WHEN p.is_verified THEN 'Yes' ELSE 'No' END) ILIKE ${searchTerm}
                     OR (CASE WHEN p.is_public THEN 'Yes' ELSE 'No' END) ILIKE ${searchTerm}
                 )`
-        );
+            );
+        }
     }
 
     const verificationCondition = coreReviewVerificationFilterCondition("p", {

@@ -645,7 +645,7 @@ Shared AI docs and skills live under [`docs/ai/`](docs/ai/README.md).
 
 Implementation workflow rules for Cursor are in `.cursor/rules/07-agent-workflow-safety.mdc`. Tool-neutral checklists: [`docs/ai/workflows/`](docs/ai/workflows/).
 
-V2 roadmap summary: [`docs/11-roadmap/v2-plan.md`](docs/11-roadmap/v2-plan.md).
+V2 roadmap summary: [`docs/roadmap.md`](docs/roadmap.md).
 
 ---
 

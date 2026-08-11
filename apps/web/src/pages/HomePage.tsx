@@ -10,7 +10,6 @@ import {
   BusPanelPlaceholder,
   type BottomSheetState,
   MapSidebar,
-  MorePanelPlaceholder,
   type RouteDestination,
   type SidebarMode,
 } from '@/features/map/components/MapSidebar';
@@ -33,6 +32,7 @@ import {
 import { useRouteState } from '@/features/routing/useRouteState';
 import type { RoutePoint } from '@/features/routing/lib/routePoint';
 import { useMapUiStore } from '@/features/map/state/mapUiStore';
+import { mapDocumentLanguage } from '@/features/map/i18n/mapUiText';
 import type {
   LocationCameraCommand,
   MapClickedLocation,
@@ -103,6 +103,10 @@ export default function HomePage() {
   const languageMode = useMapUiStore((s) => s.languageMode);
   const setLanguageMode = useMapUiStore((s) => s.setLanguageMode);
   const { authModalView, closeAuthModal } = useAuth();
+
+  useEffect(() => {
+    document.documentElement.lang = mapDocumentLanguage(languageMode);
+  }, [languageMode]);
 
   // A resolved share link (from /s/:code) hands its target here via router state.
   // It seeds the initial map/panel state so the shared location opens immediately.
@@ -896,6 +900,7 @@ export default function HomePage() {
               onViewSelectedResultDetails={onViewSelectedResultDetails}
               onClearSearch={onClearSearch}
               referenceCoordinates={searchReferenceCoordinates}
+              mapZoom={mapViewport?.zoom ?? null}
               pois={places}
               placesCount={visiblePlacesCount}
               selectedPoiId={selectedPoiIdForMap}
@@ -972,7 +977,6 @@ export default function HomePage() {
           busPanel={<BusPanelPlaceholder />}
           savedPanel={<SavedPlacesPanel onSelectLocation={onSelectSavedLocation} />}
           reportsPanel={<MyReportsPanel />}
-          morePanel={<MorePanelPlaceholder />}
           accountPanel={
             <AccountPanel onOpenSaved={openSavedDrawer} onOpenReports={openReportsDrawer} />
           }

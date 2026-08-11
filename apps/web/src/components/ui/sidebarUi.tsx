@@ -24,7 +24,7 @@ export function SidebarSectionTitle({
     <div className={`flex items-center justify-between gap-3 ${className}`}>
       <h2 className={mutedLabel}>{children}</h2>
       {trailing ? (
-        <span className="shrink-0 text-xs font-normal normal-case tracking-normal text-neutral-500">
+        <span className="shrink-0 text-xs font-normal normal-case tracking-normal text-map-muted">
           {trailing}
         </span>
       ) : null}
@@ -50,10 +50,10 @@ export function ActionButton({
     <button
       type="button"
       title={title}
-      className={`flex h-9 items-center justify-center rounded-lg border px-2 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${
+      className={`flex min-h-10 items-center justify-center rounded-map-control border px-3 text-sm font-semibold transition-[color,background-color,border-color,box-shadow,opacity,filter] duration-150 disabled:opacity-55 ${
         primary
-          ? 'border-sky-600 bg-sky-600 text-white hover:bg-sky-500'
-          : 'border-neutral-200 bg-white text-neutral-700 hover:border-neutral-300 hover:bg-neutral-50'
+          ? 'border-map-primary bg-map-primary text-white shadow-map-control hover:bg-map-primary-hover'
+          : 'border-map-border bg-map-surface text-map-ink hover:border-map-primary/50 hover:bg-map-primary-soft'
       }`}
       disabled={disabled}
       onClick={onClick}
@@ -76,11 +76,12 @@ export function Chip({
   return (
     <button
       type="button"
-      className={`shrink-0 rounded-full border px-2.5 py-1 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-sky-500/30 ${
+      className={`shrink-0 min-h-10 rounded-full border px-3 py-1.5 text-sm font-semibold transition-[color,background-color,border-color,box-shadow,opacity,filter] duration-150 ${
         selected
-          ? 'border-neutral-900 bg-neutral-900 text-white shadow-sm'
-          : 'border-neutral-200 bg-white text-neutral-700 hover:border-sky-200 hover:bg-sky-50 hover:text-sky-700'
+          ? 'border-map-primary bg-map-primary text-white shadow-map-control'
+          : 'border-map-border bg-map-surface text-map-muted hover:border-map-primary/30 hover:bg-map-primary-soft hover:text-map-primary'
       }`}
+      aria-pressed={selected}
       onClick={onClick}
     >
       {children}
@@ -98,7 +99,7 @@ export function ChipRow({
 }) {
   return (
     <div
-      className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      className="map-chip-row -mx-1 flex gap-2 overflow-x-auto px-1 pb-1 pr-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       aria-label={label}
     >
       {children}
@@ -109,7 +110,7 @@ export function ChipRow({
 /** Vertical list of metadata rows separated by subtle dividers. */
 export function MetadataList({ children }: { readonly children: ReactNode }) {
   return (
-    <dl className="divide-y divide-neutral-100 border-t border-neutral-100">{children}</dl>
+    <dl className="divide-y divide-map-border/70 border-t border-map-border/70">{children}</dl>
   );
 }
 
@@ -127,9 +128,9 @@ export function MetadataRow({
   readonly mono?: boolean;
   readonly muted?: boolean;
 }) {
-  const rowLabelClass = 'text-[10px] font-semibold uppercase tracking-[0.16em] text-neutral-400';
-  const valueClass = `text-sm leading-6 ${mono ? 'font-mono text-[13px]' : ''} ${
-    muted ? 'text-neutral-400' : 'text-neutral-700'
+  const rowLabelClass = 'map-kicker text-map-muted';
+  const valueClass = `text-sm leading-6 ${mono ? 'font-mono text-sm' : ''} ${
+    muted ? 'text-map-muted/70' : 'text-map-ink/85'
   }`;
 
   if (stacked) {
@@ -176,9 +177,13 @@ export function ResultRow({
       type="button"
       role="option"
       aria-selected={selected}
-      className={`flex w-full gap-3 px-3.5 py-2.5 text-left outline-none transition-colors focus-visible:bg-sky-50/60 ${
+      className={`map-focus-inset flex w-full gap-3 px-3.5 py-2.5 text-left transition-colors duration-150 focus-visible:bg-map-primary-soft ${
         align === 'center' ? 'items-center' : 'items-start'
-      } ${selected ? 'bg-sky-50 hover:bg-sky-100/70' : 'hover:bg-sky-50/60'}`}
+      } ${
+        selected
+          ? 'bg-map-primary-soft shadow-[inset_3px_0_0_#0f68e8] hover:bg-blue-100/70'
+          : 'hover:bg-map-primary-soft/70'
+      }`}
       onClick={onClick}
     >
       {leading}

@@ -1,6 +1,6 @@
 # V2 implementation checklist (agent workflow)
 
-> Placeholder — expand per phase. Canonical product scope lives in [`AGENTS.md`](../../../AGENTS.md) and [`docs/11-roadmap/v2-plan.md`](../../11-roadmap/v2-plan.md).
+> Placeholder — expand per phase. Canonical product scope lives in [`AGENTS.md`](../../../AGENTS.md) and [`docs/roadmap.md`](../../roadmap.md).
 
 ## Before starting
 

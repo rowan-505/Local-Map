@@ -9,7 +9,7 @@ type Props = {
 
 export function MapShell({ leftRail, map, sidebar, floatingControls }: Props) {
   return (
-    <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden bg-neutral-100">
+    <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden bg-map-bg">
       {map}
       {leftRail}
       {sidebar}

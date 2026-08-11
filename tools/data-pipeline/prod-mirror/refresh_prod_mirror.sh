@@ -7,6 +7,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 
+# shellcheck source=../lib/progress_heartbeat.sh
+source "${SCRIPT_DIR}/../lib/progress_heartbeat.sh"
+
 usage() {
   cat >&2 <<EOF
 usage: $(basename "$0") [env-file]
@@ -208,9 +211,15 @@ log() {
 
 run_sql() {
   local sql_file="$1"
+  local phase_name
+  phase_name="$(basename "${sql_file}")"
   log ""
-  log "=== $(basename "${sql_file}") ==="
+  log "=== ${phase_name} ==="
+  progress_begin_phase "${phase_name}" "running psql -f ${phase_name}"
 
+  # Run psql in a pipe so 1s heartbeat keeps printing; SQL NOTICE progress
+  # lines update the heartbeat detail (done/total % per table).
+  set +e
   PAGER=cat psql "${LOCAL_DATABASE_URL}" \
     -v ON_ERROR_STOP=1 \
     -v supabase_db_host="${SUPABASE_DB_HOST}" \
@@ -225,7 +234,19 @@ run_sql() {
     -v source_user="${SUPABASE_DB_USER}" \
     -v mirror_max_age_hours="${MIRROR_MAX_AGE_HOURS}" \
     -f "${sql_file}" \
-    2>&1 | tee -a "${LOG_FILE}"
+    2>&1 | progress_tee_and_watch "${LOG_FILE}" &
+  local tee_pid=$!
+  wait "${tee_pid}"
+  local rc=$?
+  set -e
+
+  if [[ "${rc}" -ne 0 ]]; then
+    progress_set_detail "FAILED ${phase_name} exit=${rc}"
+    progress_print_once
+    progress_stop_heartbeat
+    exit "${rc}"
+  fi
+  progress_end_phase "ok ${phase_name}"
 }
 
 log "prod_mirror refresh started at ${RUN_TS}"
@@ -246,11 +267,16 @@ log "SUPABASE_PROJECT_REF=${SUPABASE_PROJECT_REF:-}"
 log "MIRROR_MAX_AGE_HOURS=${MIRROR_MAX_AGE_HOURS}"
 log "log file: ${LOG_FILE}"
 log "mode: slim family columns (read-only FDW → local prod_mirror)"
+log "progress: 1-second heartbeat enabled"
+
+PROGRESS_LOG_FILE="${LOG_FILE}"
+progress_init "prod_mirror_refresh" 4
 
 run_sql "${SCRIPT_DIR}/01_setup_fdw.sql"
 run_sql "${SCRIPT_DIR}/02_import_foreign_tables.sql"
 run_sql "${SCRIPT_DIR}/03_refresh_prod_mirror.sql"
 run_sql "${SCRIPT_DIR}/04_validate_prod_mirror.sql"
 
+progress_finish "prod_mirror refresh complete"
 log ""
 log "prod_mirror refresh finished (local copy only; Supabase core was not modified)"

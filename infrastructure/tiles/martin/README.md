@@ -30,22 +30,47 @@ Historical notes: [`martin_config.yaml`](./martin_config.yaml) (documentation on
 
 ### Public web dev (`VITE_MARTIN_TILE_URL=http://localhost:3002`)
 
-Transport-only config with small pool (`config.local.yaml`):
+Transport-only config with small pool (`config.local.yaml`).
+
+**Recommended:** put the DB URL in a local env file, then start via the helper script:
+
+```bash
+cd infrastructure/tiles/martin
+cp env.example .env
+# Edit .env — set DATABASE_URL (quote the value; & in query strings breaks bash source)
+# Do not paste apps/api DATABASE_URL unchanged:
+#   - strip Prisma params (pgbouncer, connection_limit, pool_timeout)
+#   - prefer direct Postgres :5432 (transaction pooler :6543 often hangs for Martin)
+
+npm run tiles:martin:restart-local
+# or: ./scripts/restart-local.sh
+```
+
+The script:
+
+1. Loads `DATABASE_URL` from `.env` (if not already set in the shell)
+2. Reuses `coremap-martin-local` if that container already exists
+3. Creates it only when missing
+
+If you change `DATABASE_URL` in `.env`, recreate (restart alone keeps old env):
+
+```bash
+docker rm -f coremap-martin-local
+npm run tiles:martin:restart-local
+```
+
+Manual first start (same as the script):
 
 ```bash
 cd infrastructure/tiles/martin
 export DATABASE_URL='postgresql://USER:PASSWORD@HOST:5432/postgres?sslmode=require'
 
-# First start
 docker run -d --rm --name coremap-martin-local \
   -p 3002:3000 \
   -e DATABASE_URL \
   -v "$(pwd)/config.local.yaml:/config.yaml:ro" \
   ghcr.io/maplibre/martin:1.7.0 \
   --config /config.yaml --webui enable-for-all
-
-# After editing config.local.yaml or config.yaml — restart required
-./scripts/restart-local.sh
 ```
 
 Or: `docker restart coremap-martin-local`

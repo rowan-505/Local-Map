@@ -1,8 +1,154 @@
-html,
-body,
-#root {
-  margin: 0;
-  width: 100%;
-  height: 100%;
-  font-family: "Noto Sans Myanmar", "Padauk", system-ui, sans-serif;
+@theme {
+  --color-map-primary: #0f68e8;
+  --color-map-primary-hover: #0b56c5;
+  --color-map-secondary: #087c8f;
+  --color-map-primary-soft: #eef5ff;
+  --color-map-surface: #ffffff;
+  --color-map-bg: #f6f8fb;
+  --color-map-ink: #14253d;
+  --color-map-muted: #5f6f85;
+  --color-map-border: #d7e0ea;
+  --color-map-error: #dc2626;
+
+  --radius-map-control: 0.75rem;
+  --radius-map-card: 1rem;
+
+  --shadow-map-control:
+    0 2px 8px rgba(20, 37, 61, 0.08),
+    0 1px 2px rgba(20, 37, 61, 0.05);
+  --shadow-map-card:
+    0 8px 24px rgba(20, 37, 61, 0.08),
+    0 1px 3px rgba(20, 37, 61, 0.05);
+  --shadow-map-float:
+    0 18px 44px rgba(20, 37, 61, 0.14),
+    0 4px 12px rgba(20, 37, 61, 0.07);
+}
+
+html {
+  font-size: 16px;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  body,
+  #root {
+    font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 1.5;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    color: var(--color-map-ink);
+    background: var(--color-map-bg);
+  }
+
+  html[lang="my"] body,
+  html[lang="my"] button,
+  html[lang="my"] input,
+  html[lang="my"] select,
+  html[lang="my"] textarea {
+    font-family: "Noto Sans Myanmar", "Padauk", ui-sans-serif, system-ui, sans-serif;
+    line-height: 1.55;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font-family: inherit;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button:disabled,
+  [aria-disabled="true"] {
+    cursor: not-allowed;
+  }
+}
+
+/* One predictable focus halo. Component borders may change color, but should
+   not add another ring or outline on top of this one. */
+:where(button, input, select, textarea, a[href]):focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--color-map-primary) 28%, transparent);
+  outline-offset: 2px;
+}
+
+.map-focus-silent:focus-visible {
+  outline: none;
+}
+
+.map-focus-inset:focus-visible {
+  outline-offset: -3px;
+}
+
+.map-focus-owner:focus-within {
+  border-color: var(--color-map-primary);
+  outline: 3px solid color-mix(in srgb, var(--color-map-primary) 22%, transparent);
+  outline-offset: 1px;
+}
+
+button:not(:disabled):not([aria-disabled="true"]):active {
+  filter: brightness(0.96);
+}
+
+.map-kicker {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  line-height: 1.5;
+  text-transform: uppercase;
+}
+
+html[lang="my"] .map-kicker {
+  font-size: 0.8125rem;
+  letter-spacing: 0;
+  line-height: 1.65;
+  text-transform: none;
+}
+
+/* Horizontally clipped chip rows need a visible continuation cue. */
+.map-chip-row {
+  mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 1.5rem), transparent 100%);
+}
+
+.map-chip-row:focus-within,
+.map-chip-row:hover {
+  mask-image: none;
+}
+
+@media (hover: none) {
+  button:not(:disabled):not([aria-disabled="true"]):active {
+    filter: brightness(0.93);
+  }
+}
+
+@media (max-width: 63.999rem) {
+  button,
+  input:not([type="checkbox"]):not([type="radio"]),
+  select {
+    min-height: 2.75rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

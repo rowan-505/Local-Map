@@ -10,6 +10,7 @@ import {
     coreReviewVerificationFilterClause,
     type CoreReviewVerificationFilterParams,
 } from "./core-review-verification-filter.js";
+import { parseCoreReviewExactIdSearch } from "./core-review-id-search.js";
 
 import type { CoreReviewVerificationStatus } from "./core-review-verification-filter.js";
 
@@ -33,6 +34,38 @@ export type CoreReviewEntityListParams = {
 function genericListStatusClause(slug: CoreReviewEntitySlug, alias: string, status?: CoreReviewListStatus) {
     const config = getCoreReviewLifecycleConfig(slug);
     return coreReviewListStatusClause(alias, status ?? "active", config);
+}
+
+function adminAreaSearchClause(search?: string): Prisma.Sql {
+    if (!search) {
+        return Prisma.empty;
+    }
+    const exactId = parseCoreReviewExactIdSearch(search);
+    if (exactId.numericId !== null) {
+        return Prisma.sql`AND a.id = ${exactId.numericId}`;
+    }
+    if (exactId.publicId) {
+        return Prisma.sql`AND a.public_id = CAST(${exactId.publicId} AS uuid)`;
+    }
+    return Prisma.sql`AND (
+        COALESCE(a.canonical_name, '') ILIKE ${`%${search}%`}
+        OR COALESCE(a.slug, '') ILIKE ${`%${search}%`}
+    )`;
+}
+
+function numericMapFeatureSearchClause(alias: string, search?: string): Prisma.Sql {
+    if (!search) {
+        return Prisma.empty;
+    }
+    const exactId = parseCoreReviewExactIdSearch(search);
+    if (exactId.numericId !== null) {
+        return Prisma.sql`AND ${Prisma.raw(alias)}.id = ${exactId.numericId}`;
+    }
+    return Prisma.sql`AND (
+        COALESCE(${Prisma.raw(alias)}.name, '') ILIKE ${`%${search}%`}
+        OR COALESCE(${Prisma.raw(alias)}.class_code, '') ILIKE ${`%${search}%`}
+        OR COALESCE(${Prisma.raw(alias)}.external_id, '') ILIKE ${`%${search}%`}
+    )`;
 }
 
 function sortDir(order: "asc" | "desc"): Prisma.Sql {
@@ -219,12 +252,7 @@ export class CoreReviewEntitiesRepository {
     // ── Admin areas ───────────────────────────────────────────────────────────
 
     async listAdminAreas(params: CoreReviewEntityListParams) {
-        const search = params.search
-            ? Prisma.sql`AND (
-                COALESCE(a.canonical_name, '') ILIKE ${`%${params.search}%`}
-                OR COALESCE(a.slug, '') ILIKE ${`%${params.search}%`}
-            )`
-            : Prisma.empty;
+        const search = adminAreaSearchClause(params.search);
         const parent =
             params.parentAdminAreaId !== undefined
                 ? Prisma.sql`AND a.parent_id = ${params.parentAdminAreaId}`
@@ -265,9 +293,7 @@ export class CoreReviewEntitiesRepository {
     }
 
     async countAdminAreas(params: CoreReviewEntityListParams): Promise<number> {
-        const search = params.search
-            ? Prisma.sql`AND COALESCE(a.canonical_name, '') ILIKE ${`%${params.search}%`}`
-            : Prisma.empty;
+        const search = adminAreaSearchClause(params.search);
         const rows = await this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
             SELECT COUNT(*)::bigint AS count FROM core.core_admin_areas AS a
             WHERE ${genericListStatusClause("admin-areas", "a", params.status)} ${search}
@@ -312,13 +338,7 @@ export class CoreReviewEntitiesRepository {
         alias: string,
         params: CoreReviewEntityListParams
     ) {
-        const search = params.search
-            ? Prisma.sql`AND (
-                COALESCE(${Prisma.raw(alias)}.name, '') ILIKE ${`%${params.search}%`}
-                OR COALESCE(${Prisma.raw(alias)}.class_code, '') ILIKE ${`%${params.search}%`}
-                OR COALESCE(${Prisma.raw(alias)}.external_id, '') ILIKE ${`%${params.search}%`}
-            )`
-            : Prisma.empty;
+        const search = numericMapFeatureSearchClause(alias, params.search);
         const order = Prisma.sql`${Prisma.raw(alias)}.updated_at ${sortDir(params.sortOrder)} NULLS LAST`;
 
         return this.prisma.$queryRaw<Record<string, unknown>[]>(Prisma.sql`
@@ -352,9 +372,7 @@ export class CoreReviewEntitiesRepository {
         alias: string,
         params: CoreReviewEntityListParams
     ): Promise<number> {
-        const search = params.search
-            ? Prisma.sql`AND COALESCE(${Prisma.raw(alias)}.name, '') ILIKE ${`%${params.search}%`}`
-            : Prisma.empty;
+        const search = numericMapFeatureSearchClause(alias, params.search);
         const rows = await this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
             SELECT COUNT(*)::bigint AS count
             FROM ${Prisma.raw(table)} AS ${Prisma.raw(alias)}
@@ -428,12 +446,7 @@ export class CoreReviewEntitiesRepository {
     // ── Water lines ───────────────────────────────────────────────────────────
 
     async listWaterLines(params: CoreReviewEntityListParams) {
-        const search = params.search
-            ? Prisma.sql`AND (
-                COALESCE(wl.name, '') ILIKE ${`%${params.search}%`}
-                OR COALESCE(wl.class_code, '') ILIKE ${`%${params.search}%`}
-            )`
-            : Prisma.empty;
+        const search = numericMapFeatureSearchClause("wl", params.search);
         const order = Prisma.sql`wl.updated_at ${sortDir(params.sortOrder)} NULLS LAST`;
 
         return this.prisma.$queryRaw<Record<string, unknown>[]>(Prisma.sql`
@@ -459,9 +472,11 @@ export class CoreReviewEntitiesRepository {
     }
 
     async countWaterLines(params: CoreReviewEntityListParams): Promise<number> {
+        const search = numericMapFeatureSearchClause("wl", params.search);
         const rows = await this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
             SELECT COUNT(*)::bigint AS count FROM core.core_map_water_lines AS wl
             WHERE ${genericListStatusClause("water-lines", "wl", params.status)}
+              ${search}
               ${verificationFilterClause("wl", params)}
         `);
         return Number(rows[0]?.count ?? 0n);

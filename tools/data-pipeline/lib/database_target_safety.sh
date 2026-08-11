@@ -19,7 +19,7 @@
 #   source "${REPO_ROOT}/tools/data-pipeline/lib/database_target_safety.sh"
 # =============================================================================
 
-DB_TARGET_PRODUCTION_PROJECT_REF="${DB_TARGET_PRODUCTION_PROJECT_REF:-${SAFE_LOADER_PRODUCTION_PROJECT_REF:-locghyuranqaqsnbxflc}}"
+DB_TARGET_PRODUCTION_PROJECT_REF="${DB_TARGET_PRODUCTION_PROJECT_REF:-locghyuranqaqsnbxflc}"
 
 db_target_die() {
   echo "error: $*" >&2
@@ -234,7 +234,7 @@ db_target_print_identity() {
 }
 
 # Production write gate: mode dry_run|apply + confirmation.
-# confirmation_expected e.g. "APPLY places 11" or "PRELOAD buildings my_batch"
+# confirmation_expected e.g. "IMPORT places yangon snapshot_v1"
 db_target_require_write_gates() {
   local target="${1:-${DB_TARGET}}"
   local mode="${2:-}"

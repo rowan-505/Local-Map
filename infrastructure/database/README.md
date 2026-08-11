@@ -1,6 +1,6 @@
 # Database
 
-> **Documentation index:** [`docs/02-database/database-overview.md`](../../docs/02-database/database-overview.md) — canonical database docs live under `docs/02-database/`.
+> **Documentation index:** [`docs/database.md`](../../docs/database.md) — canonical database docs live under `docs/database.md`.
 
 PostgreSQL + PostGIS is the **source of truth** for map data. All schema and data changes are versioned in this folder and applied deliberately—never only via ad-hoc edits on production.
 
@@ -107,7 +107,6 @@ See [`.cursor/rules/09-supabase-cursor-setup.mdc`](../../.cursor/rules/09-supaba
 
 ## Related docs
 
-- [`docs/02-database/database-overview.md`](../../docs/02-database/database-overview.md) — canonical overview
-- [`docs/02-database/schemas-and-tables.md`](../../docs/02-database/schemas-and-tables.md) — pipeline layers and design rules
-- [`docs/07-data-pipeline/review-and-promotion.md`](../../docs/07-data-pipeline/review-and-promotion.md) — staging → core promotion
-- Local stubs in [`docs/`](docs/) point to canonical + archive copies
+- [`docs/database.md`](../../docs/database.md) — database overview
+- [`docs/data-pipeline.md`](../../docs/data-pipeline.md) — staging → core promotion
+- Local stubs in [`docs/`](docs/) point to the short guides + archive

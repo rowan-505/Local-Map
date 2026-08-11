@@ -1,6 +1,6 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 
-import { buildingClassCodeSelectSql } from "../../lib/entity-names/building-detail-select-sql.js";
+import { buildingClassCodeSelectSql, buildingDisplayNameCoalesceSql } from "../../lib/entity-names/building-detail-select-sql.js";
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
@@ -99,7 +99,7 @@ export class PlaceBuildingsRepository {
                 pb.is_primary,
                 pb.created_at,
                 b.public_id::text AS building_public_id,
-                b.name AS building_name,
+                ${buildingDisplayNameCoalesceSql} AS building_name,
                 b.building_type_id::text AS building_type_id,
                 bt.id::text AS ref_bt_id,
                 bt.code AS ref_bt_code,
@@ -182,7 +182,7 @@ export class PlaceBuildingsRepository {
                     pb.is_primary,
                     pb.created_at,
                     b.public_id::text AS building_public_id,
-                    b.name AS building_name,
+                    ${buildingDisplayNameCoalesceSql} AS building_name,
                     b.building_type_id::text AS building_type_id,
                     bt.id::text AS ref_bt_id,
                     bt.code AS ref_bt_code,
@@ -295,7 +295,7 @@ export class PlaceBuildingsRepository {
                     pb.is_primary,
                     pb.created_at,
                     b.public_id::text AS building_public_id,
-                    b.name AS building_name,
+                    ${buildingDisplayNameCoalesceSql} AS building_name,
                     b.building_type_id::text AS building_type_id,
                     bt.id::text AS ref_bt_id,
                     bt.code AS ref_bt_code,

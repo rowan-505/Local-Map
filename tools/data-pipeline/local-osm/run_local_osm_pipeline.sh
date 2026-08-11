@@ -26,6 +26,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${SCRIPT_DIR}"
 
+# shellcheck source=../lib/progress_heartbeat.sh
+source "${SCRIPT_DIR}/../lib/progress_heartbeat.sh"
+
 usage() {
   cat >&2 <<EOF
 usage: $(basename "$0") <import-env-file>
@@ -227,30 +230,98 @@ PIPELINE_FROM_STAGE="${PIPELINE_FROM_STAGE:-}"
 PIPELINE_TO_STAGE="${PIPELINE_TO_STAGE:-}"
 PIPELINE_PSQL_WORK_MEM="${PIPELINE_PSQL_WORK_MEM:-512MB}"
 PIPELINE_PSQL_MAINTENANCE_WORK_MEM="${PIPELINE_PSQL_MAINTENANCE_WORK_MEM:-1GB}"
+# 0 = no limit (local national F2/F1). Set e.g. 2h if you need a cap.
+PIPELINE_STATEMENT_TIMEOUT="${PIPELINE_STATEMENT_TIMEOUT:-0}"
+PIPELINE_STAGE_I=0
 
 pipeline_stage_num() {
   printf '%d' "$((10#${1//[^0-9]/}))" 2>/dev/null || printf '%d' 0
 }
 
+# Execution order (Stage 18 runs after 08d but before 09).
+pipeline_stage_order() {
+  case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+    00|0) printf '%d' 0 ;;
+    01|1) printf '%d' 10 ;;
+    02|2) printf '%d' 20 ;;
+    03|3) printf '%d' 30 ;;
+    04|4) printf '%d' 40 ;;
+    05|5) printf '%d' 50 ;;
+    06|6) printf '%d' 60 ;;
+    07|7) printf '%d' 70 ;;
+    08|8|08b|08c|08d) printf '%d' 80 ;;
+    18) printf '%d' 85 ;;
+    09|9) printf '%d' 90 ;;
+    10) printf '%d' 95 ;;
+    11) printf '%d' 100 ;;
+    12) printf '%d' 110 ;;
+    13) printf '%d' 120 ;;
+    14) printf '%d' 130 ;;
+    15) printf '%d' 140 ;;
+    *) printf '%d' "$(pipeline_stage_num "$1")" ;;
+  esac
+}
+
 pipeline_should_run_stage() {
   local stage_id="$1"
-  local stage_num
-  stage_num="$(pipeline_stage_num "${stage_id}")"
+  local stage_ord
+  stage_ord="$(pipeline_stage_order "${stage_id}")"
   if [[ -n "${PIPELINE_FROM_STAGE}" ]]; then
-    local from_num
-    from_num="$(pipeline_stage_num "${PIPELINE_FROM_STAGE}")"
-    if [[ "${stage_num}" -lt "${from_num}" ]]; then
+    local from_ord
+    from_ord="$(pipeline_stage_order "${PIPELINE_FROM_STAGE}")"
+    if [[ "${stage_ord}" -lt "${from_ord}" ]]; then
       return 1
     fi
   fi
   if [[ -n "${PIPELINE_TO_STAGE}" ]]; then
-    local to_num
-    to_num="$(pipeline_stage_num "${PIPELINE_TO_STAGE}")"
-    if [[ "${stage_num}" -gt "${to_num}" ]]; then
+    local to_ord
+    to_ord="$(pipeline_stage_order "${PIPELINE_TO_STAGE}")"
+    if [[ "${stage_ord}" -gt "${to_ord}" ]]; then
       return 1
     fi
   fi
   return 0
+}
+
+# Count only stages that will actually run (so done/total matches reality).
+pipeline_count_planned_stages() {
+  local n=0
+  local sid
+  if pipeline_should_run_stage "00"; then
+    n=$((n + 1)) # 00_preflight_schema_compatibility
+    if [[ "${BOUNDARY_MODE}" == "CLIPPED" ]]; then
+      n=$((n + 1)) # 00_register_boundary
+    fi
+  fi
+  for sid in 01 02 03 04 05 06; do
+    if pipeline_should_run_stage "${sid}"; then
+      n=$((n + 1))
+    fi
+  done
+  if pipeline_should_run_stage "07"; then
+    n=$((n + 2)) # 00b_preflight_prod_mirror + 07_compare
+  fi
+  if pipeline_should_run_stage "08"; then
+    n=$((n + 4)) # 08, 08b, 08c, 08d
+  fi
+  if [[ "${CLASSIFICATION_REPORT_ENABLED:-true}" == "true" ]] && pipeline_should_run_stage "18"; then
+    n=$((n + 1)) # 18_classification_bucket_report
+  fi
+  for sid in 09 10; do
+    if pipeline_should_run_stage "${sid}"; then
+      n=$((n + 1))
+    fi
+  done
+  if is_remote_review_upload_requested || is_remote_review_prepare_verify_only_requested; then
+    if pipeline_should_run_stage "11"; then n=$((n + 1)); fi
+    if is_remote_review_upload_requested && pipeline_should_run_stage "12"; then n=$((n + 1)); fi
+    if pipeline_should_run_stage "13"; then n=$((n + 1)); fi
+    if is_remote_lineage_alignment_verify_requested && pipeline_should_run_stage "14"; then n=$((n + 1)); fi
+  fi
+  if is_entity_coverage_report_requested && pipeline_should_run_stage "15"; then
+    n=$((n + 1))
+  fi
+  printf '%d' "${n}"
 }
 
 pipeline_skip_stage_log() {
@@ -264,12 +335,28 @@ pipeline_skip_stage_log() {
 }
 
 run_psql() {
+  progress_set_detail "psql running (work_mem=${PIPELINE_PSQL_WORK_MEM}, stmt_timeout=${PIPELINE_STATEMENT_TIMEOUT})"
+  set +e
   PAGER=cat psql "${LOCAL_DATABASE_URL}" \
+    -c "SET statement_timeout = '${PIPELINE_STATEMENT_TIMEOUT}';" \
     -c "SET work_mem = '${PIPELINE_PSQL_WORK_MEM}';" \
     -c "SET maintenance_work_mem = '${PIPELINE_PSQL_MAINTENANCE_WORK_MEM}';" \
     -c "SET temp_buffers = '64MB';" \
+    -c "SELECT set_config('coremap.stage06_chunk_size', coalesce(nullif(current_setting('coremap.stage06_chunk_size', true), ''), '${STAGE06_CHUNK_SIZE:-50000}'), false);" \
+    -c "SET client_min_messages = NOTICE;" \
     "$@" \
-    2>&1 | tee -a "${LOG_FILE}"
+    2>&1 | progress_tee_and_watch "${LOG_FILE}" &
+  local tee_pid=$!
+  wait "${tee_pid}"
+  local rc=$?
+  set -e
+  if [[ "${rc}" -ne 0 ]]; then
+    progress_set_detail "psql FAILED exit=${rc}"
+    progress_print_once
+    progress_stop_heartbeat
+    exit "${rc}"
+  fi
+  progress_end_phase "ok psql"
 }
 
 print_resolved_config() {
@@ -308,6 +395,7 @@ print_resolved_config() {
   log "PIPELINE_TO_STAGE=${PIPELINE_TO_STAGE:-<end>}"
   log "PIPELINE_PSQL_WORK_MEM=${PIPELINE_PSQL_WORK_MEM}"
   log "PIPELINE_PSQL_MAINTENANCE_WORK_MEM=${PIPELINE_PSQL_MAINTENANCE_WORK_MEM}"
+  log "PIPELINE_STATEMENT_TIMEOUT=${PIPELINE_STATEMENT_TIMEOUT}"
   if [[ -n "${REMOTE_REVIEW_UPLOAD_ENABLED:-}" || -n "${REMOTE_REVIEW_PREPARE_VERIFY_ONLY:-}" || -n "${REMOTE_REVIEW_PACKAGE_NAME:-}" || -n "${REMOTE_LINEAGE_ALIGNMENT_VERIFY:-}" || -n "${LOCAL_ENTITY_COVERAGE_REPORT_ENABLED:-}" ]]; then
     log "REMOTE_REVIEW_UPLOAD_ENABLED=${REMOTE_REVIEW_UPLOAD_ENABLED:-}"
     log "REMOTE_REVIEW_PREPARE_VERIFY_ONLY=${REMOTE_REVIEW_PREPARE_VERIFY_ONLY:-}"
@@ -387,13 +475,16 @@ require_remote_review_stage_files() {
 
 run_stage_11_prepare_remote_review_j() {
   run_stage "11_prepare_remote_review_package (stage J)"
-  # Conflict-only packages use a stable name and auto-replace same-snapshot locally.
-  if [[ "${REMOTE_REVIEW_CONFLICT_ONLY:-true}" =~ ^(true|t|1|yes)$ ]]; then
-    REMOTE_REVIEW_PACKAGE_NAME="${REMOTE_REVIEW_PACKAGE_NAME:-remote_review_conflicts_${SNAPSHOT_VERSION}}"
-    export REMOTE_REVIEW_PACKAGE_NAME
-  else
-    echo "WARNING: full-candidate remote review upload is deprecated. Prefer REMOTE_REVIEW_CONFLICT_ONLY=true." >&2
-  fi
+  case "$(printf '%s' "${REMOTE_REVIEW_CONFLICT_ONLY:-true}" | tr '[:upper:]' '[:lower:]')" in
+    true|t|1|yes) ;;
+    *)
+      echo "error: full-candidate Import Review packages are retired." >&2
+      echo "       REMOTE_REVIEW_CONFLICT_ONLY must be true." >&2
+      exit 1
+      ;;
+  esac
+  REMOTE_REVIEW_PACKAGE_NAME="${REMOTE_REVIEW_PACKAGE_NAME:-remote_review_conflicts_${SNAPSHOT_VERSION}}"
+  export REMOTE_REVIEW_PACKAGE_NAME
   run_psql \
     -v ON_ERROR_STOP=1 \
     -v snapshot_version="${SNAPSHOT_VERSION}" \
@@ -403,7 +494,7 @@ run_stage_11_prepare_remote_review_j() {
     -v max_rows_per_family="${REMOTE_REVIEW_MAX_ROWS_PER_FAMILY:-}" \
     -v package_name="${REMOTE_REVIEW_PACKAGE_NAME}" \
     -v replace_package=false \
-    -v conflict_only="${REMOTE_REVIEW_CONFLICT_ONLY:-true}" \
+    -v conflict_only=true \
     -v settlements_only="${REMOTE_REVIEW_SETTLEMENTS_ONLY:-false}" \
     -v exclude_settlements="${REMOTE_REVIEW_EXCLUDE_SETTLEMENTS:-false}" \
     ${PSQL_EXTRA_ARGS:-} \
@@ -512,8 +603,8 @@ finalize_remote_review_stages() {
 
   log ""
   log "REMOTE_REVIEW_PACKAGE_NAME=${REMOTE_REVIEW_PACKAGE_NAME}"
-  log "REMOTE_REVIEW_CONFLICT_ONLY=${REMOTE_REVIEW_CONFLICT_ONLY:-true}"
-  log "Stage J conflict-only packages auto-replace same name + same snapshot; legacy full packages still need a new name or replace_package=true."
+  log "REMOTE_REVIEW_CONFLICT_ONLY=true (fixed architecture)"
+  log "Stage J conflict packages auto-replace the same name + same snapshot."
   if [[ -n "${REMOTE_REVIEW_ENTITY_FAMILY:-}" ]]; then
     log "REMOTE_REVIEW_ENTITY_FAMILY=${REMOTE_REVIEW_ENTITY_FAMILY}"
   fi
@@ -572,12 +663,17 @@ finalize_remote_review_stages() {
 run_stage() {
   local stage_name="$1"
   local stage_pct="${2:-}"
+  PIPELINE_STAGE_I=$((PIPELINE_STAGE_I + 1))
   log ""
   if [[ -n "${stage_pct}" ]]; then
-    log "=== ${stage_name} ===  [pipeline ${stage_pct}%]"
+    log "=== ${stage_name} ===  [pipeline ${stage_pct}% | stage ${PIPELINE_STAGE_I}/${PIPELINE_PLANNED_STAGES}]"
   else
-    log "=== ${stage_name} ==="
+    log "=== ${stage_name} ===  [stage ${PIPELINE_STAGE_I}/${PIPELINE_PLANNED_STAGES}]"
   fi
+  progress_begin_phase \
+    "${stage_name}" \
+    "stage ${PIPELINE_STAGE_I}/${PIPELINE_PLANNED_STAGES} starting${stage_pct:+ (marker ${stage_pct}%)}" \
+    "${PIPELINE_STAGE_I}"
 }
 
 run_sql() {
@@ -586,6 +682,7 @@ run_sql() {
     echo "error: SQL file not found: ${sql_file}" >&2
     exit 1
   fi
+  progress_set_detail "sql=$(basename "${sql_file}")"
   run_psql \
     -v ON_ERROR_STOP=1 \
     -v snapshot_version="${SNAPSHOT_VERSION}" \
@@ -605,7 +702,20 @@ run_shell_stage() {
     echo "error: shell stage not found: ${sh_file}" >&2
     exit 1
   fi
-  bash "${sh_file}" 2>&1 | tee -a "${LOG_FILE}"
+  progress_set_detail "shell=$(basename "${sh_file}")"
+  set +e
+  bash "${sh_file}" 2>&1 | progress_tee_and_watch "${LOG_FILE}" &
+  local tee_pid=$!
+  wait "${tee_pid}"
+  local rc=$?
+  set -e
+  if [[ "${rc}" -ne 0 ]]; then
+    progress_set_detail "shell FAILED $(basename "${sh_file}") exit=${rc}"
+    progress_print_once
+    progress_stop_heartbeat
+    exit "${rc}"
+  fi
+  progress_end_phase "ok $(basename "${sh_file}")"
 }
 
 run_preflight_schema_compatibility() {
@@ -652,8 +762,16 @@ resolve_supabase_write_database_url() {
   printf '%s' "${DB_TARGET_DATABASE_URL}"
 }
 
+PROGRESS_LOG_FILE="${LOG_FILE}"
+PIPELINE_PLANNED_STAGES="$(pipeline_count_planned_stages)"
+if [[ "${PIPELINE_PLANNED_STAGES}" -le 0 ]]; then
+  PIPELINE_PLANNED_STAGES=1
+fi
+progress_init "local_osm_pipeline" "${PIPELINE_PLANNED_STAGES}"
+
 log "local-osm pipeline started at ${RUN_TS}"
 log "log file: ${LOG_FILE}"
+log "progress: planned stages=${PIPELINE_PLANNED_STAGES} FROM=${PIPELINE_FROM_STAGE:-start} TO=${PIPELINE_TO_STAGE:-end}"
 print_resolved_config
 
 if is_remote_lineage_alignment_verify_requested &&
@@ -762,7 +880,15 @@ fi
 if pipeline_should_run_stage "07"; then
   run_preflight_prod_mirror
   run_stage "07_compare_with_prod_mirror" "60"
-  run_sql "${SCRIPT_DIR}/07_compare_with_prod_mirror.sql"
+  run_psql \
+    -v ON_ERROR_STOP=1 \
+    -v snapshot_version="${SNAPSHOT_VERSION}" \
+    -v staging_schema="${STAGING_SCHEMA}" \
+    -v prod_mirror_schema="${PROD_MIRROR_SCHEMA:-prod_mirror}" \
+    -v entity_families="${ENTITY_FAMILIES}" \
+    -v pipeline_statement_timeout="${PIPELINE_STATEMENT_TIMEOUT}" \
+    ${PSQL_EXTRA_ARGS:-} \
+    -f "${SCRIPT_DIR}/07_compare_with_prod_mirror.sql"
 else
   pipeline_skip_stage_log "07_compare_with_prod_mirror"
 fi
@@ -794,7 +920,35 @@ else
   pipeline_skip_stage_log "08b_assign_import_class"
 fi
 
-if [[ "${CLASSIFICATION_REPORT_ENABLED:-true}" == "true" ]] && pipeline_should_run_stage "08"; then
+if pipeline_should_run_stage "08"; then
+  run_stage "08c_assign_prod_admin_areas" "82"
+  run_psql \
+    -v ON_ERROR_STOP=1 \
+    -v snapshot_version="${SNAPSHOT_VERSION}" \
+    -v staging_schema="${STAGING_SCHEMA}" \
+    -v entity_families="${ENTITY_FAMILIES}" \
+    -v prod_mirror_schema="${PROD_MIRROR_SCHEMA:-prod_mirror}" \
+    -v admin_assign_batch="${ADMIN_ASSIGN_BATCH:-5000}" \
+    ${PSQL_EXTRA_ARGS:-} \
+    -f "${SCRIPT_DIR}/08c_assign_prod_admin_areas.sql"
+else
+  pipeline_skip_stage_log "08c_assign_prod_admin_areas"
+fi
+
+if pipeline_should_run_stage "08"; then
+  run_stage "08d_reclass_settlements_after_admin" "83"
+  run_psql \
+    -v ON_ERROR_STOP=1 \
+    -v snapshot_version="${SNAPSHOT_VERSION}" \
+    -v staging_schema="${STAGING_SCHEMA}" \
+    -v entity_families="${ENTITY_FAMILIES}" \
+    ${PSQL_EXTRA_ARGS:-} \
+    -f "${SCRIPT_DIR}/08d_reclass_settlements_after_admin.sql"
+else
+  pipeline_skip_stage_log "08d_reclass_settlements_after_admin"
+fi
+
+if [[ "${CLASSIFICATION_REPORT_ENABLED:-true}" == "true" ]] && pipeline_should_run_stage "18"; then
   run_stage "18_classification_bucket_report" "85"
   run_psql \
     -v ON_ERROR_STOP=1 \
@@ -853,5 +1007,6 @@ elif is_entity_coverage_report_requested; then
   pipeline_skip_stage_log "15_entity_coverage_report"
 fi
 
+progress_finish "local-osm pipeline complete"
 log ""
 log "local-osm pipeline finished (no core promotion).  [pipeline 100%]"

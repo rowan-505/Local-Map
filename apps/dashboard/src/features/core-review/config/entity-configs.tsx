@@ -26,7 +26,13 @@ import {
     placeDisplayName,
     streetDisplayName,
 } from "../utils/rowGeometry";
-import { hl, standardNameAndVerificationColumns } from "./tableColumns";
+import {
+    englishNameColumn,
+    hl,
+    myanmarNameColumn,
+    standardNameAndVerificationColumns,
+    verificationStatusColumn,
+} from "./tableColumns";
 import type { CoreReviewEntityConfig, CoreReviewFilterSupport } from "./entity-config-types";
 import CoreReviewAddressDrawerView from "../components/CoreReviewAddressDrawerView";
 import CoreReviewVerificationStatusCell from "../components/CoreReviewVerificationStatusCell";
@@ -241,10 +247,19 @@ export const CORE_REVIEW_PLACES_CONFIG: CoreReviewEntityConfig<CoreReviewPlaceRo
     searchPlaceholder: "Search places…",
     newPath: coreReviewPath("places/new"),
     columns: [
-        ...standardNameAndVerificationColumns<CoreReviewPlaceRow>({
-            myanmar: (r) => r.myanmarName,
-            english: (r) => r.englishName,
-        }),
+        { id: "id", header: "ID", cell: (r) => r.id },
+        myanmarNameColumn<CoreReviewPlaceRow>((r) => r.myanmarName),
+        englishNameColumn<CoreReviewPlaceRow>((r) => r.englishName),
+        {
+            id: "imported_name",
+            header: "Imported",
+            cell: (r, q) => (
+                <span className="block max-w-64 truncate" title={r.primaryName}>
+                    {hl(dash(r.primaryName), q)}
+                </span>
+            ),
+        },
+        verificationStatusColumn<CoreReviewPlaceRow>(),
         { id: "category", header: "Category", cell: (r, q) => hl(dash(r.categoryName), q) },
         { id: "admin", header: "Admin area", cell: (r, q) => hl(dash(r.adminAreaName), q) },
         { id: "updated", header: "Updated", cell: (r) => formatDate(r.updatedAt) },

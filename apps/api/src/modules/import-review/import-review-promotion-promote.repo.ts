@@ -107,6 +107,7 @@ import {
     sourceRefsMergeExpr,
 } from "./import-review-promotion-promote-sql.js";
 import {
+    promotionBuildingNamesUpsertSql,
     promotionTypedBuildingNameExpr,
 } from "./import-review-promotion-typed-promote-sql.js";
 import { getPromotionFamilyConfig } from "./import-review-promotion-simple-config.js";
@@ -1466,6 +1467,7 @@ export class ImportReviewPromotionPromoteRepository {
         }
 
         const row = rows[0]!;
+        await this.upsertBuildingNames(publishItemId, row.id);
         const verificationMeta = buildVerificationMetadataTracking({
             outcome: "inserted",
             beforeData: null,
@@ -1580,6 +1582,7 @@ export class ImportReviewPromotionPromoteRepository {
         }
 
         const row = rows[0]!;
+        await this.upsertBuildingNames(publishItemId, row.id);
         const verificationMeta = buildVerificationMetadataTracking({
             outcome: "updated",
             beforeData,
@@ -1599,6 +1602,17 @@ export class ImportReviewPromotionPromoteRepository {
             },
             ...verificationMeta,
         };
+    }
+
+    /** Write approved names to core.core_map_building_names (legacy buildings.name stays NULL). */
+    private async upsertBuildingNames(publishItemId: bigint, buildingId: bigint): Promise<void> {
+        await this.prisma.$executeRaw(
+            promotionBuildingNamesUpsertSql({
+                buildingId,
+                publishItemId,
+                candidateTable: BUILDING_CANDIDATE_TABLE,
+            })
+        );
     }
 
     async applyItemSuccess(args: {

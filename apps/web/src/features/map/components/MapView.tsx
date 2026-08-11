@@ -783,7 +783,7 @@ function MapViewInner({
       ) : null}
       {imageryAttribution ? (
         <div
-          className="pointer-events-none absolute bottom-1 left-1 z-10 max-w-[min(18rem,calc(100%-5rem))] rounded bg-white/80 px-1.5 py-0.5 text-[10px] leading-snug text-neutral-600 shadow-sm backdrop-blur-sm [&_a]:text-sky-700 [&_a]:underline"
+          className="pointer-events-none absolute bottom-1 left-1 z-10 max-w-[min(18rem,calc(100%-5rem))] rounded bg-white/80 px-1.5 py-0.5 text-xs leading-snug text-neutral-600 shadow-sm backdrop-blur-sm [&_a]:text-sky-700 [&_a]:underline"
           dangerouslySetInnerHTML={{ __html: imageryAttribution }}
         />
       ) : null}

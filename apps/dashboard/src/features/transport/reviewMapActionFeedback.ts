@@ -52,6 +52,14 @@ export function formatTransportStopMergeError(error: unknown): string {
     const lowerMessage = message.toLowerCase();
 
     if (
+        lowerMessage.includes("merge_stale_preview") ||
+        lowerMessage.includes("changed since the merge preview") ||
+        lowerMessage.includes("refresh the comparison")
+    ) {
+        return "One or both stops changed since this comparison loaded. Refresh the comparison and try again.";
+    }
+
+    if (
         lowerMessage.includes("merge_terminal_conflict") ||
         lowerMessage.includes("both stops are linked to active terminals") ||
         lowerMessage.includes("resolve the terminal conflict")

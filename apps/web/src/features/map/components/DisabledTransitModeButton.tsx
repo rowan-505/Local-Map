@@ -25,12 +25,12 @@ export function DisabledTransitModeButton({ label, icon, hint }: DisabledTransit
   }, [showHint]);
 
   return (
-    <div className="relative shrink-0">
+    <div className="relative min-w-0">
       <button
         type="button"
         aria-disabled="true"
         title={hint}
-        className="flex min-h-12 min-w-20 cursor-not-allowed flex-col items-center justify-center gap-1 rounded-xl px-2 py-1.5 text-[10px] font-semibold text-neutral-400 opacity-55"
+        className="flex min-h-10 w-full min-w-0 cursor-not-allowed items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2 py-1 text-sm font-semibold text-slate-400 transition-colors hover:bg-slate-50"
         onClick={revealHint}
         onMouseEnter={revealHint}
         onMouseLeave={hideHint}
@@ -43,7 +43,7 @@ export function DisabledTransitModeButton({ label, icon, hint }: DisabledTransit
       {showHint ? (
         <p
           role="tooltip"
-          className="pointer-events-none absolute bottom-[calc(100%+6px)] left-1/2 z-30 max-w-[11rem] -translate-x-1/2 rounded-xl bg-neutral-900 px-2.5 py-1.5 text-center text-[10px] font-medium leading-4 text-white shadow-md"
+          className="pointer-events-none absolute bottom-[calc(100%+6px)] left-1/2 z-30 max-w-[12rem] -translate-x-1/2 rounded-map-control bg-slate-900 px-3 py-2 text-center text-xs font-medium leading-5 text-white shadow-map-control"
         >
           {hint}
         </p>

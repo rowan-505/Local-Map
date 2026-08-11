@@ -54,12 +54,12 @@ export function EmailVerifySection() {
 
   return (
     <div className="space-y-2">
-      <p className="text-xs font-semibold text-neutral-600">Verify your email</p>
+      <p className="text-xs font-semibold text-map-muted">Verify your email</p>
 
       {phase === 'idle' ? (
         <button
           type="button"
-          className="w-full rounded-xl bg-sky-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-sky-700 disabled:opacity-60"
+          className="w-full rounded-map-control bg-map-primary px-4 py-2 text-sm font-semibold text-white shadow-map-control transition-colors hover:bg-map-primary-hover disabled:opacity-60"
           disabled={busy}
           onClick={() => void onSend()}
         >
@@ -68,7 +68,7 @@ export function EmailVerifySection() {
       ) : (
         <div className="space-y-2">
           <input
-            className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-center text-base font-semibold tracking-[0.4em] text-neutral-900 outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+            className="w-full rounded-map-control border border-map-border bg-map-surface px-3 py-2 text-center text-base font-semibold tracking-[0.4em] text-map-ink outline-none focus:border-map-primary "
             inputMode="numeric"
             autoComplete="one-time-code"
             maxLength={6}
@@ -79,7 +79,7 @@ export function EmailVerifySection() {
           <div className="flex gap-2">
             <button
               type="button"
-              className="flex-1 rounded-xl bg-sky-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-sky-700 disabled:opacity-60"
+              className="flex-1 rounded-map-control bg-map-primary px-4 py-2 text-sm font-semibold text-white shadow-map-control transition-colors hover:bg-map-primary-hover disabled:opacity-60"
               disabled={busy || code.length !== 6}
               onClick={() => void onVerify()}
             >
@@ -87,7 +87,7 @@ export function EmailVerifySection() {
             </button>
             <button
               type="button"
-              className="rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-semibold text-neutral-600 transition-colors hover:bg-neutral-50 disabled:opacity-60"
+              className="rounded-map-control border border-map-border bg-map-surface px-3 py-2 text-sm font-semibold text-map-muted transition-colors hover:bg-map-primary-soft hover:text-map-primary disabled:opacity-60"
               disabled={busy}
               onClick={() => void onSend()}
             >

@@ -34,7 +34,7 @@ export type TransportStopDetailPanelProps = {
 };
 
 const REPORT_BUTTON_CLASS =
-  'flex w-full items-center justify-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2.5 text-sm font-medium text-neutral-700 transition-colors hover:border-neutral-300 hover:bg-neutral-50';
+  'flex w-full items-center justify-center gap-2 rounded-map-control border border-map-border bg-map-surface px-3 py-2.5 text-sm font-semibold text-map-ink transition-[color,background-color,border-color,box-shadow,opacity,filter] duration-150 hover:border-map-primary/30 hover:bg-map-primary-soft hover:text-map-primary';
 
 function TransportStopDetailPanelInner({
   selection,
@@ -63,9 +63,9 @@ function TransportStopDetailPanelInner({
               <BackButton onBack={onBack} />
               <span className={mutedLabel}>Transit</span>
             </div>
-            <p className="text-sm font-medium text-neutral-800">Select a stop</p>
-            <p className="mt-1 text-xs leading-5 text-neutral-500">
-              Choose a bus stop or station on the map.
+            <p className="text-sm font-medium text-map-ink">Select a stop</p>
+            <p className="mt-1 text-xs leading-5 text-map-muted">
+              Choose a stop on the map.
             </p>
           </div>
         </article>
@@ -268,27 +268,27 @@ function TransportStopDetailCard({
         </div>
 
         <div className="flex items-start justify-between gap-3">
-          <h2 className="min-w-0 wrap-break-word text-base font-semibold leading-6 text-neutral-900">
+          <h2 className="min-w-0 wrap-break-word text-sm font-semibold leading-5 text-map-ink">
             {title}
           </h2>
           {showVerifiedBadge ? <VerifiedBadge /> : null}
         </div>
 
         {area && isLoaded ? (
-          <p className="mt-0.5 truncate text-xs text-neutral-500">{area}</p>
+          <p className="mt-0.5 truncate text-xs text-map-muted">{area}</p>
         ) : null}
 
         {banner ? (
           <div
             className={`mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs leading-5 ${
-              banner.tone === 'error' ? 'text-red-700' : 'text-neutral-600'
+              banner.tone === 'error' ? 'text-red-700' : 'text-map-muted'
             }`}
           >
             <span>{banner.message}</span>
             {banner.showRetry && onRetry ? (
               <button
                 type="button"
-                className="font-medium text-sky-700 underline-offset-2 hover:underline"
+                className="font-medium text-map-primary underline-offset-2 hover:underline"
                 onClick={onRetry}
               >
                 Try again
@@ -515,7 +515,7 @@ function BackButton({ onBack }: { readonly onBack: () => void }) {
   return (
     <button
       type="button"
-      className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-900"
+      className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-map-muted transition-colors hover:bg-map-primary-soft hover:text-map-primary"
       aria-label="Back to search results"
       onClick={onBack}
     >
@@ -534,7 +534,7 @@ function BackButton({ onBack }: { readonly onBack: () => void }) {
 
 function VerifiedBadge() {
   return (
-    <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-100">
+    <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100">
       Verified
     </span>
   );

@@ -1,9 +1,12 @@
 import { Prisma } from "@prisma/client";
 
+import { parseCoreReviewExactIdSearch } from "../core-review/core-review-id-search.js";
+
 export type StreetsListSearchInput = {
     trimmed: string;
     textPattern: string;
     numericId: bigint | null;
+    exactPublicId: string | null;
     publicIdPattern: string | null;
 };
 
@@ -11,14 +14,14 @@ export type StreetsListSearchInput = {
 export function parseStreetsListSearchInput(q: string): StreetsListSearchInput {
     const trimmed = q.trim();
     const textPattern = `%${trimmed}%`;
-    const isNumericId = /^\d+$/.test(trimmed);
-    const numericId = isNumericId ? BigInt(trimmed) : null;
+    const exactId = parseCoreReviewExactIdSearch(trimmed);
     const publicIdPattern = trimmed.length > 0 ? textPattern : null;
 
     return {
         trimmed,
         textPattern,
-        numericId,
+        numericId: exactId.numericId,
+        exactPublicId: exactId.publicId,
         publicIdPattern,
     };
 }
@@ -27,8 +30,13 @@ export function parseStreetsListSearchInput(q: string): StreetsListSearchInput {
 export function streetsCoreReviewTextSearchClause(q: string): Prisma.Sql {
     const parsed = parseStreetsListSearchInput(q);
 
-    const idMatchClause =
-        parsed.numericId !== null ? Prisma.sql`OR s.id = ${parsed.numericId}` : Prisma.empty;
+    if (parsed.numericId !== null) {
+        return Prisma.sql`s.id = ${parsed.numericId}`;
+    }
+
+    if (parsed.exactPublicId) {
+        return Prisma.sql`s.public_id = CAST(${parsed.exactPublicId} AS uuid)`;
+    }
 
     const publicIdClause =
         parsed.publicIdPattern !== null
@@ -51,7 +59,6 @@ export function streetsCoreReviewTextSearchClause(q: string): Prisma.Sql {
               AND lower(trim(coalesce(sn.language_code, ''))) = 'en'
               AND sn.name ILIKE ${parsed.textPattern}
         )
-        ${idMatchClause}
         ${publicIdClause}
     )`;
 }

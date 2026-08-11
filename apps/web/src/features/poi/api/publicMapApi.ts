@@ -760,20 +760,55 @@ function normalizeReverseConfidence(value: unknown): ReverseAddressConfidence {
 export async function getReverseAddress(
   lat: number,
   lng: number,
+  languageMode: PlaceLanguageMode = 'my',
   signal?: AbortSignal,
 ): Promise<ReverseAddressResult> {
   const search = new URLSearchParams({ lat: String(lat), lng: String(lng) });
-  const dto = await fetchJson<Partial<ReverseAddressResult>>(
-    `/search/reverse?${search.toString()}`,
-    signal ? { signal } : undefined,
-  );
+  const localizedSearch = new URLSearchParams({
+    lat: String(lat),
+    lng: String(lng),
+    lang: languageMode === 'en' ? 'en' : 'my',
+  });
+  const requestOptions = signal ? { signal } : undefined;
+
+  const [legacyResult, localizedResult] = await Promise.allSettled([
+    fetchJson<Partial<ReverseAddressResult>>(
+      `/search/reverse?${search.toString()}`,
+      requestOptions,
+    ),
+    fetchJson<{
+      readonly display_address?: string | null;
+      readonly full_address_en?: string | null;
+      readonly full_address_my?: string | null;
+    }>(
+      `/addresses/reverse?${localizedSearch.toString()}`,
+      requestOptions,
+    ),
+  ]);
+
+  if (legacyResult.status === 'rejected' && localizedResult.status === 'rejected') {
+    throw legacyResult.reason;
+  }
+
+  const legacy = legacyResult.status === 'fulfilled' ? legacyResult.value : {};
+  const localized = localizedResult.status === 'fulfilled' ? localizedResult.value : {};
+  const localizedAddress =
+    localized.display_address ??
+    (languageMode === 'en' ? localized.full_address_en : localized.full_address_my);
 
   return {
-    address_line: typeof dto.address_line === 'string' ? dto.address_line : 'Myanmar',
-    plus_code: typeof dto.plus_code === 'string' ? dto.plus_code : null,
-    lat: typeof dto.lat === 'number' ? dto.lat : lat,
-    lng: typeof dto.lng === 'number' ? dto.lng : lng,
-    confidence: normalizeReverseConfidence(dto.confidence),
+    address_line:
+      typeof localizedAddress === 'string'
+        ? localizedAddress
+        : typeof legacy.address_line === 'string'
+          ? legacy.address_line
+          : languageMode === 'en'
+            ? 'Myanmar'
+            : 'မြန်မာ',
+    plus_code: typeof legacy.plus_code === 'string' ? legacy.plus_code : null,
+    lat: typeof legacy.lat === 'number' ? legacy.lat : lat,
+    lng: typeof legacy.lng === 'number' ? legacy.lng : lng,
+    confidence: normalizeReverseConfidence(legacy.confidence),
   };
 }
 

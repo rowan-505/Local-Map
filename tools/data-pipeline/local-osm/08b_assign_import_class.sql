@@ -241,7 +241,8 @@ BEGIN
                         b.base_import_class,
                         b.class_code,
                         b.validation_status,
-                        b.admin_area_id
+                        b.admin_area_id,
+                        true  -- defer admin-required gate to Stage 08d after 08c prod assign
                     ) AS settled_import_class
                 FROM base AS b
             ),
@@ -320,6 +321,15 @@ BEGIN
             $m$,
             f.entity_family, ctx.staging_schema, f.staging_table
         ) USING ctx.source_snapshot_id;
+
+        -- Stage J conflict packages filter on (source_snapshot_id, import_class).
+        -- Avoid to_jsonb(full_row) scans over multi-million staging tables.
+        EXECUTE format(
+            'CREATE INDEX IF NOT EXISTS %I ON %I.%I (source_snapshot_id, import_class)',
+            f.staging_table || '_snd_import_class_idx',
+            ctx.staging_schema,
+            f.staging_table
+        );
     END LOOP;
 END
 $stage08b_assign$;

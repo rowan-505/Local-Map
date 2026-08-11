@@ -24,3 +24,31 @@ export function deriveCoalescedDisplayName(args: {
 }): string | null {
     return trimName(args.name_mm) ?? trimName(args.name_en) ?? trimName(args.fallback_name);
 }
+
+type BuildingDisplayNameCandidate = {
+    name: string;
+    nameType: string;
+    isPrimary: boolean;
+    searchWeight?: number;
+};
+
+/**
+ * Display-name priority for building names table rows:
+ * official primary → local primary → imported primary → alternate → any.
+ */
+export function deriveBuildingDisplayNameFromPriority(
+    names: BuildingDisplayNameCandidate[]
+): string | null {
+    const order = (n: BuildingDisplayNameCandidate): number => {
+        if (n.nameType === "official" && n.isPrimary) return 0;
+        if (n.nameType === "local" && n.isPrimary) return 1;
+        if (n.nameType === "imported" && n.isPrimary) return 2;
+        if (n.nameType === "alternate") return 3;
+        return 4;
+    };
+    const sorted = [...names].sort(
+        (a, b) =>
+            order(a) - order(b) || (b.searchWeight ?? 0) - (a.searchWeight ?? 0)
+    );
+    return trimName(sorted[0]?.name);
+}

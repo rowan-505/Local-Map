@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { useMapUiText } from '@/features/map/i18n/mapUiText';
 
 export type RouteDestination = {
   readonly label: string;
@@ -59,7 +60,8 @@ export function MapSidebar({
   morePanel = <MorePanelPlaceholder />,
   accountPanel = null,
 }: MapSidebarProps) {
-  const meta = sidebarModeMeta(activeMode);
+  const t = useMapUiText();
+  const meta = sidebarModeMeta(activeMode, t);
   const headerTitle =
     activeMode === 'transportStopDetail' && transportStopDetailTitle
       ? transportStopDetailTitle
@@ -74,17 +76,19 @@ export function MapSidebar({
       )}`}
     >
       <aside
-        className="flex h-full min-h-0 flex-col overflow-hidden rounded-t-4xl border border-white/85 bg-white/95 shadow-[0_-16px_40px_rgba(15,23,42,0.14)] backdrop-blur-xl lg:rounded-3xl lg:shadow-[0_18px_50px_rgba(15,23,42,0.16)]"
+        className="flex h-full min-h-0 flex-col overflow-hidden rounded-t-4xl border border-white/90 bg-map-bg/95 shadow-[0_-16px_40px_rgba(15,35,70,0.14)] backdrop-blur-xl lg:rounded-3xl lg:shadow-map-float"
         aria-label="Map sidebar"
         aria-expanded={isOpen}
       >
-        <div className="shrink-0 border-b border-neutral-100 bg-white/90 px-4 py-2.5 lg:py-3">
+        <div className="shrink-0 border-b border-map-border/70 bg-[linear-gradient(135deg,rgba(255,255,255,0.96),rgba(234,244,255,0.88))] px-4 py-2.5 lg:py-3">
           <button
             type="button"
-            className="mx-auto mb-2 block h-1.5 w-11 rounded-full bg-neutral-300 transition-colors hover:bg-neutral-400 lg:hidden"
-            aria-label="Set bottom sheet to half height"
+            className="group mx-auto mb-1 grid h-10 w-16 place-items-center lg:hidden"
+            aria-label={t('အောက်ခြေစာမျက်နှာကို တစ်ဝက်ဖွင့်ရန်', 'Set bottom sheet to half height')}
             onClick={() => onBottomSheetStateChange('half')}
-          />
+          >
+            <span className="h-1 w-10 rounded-full bg-map-primary/25 transition-colors group-hover:bg-map-primary/45" />
+          </button>
           <SidebarHeader
             eyebrow={meta.eyebrow}
             title={headerTitle}
@@ -120,8 +124,8 @@ export function MapSidebar({
 
       <button
         type="button"
-        className="absolute right-0 top-1/2 z-10 hidden h-9 w-9 translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-neutral-200 bg-white text-neutral-600 shadow-lg shadow-neutral-950/15 transition-colors hover:bg-neutral-50 hover:text-neutral-950 lg:grid"
-        aria-label="Collapse sidebar"
+        className="absolute right-0 top-1/2 z-10 hidden h-10 w-10 translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-map-border bg-map-surface text-map-muted shadow-map-control transition-[color,background-color,border-color,box-shadow,opacity,filter] duration-150 hover:border-map-primary/30 hover:bg-map-primary-soft hover:text-map-primary lg:grid"
+        aria-label={t('ဘေးဘောင်ကို ပိတ်ရန်', 'Collapse sidebar')}
         onClick={onCollapse}
       >
         <ChevronLeftIcon />
@@ -146,10 +150,12 @@ export function SidebarHeader({
   return (
     <div className="flex items-center justify-between gap-3">
       <div className="min-w-0">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-sky-600 lg:text-[11px]">
-          {eyebrow}
-        </p>
-        <h1 className="mt-0.5 truncate text-sm font-semibold leading-5 text-neutral-950 lg:text-base">
+        {eyebrow !== title ? (
+          <p className="map-kicker text-map-primary">
+            {eyebrow}
+          </p>
+        ) : null}
+        <h1 className={`${eyebrow === title ? '' : 'mt-0.5'} truncate text-sm font-semibold leading-5 text-map-ink`}>
           {title}
         </h1>
       </div>
@@ -178,25 +184,26 @@ function BottomSheetControls({
   readonly state: BottomSheetState;
   readonly onStateChange: (state: BottomSheetState) => void;
 }) {
+  const t = useMapUiText();
   const options: readonly {
     readonly state: BottomSheetState;
     readonly label: string;
   }[] = [
-    { state: 'collapsed', label: 'Min' },
-    { state: 'half', label: 'Half' },
-    { state: 'expanded', label: 'Full' },
+    { state: 'collapsed', label: t('ပိတ်', 'Min') },
+    { state: 'half', label: t('တစ်ဝက်', 'Half') },
+    { state: 'expanded', label: t('အပြည့်', 'Full') },
   ];
 
   return (
-    <div className="mt-2 grid grid-cols-3 gap-1 rounded-full bg-neutral-100 p-1 lg:hidden">
+    <div className="mt-2 grid grid-cols-3 gap-1 rounded-full bg-blue-100/55 p-1 lg:hidden">
       {options.map((option) => (
         <button
           type="button"
           key={option.state}
-          className={`rounded-full px-2 py-1 text-[11px] font-semibold transition-colors ${
+          className={`min-h-10 rounded-full px-2 py-1.5 text-sm font-semibold transition-[color,background-color,border-color,box-shadow,opacity,filter] duration-150 ${
             state === option.state
-              ? 'bg-white text-neutral-950 shadow-sm'
-              : 'text-neutral-600 hover:bg-white/70'
+              ? 'bg-map-primary text-white shadow-map-control'
+              : 'text-map-muted hover:bg-white/80 hover:text-map-primary'
           }`}
           aria-pressed={state === option.state}
           onClick={() => onStateChange(option.state)}
@@ -213,45 +220,64 @@ export function RoutePanelPlaceholder({
 }: {
   readonly destination?: RouteDestination | null;
 }) {
+  const t = useMapUiText();
   return (
     <PlaceholderPanel
-      eyebrow="Routing"
-      title="Routing coming soon"
+      eyebrow={t('လမ်းညွှန်', 'Routing')}
+      title={t('မကြာမီ ရရှိမည်', 'Coming soon')}
       body={
         destination
-          ? `Destination set: ${destination.label}. Turn-by-turn route planning will live here.`
-          : 'Turn-by-turn route planning will live here without covering the map.'
+          ? t(
+              `သွားရာ: ${destination.label}`,
+              `Destination: ${destination.label}`,
+            )
+          : t(
+              'လမ်းညွှန်စနစ် ပြင်ဆင်နေသည်။',
+              'Routing is being prepared.',
+            )
       }
     />
   );
 }
 
 export function BusPanelPlaceholder() {
+  const t = useMapUiText();
   return (
     <PlaceholderPanel
-      eyebrow="Transit"
-      title="Bus planner coming soon"
-      body="Bus routes, stops, and service details will appear here."
+      eyebrow={t('အများသုံးယာဉ်', 'Transit')}
+      title={t('မကြာမီ ရရှိမည်', 'Coming soon')}
+      body={t(
+        'ဘတ်စ်လမ်းကြောင်းနှင့် မှတ်တိုင်များ။',
+        'Bus routes and stops.',
+      )}
     />
   );
 }
 
 export function SavedPanelPlaceholder() {
+  const t = useMapUiText();
   return (
     <PlaceholderPanel
-      eyebrow="Saved"
-      title="Saved places coming soon"
-      body="Bookmarks and favorite map locations will appear here."
+      eyebrow={t('သိမ်းထားသည်', 'Saved')}
+      title={t('မကြာမီ ရရှိမည်', 'Coming soon')}
+      body={t(
+        'နှစ်သက်သောနေရာများကို သိမ်းပါ။',
+        'Save favorite places.',
+      )}
     />
   );
 }
 
 export function MorePanelPlaceholder() {
+  const t = useMapUiText();
   return (
     <PlaceholderPanel
-      eyebrow="More"
-      title="More map tools coming soon"
-      body="Additional layers, settings, and Local Map tools will appear here."
+      eyebrow={t('နောက်ထပ်', 'More')}
+      title={t('နောက်ထပ် ကိရိယာများ', 'More tools')}
+      body={t(
+        'မြေပုံအလွှာများနှင့် ဆက်တင်များ။',
+        'Layers and settings.',
+      )}
     />
   );
 }
@@ -293,61 +319,79 @@ export function SidebarModeContent({
   return searchPanel;
 }
 
-function sidebarModeMeta(mode: SidebarMode): {
+function sidebarModeMeta(
+  mode: SidebarMode,
+  t: (myanmar: string, english: string) => string,
+): {
   readonly eyebrow: string;
   readonly title: string;
 } {
   switch (mode) {
     case 'placeDetail':
-      return { eyebrow: 'Place', title: 'Place details' };
+      return { eyebrow: t('နေရာ', 'Place'), title: t('နေရာအချက်အလက်', 'Place details') };
     case 'transportStopDetail':
-      return { eyebrow: 'Transit', title: 'Stop details' };
+      return {
+        eyebrow: t('အများသုံးယာဉ်', 'Transit'),
+        title: t('မှတ်တိုင်အချက်အလက်', 'Stop details'),
+      };
     case 'address':
-      return { eyebrow: 'Location', title: 'Inspect location' };
+      return { eyebrow: t('တည်နေရာ', 'Location'), title: t('တည်နေရာစစ်ဆေးရန်', 'Inspect location') };
     case 'route':
-      return { eyebrow: 'Directions', title: 'Directions' };
+      return { eyebrow: t('လမ်းညွှန်', 'Directions'), title: t('လမ်းညွှန်', 'Directions') };
     case 'bus':
-      return { eyebrow: 'Bus', title: 'Bus and transit' };
+      return { eyebrow: t('ဘတ်စ်', 'Bus'), title: t('ဘတ်စ်နှင့် အများသုံးယာဉ်', 'Bus and transit') };
     case 'saved':
-      return { eyebrow: 'Saved', title: 'Saved places' };
+      return { eyebrow: t('သိမ်းထားသည်', 'Saved'), title: t('သိမ်းထားသောနေရာများ', 'Saved places') };
     case 'reports':
-      return { eyebrow: 'Reports', title: 'My reports' };
+      return { eyebrow: t('တိုင်ကြားချက်များ', 'Reports'), title: t('ကျွန်ုပ်၏ တိုင်ကြားချက်များ', 'My reports') };
     case 'more':
-      return { eyebrow: 'More', title: 'More tools' };
+      return { eyebrow: t('နောက်ထပ်', 'More'), title: t('နောက်ထပ် ကိရိယာများ', 'More tools') };
     case 'account':
-      return { eyebrow: 'Account', title: 'Your account' };
+      return { eyebrow: t('အကောင့်', 'Account'), title: t('သင့်အကောင့်', 'Your account') };
     case 'search':
     default:
-      return { eyebrow: 'Local Map', title: 'Kyauktan' };
+      return { eyebrow: t('ဒေသမြေပုံ', 'Local Map'), title: t('ကျောက်တန်း', 'Kyauktan') };
   }
 }
 
 function TransportStopDetailEmptyState() {
+  const t = useMapUiText();
   return (
     <PlaceholderPanel
-      eyebrow="Transit"
-      title="Select a stop"
-      body="Choose a bus stop or station on the map to view details."
+      eyebrow={t('အများသုံးယာဉ်', 'Transit')}
+      title={t('မှတ်တိုင်ရွေးပါ', 'Select a stop')}
+      body={t(
+        'မြေပုံမှ မှတ်တိုင်ရွေးပါ။',
+        'Choose a stop on the map.',
+      )}
     />
   );
 }
 
 function AddressPanelEmptyState() {
+  const t = useMapUiText();
   return (
     <PlaceholderPanel
-      eyebrow="Location"
-      title="Click anywhere on the map"
-      body="Inspect coordinates and future address intelligence for a map location."
+      eyebrow={t('တည်နေရာ', 'Location')}
+      title={t('မြေပုံပေါ်တွင် နှိပ်ပါ', 'Click anywhere on the map')}
+      body={t(
+        'လိပ်စာနှင့် ကိုဩဒိနိတ်ကြည့်ပါ။',
+        'View address and coordinates.',
+      )}
     />
   );
 }
 
 function PlaceDetailEmptyState() {
+  const t = useMapUiText();
   return (
     <PlaceholderPanel
-      eyebrow="Place"
-      title="Select a place"
-      body="Choose a place from the list or map to view details."
+      eyebrow={t('နေရာ', 'Place')}
+      title={t('နေရာရွေးပါ', 'Select a place')}
+      body={t(
+        'စာရင်း သို့မဟုတ် မြေပုံမှ ရွေးပါ။',
+        'Choose from the list or map.',
+      )}
     />
   );
 }
@@ -363,13 +407,30 @@ function PlaceholderPanel({
 }) {
   return (
     <section className="p-4">
-      <div className="rounded-2xl border border-dashed border-neutral-200 bg-neutral-50 p-5">
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-neutral-400">
+      <div className="rounded-map-card border border-dashed border-map-primary/25 bg-map-primary-soft/55 p-5 shadow-map-card">
+        <div className="mb-4 grid h-10 w-10 place-items-center rounded-2xl bg-map-primary text-white shadow-map-control">
+          <PlaceholderIcon />
+        </div>
+        <p className="map-kicker text-map-primary">
           {eyebrow}
         </p>
-        <h2 className="mt-3 text-lg font-semibold text-neutral-950">{title}</h2>
-        <p className="mt-2 text-sm leading-6 text-neutral-600">{body}</p>
+        <h2 className="mt-2 text-sm font-semibold leading-5 text-map-ink">{title}</h2>
+        <p className="mt-2 text-sm leading-5 text-map-muted">{body}</p>
       </div>
     </section>
+  );
+}
+
+function PlaceholderIcon() {
+  return (
+    <svg className="h-5 w-5" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path
+        d="M3.5 5.5 8 3l4 2 4.5-2.5v12L12 17l-4-2-4.5 2.5v-12Z"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
+      <path d="M8 3v12M12 5v12" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
   );
 }

@@ -22,14 +22,30 @@ DECLARE
     v_host text;
     v_database text;
     v_user text;
+    v_table_i integer := 0;
+    v_table_n integer := 0;
+    v_pct numeric;
+    v_phase_t0 timestamptz;
 BEGIN
     SELECT source_project_ref, source_host, source_database, source_user
     INTO v_project_ref, v_host, v_database, v_user
     FROM prod_mirror_source_params
     LIMIT 1;
 
+    SELECT count(*)::integer INTO v_table_n FROM prod_mirror_table_manifest;
+    RAISE NOTICE
+        'prod_mirror refresh: starting slim copy of % tables at %',
+        v_table_n, clock_timestamp();
+
     FOR t IN SELECT * FROM prod_mirror_table_manifest ORDER BY table_name LOOP
+        v_table_i := v_table_i + 1;
+        v_pct := round((100.0 * (v_table_i - 1)::numeric / greatest(v_table_n, 1)), 1);
+        v_phase_t0 := clock_timestamp();
+
         IF to_regclass(format('supabase_fdw.%I', t.table_name)) IS NULL THEN
+            RAISE NOTICE
+                'prod_mirror refresh progress: %/% (%)%% SKIP missing FDW %',
+                v_table_i, v_table_n, v_pct::text, t.table_name;
             INSERT INTO prod_mirror_refresh_report
             VALUES (
                 t.table_name, t.family_group, NULL, NULL, NULL,
@@ -46,6 +62,9 @@ BEGIN
         v_selected := prod_mirror.intersect_columns(v_available, t.wanted_columns);
 
         IF NOT ('id' = ANY (v_selected)) THEN
+            RAISE NOTICE
+                'prod_mirror refresh progress: %/% (%)%% SKIP no-id %',
+                v_table_i, v_table_n, v_pct::text, t.table_name;
             INSERT INTO prod_mirror_refresh_report
             VALUES (
                 t.table_name, t.family_group, NULL, NULL, cardinality(v_selected),
@@ -119,6 +138,11 @@ BEGIN
         END;
 
         EXECUTE format('SELECT count(*)::bigint FROM supabase_fdw.%I', t.table_name) INTO v_live;
+
+        RAISE NOTICE
+            'prod_mirror refresh progress: %/% (%)%% START copy % (live_rows=%)',
+            v_table_i, v_table_n, v_pct::text, t.table_name, coalesce(v_live, 0);
+
         EXECUTE format('DROP TABLE IF EXISTS prod_mirror.%I', t.table_name);
 
         v_sql := format(
@@ -201,6 +225,7 @@ BEGIN
                 t.table_name
             );
         END IF;
+
         IF 'manual_override' = ANY (v_selected) THEN
             EXECUTE format(
                 'CREATE INDEX IF NOT EXISTS %I ON prod_mirror.%I (manual_override)',
@@ -252,7 +277,17 @@ BEGIN
                 idx_name, t.table_name, col.column_name
             );
         END LOOP;
+
+        v_pct := round((100.0 * v_table_i::numeric / greatest(v_table_n, 1)), 1);
+        RAISE NOTICE
+            'prod_mirror refresh progress: %/% (%)%% DONE % (rows=%) elapsed=%',
+            v_table_i, v_table_n, v_pct::text, t.table_name, coalesce(v_mirror, 0),
+            (clock_timestamp() - v_phase_t0);
     END LOOP;
+
+    RAISE NOTICE
+        'prod_mirror refresh: finished all % tables at %',
+        v_table_n, clock_timestamp();
 
     INSERT INTO prod_mirror.mirror_meta AS m (
         id,

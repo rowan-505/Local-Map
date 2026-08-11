@@ -7,7 +7,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 LIB="${SCRIPT_DIR}/../lib/database_target_safety.sh"
+TSX="${REPO_ROOT}/node_modules/.bin/tsx"
 # shellcheck source=../lib/database_target_safety.sh
 source "${LIB}"
 
@@ -113,12 +115,12 @@ run_case "ambiguous fingerprints" 1 \
   SUPABASE_WRITE_DATABASE_URL="$U"
 
 echo "--- production apply confirmation ---"
-EXPECT_BODY='db_target_resolve production write; db_target_require_write_gates production apply "APPLY places 11" ""'
+EXPECT_BODY='db_target_resolve production write; db_target_require_write_gates production apply "IMPORT places yangon snapshot_v1" ""'
 run_case "missing confirmation" 1 \
   SUPABASE_WRITE_DATABASE_URL="postgresql://postgres.locghyuranqaqsnbxflc:x@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres" \
   LOCAL_DATABASE_URL="postgresql://postgres:x@localhost:5433/geo_core"
 
-EXPECT_BODY='db_target_resolve production write; db_target_require_write_gates production apply "APPLY places 11" "APPLY places 11"'
+EXPECT_BODY='db_target_resolve production write; db_target_require_write_gates production apply "IMPORT places yangon snapshot_v1" "IMPORT places yangon snapshot_v1"'
 run_case "correct confirmation" 0 \
   SUPABASE_WRITE_DATABASE_URL="postgresql://postgres.locghyuranqaqsnbxflc:x@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres" \
   LOCAL_DATABASE_URL="postgresql://postgres:x@localhost:5433/geo_core"
@@ -135,14 +137,14 @@ else
   ok "mask hides password (${masked})"
 fi
 
-if command -v npx >/dev/null 2>&1; then
+if [[ -x "${TSX}" ]]; then
   echo "--- typescript resolveDbTarget gates ---"
   set +e
   (
-    cd "${SCRIPT_DIR}/../../.."
+    cd "${REPO_ROOT}"
     env -i PATH="${PATH}" HOME="${HOME:-}" \
       DATABASE_URL="postgresql://postgres.locghyuranqaqsnbxflc:x@h:5432/p" \
-      npx --yes tsx -e "
+      "${TSX}" -e "
         import { resolveDbTarget } from \"./tools/data-pipeline/lib/database-target-safety.ts\";
         try {
           resolveDbTarget({ target: \"production\", role: \"write\" });
@@ -158,12 +160,12 @@ if command -v npx >/dev/null 2>&1; then
 
   set +e
   (
-    cd "${SCRIPT_DIR}/../../.."
+    cd "${REPO_ROOT}"
     env -i PATH="${PATH}" HOME="${HOME:-}" \
       LOCAL_DATABASE_URL="postgresql://postgres:x@localhost:5433/geo_core" \
       SUPABASE_WRITE_DATABASE_URL="postgresql://postgres.locghyuranqaqsnbxflc:x@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres" \
       DATABASE_URL="postgresql://postgres.locghyuranqaqsnbxflc:x@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres" \
-      npx --yes tsx -e "
+      "${TSX}" -e "
         import { resolveDbTarget } from \"./tools/data-pipeline/lib/database-target-safety.ts\";
         const r = resolveDbTarget({ target: \"production\", role: \"write\" });
         if (!r.label.includes(\"SUPABASE_WRITE_DATABASE_URL\")) process.exit(1);
@@ -174,7 +176,7 @@ if command -v npx >/dev/null 2>&1; then
   set -e
   if [[ ${rc} -eq 0 ]]; then ok "ts WRITE preferred"; else bad "ts WRITE preferred"; cat "${TMP}/out" "${TMP}/err" >&2; fi
 else
-  echo "skip tsx tests (npx unavailable)"
+  echo "skip tsx tests (run npm install first)"
 fi
 
 echo ""

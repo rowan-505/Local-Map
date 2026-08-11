@@ -582,17 +582,260 @@ function buildSimpleMapLayerSpec(
   };
 }
 
-const UPSERT_SPECS: Partial<Record<EntityFamilySlug, UpsertSpec>> = {
-  landuse: buildSimpleMapLayerSpec('landuse', {
+function landuseSpec(): UpsertSpec {
+  const table = importReviewTableQualified('landuse');
+  const base = buildSimpleMapLayerSpec('landuse', {
     withCentroid: true,
     nameFrom: 'payload_name',
     excludeClassCodeFromName: true,
-  }),
+  });
+  const recordType = `${COMMON_RECORD}, name_hint text, centroid_json text, admin_area_id bigint`;
+  return {
+    ...base,
+    recordTypeSql: recordType,
+    mapRows: (items, pkg) =>
+      items.map((it) => {
+        const row = buildCommonRow(it, pkg);
+        const p = it.payload;
+        const nd = row.normalized_data;
+        return {
+          ...row,
+          geom_json: resolveItemGeomJson(it, 'geometry'),
+          name_hint: pickString(p, ['name']) ?? pickString(nd, ['name']),
+          centroid_json: geomJsonParam(p.centroid_geojson ?? nd.centroid_geojson),
+          admin_area_id: pickInteger(nd, ['admin_area_id', 'core_admin_area_id']),
+        };
+      }),
+    insertSql: `
+    WITH data AS (
+      SELECT * FROM jsonb_to_recordset($2::jsonb) AS d (${recordType})
+    ),
+    geom_prep AS (
+      SELECT data.*,
+        CASE
+          WHEN geom_json IS NOT NULL AND btrim(geom_json) <> '' THEN
+            ST_SetSRID(ST_GeomFromGeoJSON(geom_json::text)::geometry, 4326)::geometry(Geometry,4326)
+          ELSE NULL::geometry
+        END AS geom_b,
+        CASE
+          WHEN centroid_json IS NOT NULL AND btrim(centroid_json) <> '' THEN
+            ST_SetSRID(ST_GeomFromGeoJSON(centroid_json::text)::geometry, 4326)::geometry(Point,4326)
+          WHEN geom_json IS NOT NULL AND btrim(geom_json) <> '' THEN
+            ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON(geom_json::text)::geometry, 4326))::geometry(Point,4326)
+          ELSE NULL::geometry
+        END AS centroid_b
+      FROM data
+    )
+    INSERT INTO ${table} (
+      review_batch_id, source_snapshot_version, source_snapshot_id_local, local_staging_id,
+      entity_family, external_id, canonical_name, class_code, confidence_score,
+      match_status, auto_action, review_status, review_decision,
+      normalized_data, source_refs, review_overrides,
+      matched_core_id, matched_core_table, matched_core_data, f2_comparison,
+      name, admin_area_id, geom, centroid, updated_at
+    )
+    SELECT $1::bigint, gp.source_snapshot_version, gp.source_snapshot_id_local::bigint,
+      gp.local_staging_id::bigint, 'landuse'::text, gp.external_id, gp.canonical_name,
+      gp.class_code, gp.confidence_score, gp.match_status, gp.auto_action,
+      gp.review_status, gp.review_decision,
+      coalesce(gp.normalized_data,'{}'::jsonb), coalesce(gp.source_refs,'{}'::jsonb), '{}'::jsonb,
+      gp.matched_core_id, gp.matched_core_table, gp.matched_core_data::jsonb, gp.f2_comparison::jsonb,
+      coalesce(gp.name_hint, gp.canonical_name), gp.admin_area_id::bigint, gp.geom_b, gp.centroid_b, now()
+    FROM geom_prep gp
+    ${insertSkipExistingBySnapshotSql(table, 'landuse')}
+    RETURNING id, local_staging_id`,
+    updateSql: `
+    WITH data AS (
+      SELECT * FROM jsonb_to_recordset($2::jsonb) AS d (${recordType})
+    ),
+    geom_prep AS (
+      SELECT data.*,
+        CASE
+          WHEN geom_json IS NOT NULL AND btrim(geom_json) <> '' THEN
+            ST_SetSRID(ST_GeomFromGeoJSON(geom_json::text)::geometry, 4326)::geometry(Geometry,4326)
+          ELSE NULL::geometry
+        END AS geom_b,
+        CASE
+          WHEN centroid_json IS NOT NULL AND btrim(centroid_json) <> '' THEN
+            ST_SetSRID(ST_GeomFromGeoJSON(centroid_json::text)::geometry, 4326)::geometry(Point,4326)
+          WHEN geom_json IS NOT NULL AND btrim(geom_json) <> '' THEN
+            ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON(geom_json::text)::geometry, 4326))::geometry(Point,4326)
+          ELSE NULL::geometry
+        END AS centroid_b
+      FROM data
+    )
+    UPDATE ${table} t SET
+      review_batch_id = $1::bigint,
+      source_snapshot_version = gp.source_snapshot_version,
+      source_snapshot_id_local = gp.source_snapshot_id_local::bigint,
+      external_id = gp.external_id, canonical_name = gp.canonical_name, class_code = gp.class_code,
+      confidence_score = gp.confidence_score, match_status = gp.match_status, auto_action = gp.auto_action,
+      normalized_data = coalesce(gp.normalized_data,'{}'::jsonb),
+      source_refs = coalesce(gp.source_refs,'{}'::jsonb),
+      matched_core_id = gp.matched_core_id, matched_core_table = gp.matched_core_table,
+      matched_core_data = gp.matched_core_data::jsonb, f2_comparison = gp.f2_comparison::jsonb,
+      name = coalesce(gp.name_hint, gp.canonical_name),
+      admin_area_id = gp.admin_area_id::bigint,
+      geom = gp.geom_b, centroid = gp.centroid_b, updated_at = now()
+    FROM geom_prep gp
+    WHERE ${updateMatchBySnapshotSql('landuse')}
+      AND ${PRESERVED_REMOTE_WHERE_SQL}
+    RETURNING t.id, t.local_staging_id`,
+  };
+}
+
+const UPSERT_SPECS: Partial<Record<EntityFamilySlug, UpsertSpec>> = {
+  landuse: landuseSpec(),
   water_lines: buildSimpleMapLayerSpec('water_lines', { nameFrom: 'payload_name' }),
   water_polygons: buildSimpleMapLayerSpec('water_polygons', { withCentroid: true, nameFrom: 'payload_name' }),
 };
 
-// buildings — specialized (existing logic)
+// buildings — specialized (import_review only; does not write Core)
+// Legacy `name` column is dashboard-compat display only; authoritative names are
+// normalized_data.names (language_code my|en|und, name_type imported).
+
+const BUILDING_MYANMAR_SCRIPT_RE = /[\u1000-\u109F]/;
+
+type BuildingFlushName = {
+  name: string;
+  language_code: 'my' | 'en' | 'und';
+  script_code: string | null;
+  name_type: 'imported';
+  is_primary: boolean;
+  search_weight: number;
+};
+
+function trimBuildingName(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const t = value.trim();
+  return t === '' ? null : t;
+}
+
+/** Prefer staging names[]; else derive from OSM tags (same rules as extract-building-osm-names). */
+function resolveBuildingNormalizedNames(
+  nd: Record<string, unknown>,
+  payload: Record<string, unknown>
+): BuildingFlushName[] {
+  if (Array.isArray(nd.names) && nd.names.length > 0) {
+    const out: BuildingFlushName[] = [];
+    const seen = new Set<string>();
+    for (const item of nd.names) {
+      if (!item || typeof item !== 'object') continue;
+      const row = item as Record<string, unknown>;
+      const name = trimBuildingName(row.name);
+      const rawLang =
+        typeof row.language_code === 'string'
+          ? row.language_code
+          : typeof row.languageCode === 'string'
+            ? row.languageCode
+            : null;
+      let language_code: 'my' | 'en' | 'und' | null = null;
+      if (rawLang) {
+        const c = rawLang.trim().toLowerCase();
+        if (c === 'my' || c === 'mm' || c === 'my-mm') language_code = 'my';
+        else if (c === 'en') language_code = 'en';
+        else if (c === 'und') language_code = 'und';
+      }
+      if (!name || !language_code) continue;
+      const key = `${language_code}\0${name.toLowerCase()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        name,
+        language_code,
+        script_code:
+          typeof row.script_code === 'string'
+            ? row.script_code
+            : typeof row.scriptCode === 'string'
+              ? row.scriptCode
+              : language_code === 'my'
+                ? 'Mymr'
+                : language_code === 'en'
+                  ? 'Latn'
+                  : null,
+        name_type: 'imported',
+        is_primary: Boolean(row.is_primary ?? row.isPrimary ?? false),
+        search_weight: Number(row.search_weight ?? row.searchWeight ?? 50) || 50,
+      });
+    }
+    if (out.length > 0) return out;
+  }
+
+  const tagsRaw = nd.tags ?? payload.tags;
+  const tags =
+    tagsRaw !== null && typeof tagsRaw === 'object' && !Array.isArray(tagsRaw)
+      ? (tagsRaw as Record<string, unknown>)
+      : {};
+  const nameMy =
+    trimBuildingName(tags['name:my']) ??
+    trimBuildingName(tags['name:mm']) ??
+    trimBuildingName(tags['name:my-MM']);
+  const nameEn = trimBuildingName(tags['name:en']);
+  const namePlain = trimBuildingName(tags['name']);
+
+  type Cand = {
+    name: string;
+    language_code: 'my' | 'en' | 'und';
+    script_code: string | null;
+    search_weight: number;
+    sort_key: number;
+  };
+  const candidates: Cand[] = [];
+  const seen = new Set<string>();
+  const add = (
+    name: string | null,
+    language_code: 'my' | 'en' | 'und',
+    script_code: string | null,
+    search_weight: number,
+    sort_key: number
+  ) => {
+    if (!name) return;
+    const key = `${language_code}\0${name.toLowerCase()}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    candidates.push({ name, language_code, script_code, search_weight, sort_key });
+  };
+
+  add(nameMy, 'my', 'Mymr', 100, 1);
+  add(nameEn, 'en', 'Latn', nameMy ? 90 : 100, 2);
+  if (namePlain) {
+    if (nameEn && namePlain.toLowerCase() === nameEn.toLowerCase()) {
+      add(namePlain, 'en', 'Latn', 80, 3);
+    } else if (BUILDING_MYANMAR_SCRIPT_RE.test(namePlain)) {
+      add(namePlain, 'my', 'Mymr', 80, 3);
+    } else {
+      add(namePlain, 'und', null, 70, 3);
+    }
+  }
+
+  const primarySeen = new Set<'my' | 'en' | 'und'>();
+  return candidates
+    .sort((a, b) => a.sort_key - b.sort_key || b.search_weight - a.search_weight)
+    .map((row) => {
+      const is_primary = !primarySeen.has(row.language_code);
+      if (is_primary) primarySeen.add(row.language_code);
+      return {
+        name: row.name,
+        language_code: row.language_code,
+        script_code: row.script_code,
+        name_type: 'imported' as const,
+        is_primary,
+        search_weight: row.search_weight,
+      };
+    });
+}
+
+function pickBuildingLegacyDisplayName(
+  names: BuildingFlushName[],
+  nd: Record<string, unknown>,
+  canonical: string | null
+): string | null {
+  const primary = names.find((n) => n.is_primary);
+  if (primary) return primary.name;
+  if (names[0]) return names[0].name;
+  return pickString(nd, ['name', 'building_name']) ?? canonical;
+}
+
 function buildingsSpec(): UpsertSpec {
   const table = importReviewTableQualified('buildings');
   return {
@@ -602,13 +845,17 @@ function buildingsSpec(): UpsertSpec {
     mapRows: (items, pkg) =>
       items.map((it) => {
         const c = buildCommonRow(it, pkg);
-        const nd = c.normalized_data;
+        const nd = { ...c.normalized_data };
+        const names = resolveBuildingNormalizedNames(nd, it.payload ?? {});
+        nd.names = names;
         return {
           ...c,
-          name_field: pickString(nd, ['name', 'building_name']) ?? c.canonical_name,
+          normalized_data: nd,
+          // Legacy import_review.name — dashboard display only, not authoritative.
+          name_field: pickBuildingLegacyDisplayName(names, nd, c.canonical_name),
           building_type_id: pickInteger(nd, ['building_type_id']),
           building_type: pickString(nd, ['building_type', 'type']),
-          admin_area_id: pickInteger(nd, ['admin_area_id']),
+          admin_area_id: pickInteger(nd, ['admin_area_id', 'core_admin_area_id']),
           levels: pickInteger(nd, ['levels', 'building:levels']),
           height_m: pickNumeric(nd, ['height_m', 'height', 'building:height']),
           area_m2: pickNumeric(nd, ['area_m2', 'area']),
@@ -699,7 +946,7 @@ function placesSpec(): UpsertSpec {
             pickInteger(it.payload, ['poi_category_id']) ??
             pickInteger(nd, ['poi_category_id', 'category_id']),
           place_class_id: pickInteger(it.payload, ['place_class_id']),
-          admin_area_id: pickInteger(nd, ['admin_area_id']),
+          admin_area_id: pickInteger(nd, ['admin_area_id', 'core_admin_area_id']),
         };
       }),
     insertSql: `
@@ -781,6 +1028,7 @@ function roadsSpec(): UpsertSpec {
         const nd = c.normalized_data;
         return {
           ...c,
+          admin_area_id: pickInteger(nd, ['admin_area_id', 'core_admin_area_id']),
           road_class_id: pickInteger(it.payload, ['road_class_id']),
           road_class_txt: pickString(nd, ['road_class', 'highway']),
           surface: pickString(nd, ['surface']),
@@ -795,7 +1043,7 @@ function roadsSpec(): UpsertSpec {
     WITH data AS (
       SELECT * FROM jsonb_to_recordset($2::jsonb) AS d (
         ${COMMON_RECORD},
-        road_class_id bigint, road_class_txt text, surface text,
+        admin_area_id bigint, road_class_id bigint, road_class_txt text, surface text,
         is_oneway boolean, bridge boolean, tunnel boolean, layer integer, length_m numeric
       )
     ),
@@ -810,14 +1058,14 @@ function roadsSpec(): UpsertSpec {
       entity_family, external_id, canonical_name, class_code, confidence_score,
       match_status, auto_action, review_status, review_decision,
       normalized_data, source_refs, matched_core_id, matched_core_table, matched_core_data, f2_comparison,
-      road_class_id, road_class, surface, is_oneway, bridge, tunnel, layer, length_m, geom, updated_at
+      admin_area_id, road_class_id, road_class, surface, is_oneway, bridge, tunnel, layer, length_m, geom, updated_at
     )
     SELECT $1::bigint, gp.source_snapshot_version, gp.source_snapshot_id_local::bigint, gp.local_staging_id::bigint,
       'roads', gp.external_id, gp.canonical_name, gp.class_code, gp.confidence_score,
       gp.match_status, gp.auto_action, gp.review_status, gp.review_decision,
       coalesce(gp.normalized_data,'{}'), coalesce(gp.source_refs,'{}'),
       gp.matched_core_id, gp.matched_core_table, gp.matched_core_data::jsonb, gp.f2_comparison::jsonb,
-      gp.road_class_id::bigint, coalesce(gp.road_class_txt, gp.class_code), gp.surface,
+      gp.admin_area_id::bigint, gp.road_class_id::bigint, coalesce(gp.road_class_txt, gp.class_code), gp.surface,
       gp.is_oneway, gp.bridge, gp.tunnel, gp.layer, gp.length_m, gp.ggeom, now()
     FROM geom_prep gp
     ${insertSkipExistingBySnapshotSql(table, 'roads')}
@@ -826,7 +1074,7 @@ function roadsSpec(): UpsertSpec {
     WITH data AS (
       SELECT * FROM jsonb_to_recordset($2::jsonb) AS d (
         ${COMMON_RECORD},
-        road_class_id bigint, road_class_txt text, surface text,
+        admin_area_id bigint, road_class_id bigint, road_class_txt text, surface text,
         is_oneway boolean, bridge boolean, tunnel boolean, layer integer, length_m numeric
       )
     ),
@@ -844,6 +1092,7 @@ function roadsSpec(): UpsertSpec {
       normalized_data = coalesce(gp.normalized_data,'{}'), source_refs = coalesce(gp.source_refs,'{}'),
       matched_core_id = gp.matched_core_id, matched_core_table = gp.matched_core_table,
       matched_core_data = gp.matched_core_data::jsonb, f2_comparison = gp.f2_comparison::jsonb,
+      admin_area_id = gp.admin_area_id::bigint,
       road_class_id = gp.road_class_id::bigint, road_class = coalesce(gp.road_class_txt, gp.class_code),
       surface = gp.surface, is_oneway = gp.is_oneway, bridge = gp.bridge, tunnel = gp.tunnel,
       layer = gp.layer, length_m = gp.length_m, geom = gp.ggeom, updated_at = now()

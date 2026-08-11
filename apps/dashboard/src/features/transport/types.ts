@@ -32,11 +32,13 @@ export type RouteReviewReadiness = {
 export type TransportReviewStatusResult = {
     public_id: string;
     review_status: string;
+    readiness?: RouteReviewReadiness;
 };
 
 export type TransportRoutePathReviewResult = {
     id: string;
     review_status: string;
+    readiness?: RouteReviewReadiness;
 };
 
 export type ReplaceRouteStopResult = {
@@ -411,6 +413,8 @@ export type TransportStopMergePreviewStop = {
     isActive: boolean;
     lat: number | null;
     lng: number | null;
+    /** ISO timestamp used for merge stale checks. */
+    updatedAt?: string | null;
 };
 
 export type TransportStopMergeReferenceCounts = {

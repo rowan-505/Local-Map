@@ -102,9 +102,12 @@ BEGIN
   SELECT sample_limit, snapshot_version, snapshot_ref
   INTO v_limit, v_version, v_ref FROM params;
 
-  SELECT geom INTO v_admin FROM core.core_admin_areas WHERE id = 2043;
+  -- Production Yangon city polygon (prod_mirror id 5271 ≈ former local clip 2043).
+  SELECT geom INTO v_admin
+  FROM prod_mirror.core_admin_areas
+  WHERE id = 5271 AND deleted_at IS NULL;
   IF v_admin IS NULL THEN
-    RAISE EXCEPTION 'admin area 2043 (Yangon city) missing';
+    RAISE EXCEPTION 'prod_mirror admin area 5271 (ရန်ကုန်မြို့) missing — refresh prod_mirror';
   END IF;
 
   SELECT source_registry_id, import_batch_id, boundary_id

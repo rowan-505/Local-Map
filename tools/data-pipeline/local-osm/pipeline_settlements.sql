@@ -1,6 +1,7 @@
 -- =============================================================================
--- Settlement extraction helpers (local staging / import_work).
--- OSM place=* → core.core_places with type-aware duplicate + name rules.
+-- Settlement extraction helpers for local staging and classification.
+-- OSM place=* → staging place candidates (later promote to Supabase core.core_places).
+-- Admin spatial helpers below read prod_mirror only (local core schema is not used).
 -- =============================================================================
 
 CREATE SCHEMA IF NOT EXISTS system;
@@ -236,34 +237,44 @@ AS $$
     )), '');
 $$;
 
--- Smallest covering ward/town/township for a point (local core admin hierarchy).
+-- Smallest covering ward/town/township for a point (production IDs via prod_mirror).
 -- Prefer finest level (ward > town > township), then smallest planar area.
--- Do not call core.find_admin_area_for_point here — that path is heavier and can
--- return NULL on township ambiguity. Stage 05 should only invoke this for settlements.
+-- Main Stage 05 path leaves admin_area_id NULL; Stage 08c assigns township via
+-- system.pipeline_find_township_for_*_prod. This helper is for diagnostics/reports.
 CREATE OR REPLACE FUNCTION system.pipeline_assign_admin_area_for_point(p_geom geometry)
 RETURNS bigint
 LANGUAGE sql
 STABLE
 AS $$
     SELECT aa.id
-    FROM core.core_admin_areas AS aa
-    JOIN ref.ref_admin_levels AS al ON al.id = aa.admin_level_id
+    FROM prod_mirror.core_admin_areas AS aa
+    JOIN prod_mirror.ref_admin_levels AS al ON al.id = aa.admin_level_id
     WHERE aa.deleted_at IS NULL
-      AND aa.is_active
       AND aa.geom IS NOT NULL
       AND al.code IN ('ward_village_tract', 'town', 'township')
       AND p_geom IS NOT NULL
       AND ST_Covers(aa.geom, ST_SetSRID(p_geom, 4326))
-    ORDER BY al.rank DESC NULLS LAST, ST_Area(aa.geom) ASC, aa.id
+    ORDER BY
+        CASE al.code
+            WHEN 'ward_village_tract' THEN 3
+            WHEN 'town' THEN 2
+            WHEN 'township' THEN 1
+            ELSE 0
+        END DESC,
+        ST_Area(aa.geom) ASC,
+        aa.id
     LIMIT 1;
 $$;
 
 -- Final settlement-aware import class (locality → review when would be safe_new).
+-- p_skip_admin_gate: Stage 08b sets true so Stage 08c can assign prod township ids
+-- before Stage 08d enforces the admin-required → conflict rule.
 CREATE OR REPLACE FUNCTION system.pipeline_decide_settlement_import_class(
     p_base_class text,
     p_class_code text,
     p_validation_status text DEFAULT NULL,
-    p_admin_area_id bigint DEFAULT NULL
+    p_admin_area_id bigint DEFAULT NULL,
+    p_skip_admin_gate boolean DEFAULT false
 )
 RETURNS text
 LANGUAGE plpgsql
@@ -282,7 +293,8 @@ BEGIN
         RETURN 'invalid';
     END IF;
 
-    IF system.pipeline_settlement_requires_admin(p_class_code)
+    IF NOT coalesce(p_skip_admin_gate, false)
+       AND system.pipeline_settlement_requires_admin(p_class_code)
        AND p_admin_area_id IS NULL
        AND v_base IN ('safe_new', 'safe_update', 'unchanged') THEN
         RETURN 'conflict';

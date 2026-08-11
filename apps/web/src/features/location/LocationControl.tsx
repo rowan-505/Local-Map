@@ -5,6 +5,7 @@
  * status pill. No modal, no sharing, no backend, nothing persisted.
  */
 import type { UserLocationFix, UserLocationStatus } from './userLocationTypes';
+import { useMapUiText } from '@/features/map/i18n/mapUiText';
 import { getPermissionDeniedStatusText } from './locationPermissionHints';
 import {
   isLikelyAndroidInAppBrowser,
@@ -60,6 +61,7 @@ export function LocationControl({
   onLocateClick,
   onStopClick,
 }: LocationControlProps) {
+  const t = useMapUiText();
   const isLocating = status === 'requesting_permission';
   const isTracking = status === 'tracking';
   const isError = ERROR_STATUSES.has(status);
@@ -71,6 +73,7 @@ export function LocationControl({
     isAwaitingFreshFix,
     isLikelyInAppBrowser,
     message,
+    t,
   });
   const showStop = isTracking && Boolean(onStopClick);
   const showUseAnyway = canUseApproximate && Boolean(onUseApproximate);
@@ -79,38 +82,40 @@ export function LocationControl({
     (status === 'permission_denied' || status === 'unsupported');
 
   const active = isFollowing && isTracking;
-  const buttonLabel = isTracking ? 'Recenter on my location' : 'Show my location';
+  const buttonLabel = isTracking
+    ? t('တည်နေရာသို့ ပြန်ရန်', 'Recenter')
+    : t('ကျွန်ုပ်၏တည်နေရာ', 'My location');
 
   return (
     <div className="pointer-events-auto flex items-center gap-1.5">
       {showUseAnyway ? (
         <button
           type="button"
-          className="rounded-2xl border border-amber-200 bg-amber-50/95 px-2.5 py-1 text-xs font-medium text-amber-900 shadow-lg shadow-neutral-900/10 backdrop-blur-xl transition-colors hover:bg-amber-100"
-          title="Center on your approximate (low-accuracy) location"
+          className="rounded-2xl border border-amber-200 bg-amber-50/95 px-2.5 py-1 text-xs font-medium text-amber-900 shadow-map-control backdrop-blur-xl transition-colors hover:bg-amber-100"
+          title={t('ခန့်မှန်းတည်နေရာ သုံးရန်', 'Use approximate location')}
           onClick={onUseApproximate}
         >
-          Use anyway
+          {t('အသုံးပြုရန်', 'Use anyway')}
         </button>
       ) : null}
 
       {showOpenInChrome ? (
         <button
           type="button"
-          className="rounded-2xl border border-sky-200 bg-sky-50/95 px-2.5 py-1 text-xs font-medium text-sky-900 shadow-lg shadow-neutral-900/10 backdrop-blur-xl transition-colors hover:bg-sky-100"
-          title="Open this page in Chrome for location access"
+          className="rounded-2xl border border-map-primary/25 bg-map-primary-soft/95 px-2.5 py-1 text-xs font-medium text-map-primary shadow-map-control backdrop-blur-xl transition-colors hover:bg-blue-100"
+          title={t('Chrome ဖြင့် ဖွင့်ရန်', 'Open in Chrome')}
           onClick={openCurrentPageInChrome}
         >
-          Open in Chrome
+          {t('Chrome ဖြင့် ဖွင့်ရန်', 'Open in Chrome')}
         </button>
       ) : null}
 
       {statusText ? (
         <span
-          className={`max-w-52 truncate rounded-2xl border px-2.5 py-1 text-xs font-medium shadow-lg shadow-neutral-900/10 backdrop-blur-xl ${
+          className={`max-w-52 truncate rounded-2xl border px-2.5 py-1 text-xs font-medium shadow-map-control backdrop-blur-xl ${
             isError || isOutOfCoverage
               ? 'border-amber-200 bg-amber-50/95 text-amber-900'
-              : 'border-white/80 bg-white/95 text-neutral-700'
+              : 'border-white/90 bg-white/95 text-map-ink'
           }`}
           role={isError ? 'alert' : 'status'}
           title={statusText}
@@ -121,10 +126,10 @@ export function LocationControl({
 
       <button
         type="button"
-        className={`grid h-10 w-10 place-items-center rounded-2xl border shadow-lg shadow-neutral-900/10 backdrop-blur-xl transition-colors lg:h-9 lg:w-9 ${
+        className={`grid h-11 w-11 place-items-center rounded-2xl border shadow-map-control backdrop-blur-xl transition-[color,background-color,border-color,box-shadow,opacity,filter] duration-150 lg:h-10 lg:w-10 ${
           active
-            ? 'border-sky-500 bg-sky-600 text-white shadow-sky-900/20'
-            : 'border-white/80 bg-white/95 text-neutral-700 hover:bg-neutral-100'
+            ? 'border-map-primary bg-map-primary text-white shadow-map-control'
+            : 'border-white/90 bg-white/95 text-map-ink hover:border-map-primary/25 hover:bg-map-primary-soft hover:text-map-primary'
         }`}
         aria-pressed={active}
         aria-busy={isLocating}
@@ -138,9 +143,9 @@ export function LocationControl({
       {showStop ? (
         <button
           type="button"
-          className="grid h-10 w-10 place-items-center rounded-2xl border border-white/80 bg-white/95 text-neutral-700 shadow-lg shadow-neutral-900/10 backdrop-blur-xl transition-colors hover:bg-neutral-100 lg:h-9 lg:w-9"
-          aria-label="Stop location tracking"
-          title="Stop location tracking"
+          className="grid h-11 w-11 place-items-center rounded-2xl border border-white/90 bg-white/95 text-map-ink shadow-map-control backdrop-blur-xl transition-[color,background-color,border-color,box-shadow,opacity,filter] duration-150 hover:border-red-200 hover:bg-red-50 hover:text-red-600 lg:h-10 lg:w-10"
+          aria-label={t('တည်နေရာခြေရာခံမှု ရပ်ရန်', 'Stop location tracking')}
+          title={t('တည်နေရာခြေရာခံမှု ရပ်ရန်', 'Stop location tracking')}
           onClick={onStopClick}
         >
           <StopIcon />
@@ -158,6 +163,7 @@ function getStatusText({
   isAwaitingFreshFix,
   isLikelyInAppBrowser,
   message,
+  t,
 }: {
   status: UserLocationStatus;
   fix: UserLocationFix | null;
@@ -166,35 +172,36 @@ function getStatusText({
   isAwaitingFreshFix: boolean;
   isLikelyInAppBrowser: boolean;
   message?: string | null;
+  t: (myanmar: string, english: string) => string;
 }): string | null {
   switch (status) {
     case 'requesting_permission':
-      return 'Requesting location…';
+      return t('ခွင့်ပြုချက် တောင်းနေသည်…', 'Requesting access…');
     case 'permission_denied':
       return getPermissionDeniedStatusText(isLikelyInAppBrowser);
     case 'unavailable':
-      return 'Location unavailable · Showing Yangon';
+      return t('တည်နေရာ မရပါ', 'Location unavailable');
     case 'timeout':
-      return 'Location timeout · Showing Yangon';
+      return t('တည်နေရာ ရယူချိန်ကုန်', 'Location timed out');
     case 'unsupported':
       // Prefer the specific reason (e.g. HTTPS requirement) when the hook provides it.
-      return message ?? 'Location unsupported · Showing Yangon';
+      return message ?? t('တည်နေရာ မထောက်ပံ့ပါ', 'Location unsupported');
     case 'tracking': {
-      if (isOutOfCoverage) return 'Outside CoreMap coverage · Showing Yangon';
+      if (isOutOfCoverage) return t('ဝန်ဆောင်မှုဧရိယာပြင်ပ', 'Outside coverage');
       // A stale sample was just rejected → tell the user we are awaiting fresh GPS.
-      if (isAwaitingFreshFix) return 'Waiting for fresh GPS…';
+      if (isAwaitingFreshFix) return t('GPS စောင့်နေသည်…', 'Waiting for GPS…');
       // No usable fix yet during warm-up → reassure the user we are still improving.
-      if (!fix) return isWarmingUp ? 'Finding precise location…' : 'Tracking';
+      if (!fix) return isWarmingUp ? t('တည်နေရာ ရှာနေသည်…', 'Locating…') : t('ခြေရာခံနေသည်', 'Tracking');
       const meters = Math.round(fix.accuracyM);
-      if (fix.accuracyM <= 20) return `Precise ±${meters}m`;
-      if (fix.accuracyM <= 50) return `Accuracy ±${meters}m`;
+      if (fix.accuracyM <= 20) return t(`တိကျမှု ±${meters} မီတာ`, `Precise ±${meters}m`);
+      if (fix.accuracyM <= 50) return t(`တိကျမှု ±${meters} မီတာ`, `Accuracy ±${meters}m`);
       if (fix.accuracyM <= 100) {
         // Still warming up → keep hope; warm-up over → nudge to move outdoors.
         return isWarmingUp
-          ? `Low accuracy ±${meters}m · Improving…`
-          : `Low accuracy ±${meters}m · Move outdoors`;
+          ? t(`±${meters} မီတာ · ပြန်ညှိနေသည်`, `±${meters}m · Improving`)
+          : t(`±${meters} မီတာ · အပြင်သို့ ရွှေ့ပါ`, `±${meters}m · Move outdoors`);
       }
-      return `Poor accuracy ±${meters}m · Move outdoors`;
+      return t(`±${meters} မီတာ · အပြင်သို့ ရွှေ့ပါ`, `±${meters}m · Move outdoors`);
     }
     default:
       return null;

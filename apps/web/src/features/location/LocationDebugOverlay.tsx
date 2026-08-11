@@ -61,7 +61,7 @@ export function LocationDebugOverlay({
 
   return (
     <div
-      className="pointer-events-none fixed bottom-2 left-2 z-9999 max-w-[80vw] rounded-lg border border-sky-300 bg-white/95 p-2 font-mono text-[10px] leading-tight text-neutral-800 shadow-lg backdrop-blur"
+      className="pointer-events-none fixed bottom-2 left-2 z-9999 max-w-[80vw] rounded-lg border border-sky-300 bg-white/95 p-2 font-mono text-xs leading-tight text-neutral-800 shadow-lg backdrop-blur"
       role="status"
       aria-label="Location debug diagnostics"
     >
@@ -77,7 +77,7 @@ export function LocationDebugOverlay({
         </tbody>
       </table>
       {status === 'permission_denied' ? (
-        <div className="mt-1 max-w-[72vw] space-y-0.5 text-[10px] text-amber-700">
+        <div className="mt-1 max-w-[72vw] space-y-0.5 text-xs text-amber-700">
           {getPermissionDeniedDebugHints(env.isLikelyInAppBrowser).map((hint) => (
             <div key={hint}>{hint}</div>
           ))}

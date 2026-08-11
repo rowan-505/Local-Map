@@ -76,7 +76,6 @@ export function resolveDbTarget(options: {
     const expectedRef =
         options.expectedProjectRef ??
         env("DB_TARGET_PRODUCTION_PROJECT_REF") ??
-        env("SAFE_LOADER_PRODUCTION_PROJECT_REF") ??
         DEFAULT_PRODUCTION_PROJECT_REF;
 
     let url: string | undefined;

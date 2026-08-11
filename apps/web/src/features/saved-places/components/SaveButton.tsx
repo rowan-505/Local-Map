@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useMapUiText } from '@/features/map/i18n/mapUiText';
 import { ApiError } from '@/features/auth/api/http';
 import { useAuth } from '@/features/auth/state/useAuth';
 import { useSavedPlaces } from '../state/useSavedPlaces';
@@ -14,6 +15,7 @@ type SaveButtonProps = {
  * - Signed-in users save via POST /me/saved-places and can unsave.
  */
 export function SaveButton({ placeApiId }: SaveButtonProps) {
+  const t = useMapUiText();
   const { isAuthenticated, openAuthModal } = useAuth();
   const { isSaved, save, unsaveByPlaceId } = useSavedPlaces();
   const [busy, setBusy] = useState(false);
@@ -42,7 +44,7 @@ export function SaveButton({ placeApiId }: SaveButtonProps) {
       if (err instanceof ApiError && err.status === 401) {
         openAuthModal('login');
       } else {
-        setError('Could not update saved places. Try again.');
+        setError(t('သိမ်း၍မရပါ။', 'Could not save.'));
       }
     } finally {
       setBusy(false);
@@ -53,17 +55,21 @@ export function SaveButton({ placeApiId }: SaveButtonProps) {
     <div>
       <button
         type="button"
-        className={`flex w-full items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${
+        className={`flex min-h-10 w-full items-center justify-center gap-2 rounded-map-control border px-2.5 py-2 text-xs font-semibold transition-[color,background-color,border-color,box-shadow,opacity,filter] duration-150 disabled:cursor-not-allowed disabled:opacity-45 ${
           saved
-            ? 'border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100'
-            : 'border-neutral-200 bg-white text-neutral-700 hover:border-neutral-300 hover:bg-neutral-50'
+            ? 'border-map-primary/25 bg-map-primary-soft text-map-primary hover:bg-blue-100'
+            : 'border-map-border bg-map-surface text-map-ink hover:border-map-primary/30 hover:bg-map-primary-soft hover:text-map-primary'
         }`}
         disabled={disabled || busy}
         aria-pressed={saved}
         onClick={() => void onClick()}
       >
         <BookmarkIcon filled={saved} />
-        {busy ? 'Saving…' : saved ? 'Saved' : 'Save place'}
+        {busy
+          ? t('သိမ်းနေသည်…', 'Saving…')
+          : saved
+            ? t('သိမ်းပြီး', 'Saved')
+            : t('သိမ်း', 'Save')}
       </button>
       {error ? <p className="mt-1 text-xs text-red-600">{error}</p> : null}
     </div>

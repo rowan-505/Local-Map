@@ -22,6 +22,5 @@ staging / import tables
 
 ## Human documentation
 
-- [`docs/05-dashboard/import-review.md`](../../05-dashboard/import-review.md)
-- [`docs/05-dashboard/core-review.md`](../../05-dashboard/core-review.md)
-- [`docs/07-data-pipeline/review-and-promotion.md`](../../07-data-pipeline/review-and-promotion.md)
+- [`docs/dashboard.md`](../../dashboard.md)
+- [`docs/data-pipeline.md`](../../data-pipeline.md)

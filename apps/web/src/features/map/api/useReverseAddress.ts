@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { getReverseAddress, type ReverseAddressResult } from '@/features/poi/api/publicMapApi';
+import { useMapUiStore } from '@/features/map/state/mapUiStore';
 
 export type ReverseAddressState = {
   readonly data: ReverseAddressResult | null;
@@ -16,6 +17,7 @@ const IDLE: ReverseAddressState = { data: null, loading: false, error: false };
 export function useReverseAddress(
   coordinates: readonly [number, number] | null,
 ): ReverseAddressState {
+  const languageMode = useMapUiStore((state) => state.languageMode);
   const [state, setState] = useState<ReverseAddressState>(IDLE);
   const requestIdRef = useRef(0);
 
@@ -24,15 +26,17 @@ export function useReverseAddress(
 
   useEffect(() => {
     if (lat === null || lng === null) {
-      setState(IDLE);
       return;
     }
 
     const requestId = ++requestIdRef.current;
     const controller = new AbortController();
-    setState({ data: null, loading: true, error: false });
+    queueMicrotask(() => {
+      if (controller.signal.aborted || requestId !== requestIdRef.current) return;
+      setState({ data: null, loading: true, error: false });
+    });
 
-    getReverseAddress(lat, lng, controller.signal)
+    getReverseAddress(lat, lng, languageMode, controller.signal)
       .then((result) => {
         if (requestId !== requestIdRef.current) return;
         setState({ data: result, loading: false, error: false });
@@ -45,7 +49,7 @@ export function useReverseAddress(
     return () => {
       controller.abort();
     };
-  }, [lat, lng]);
+  }, [languageMode, lat, lng]);
 
-  return state;
+  return coordinates ? state : IDLE;
 }

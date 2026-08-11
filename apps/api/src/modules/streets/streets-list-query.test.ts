@@ -22,6 +22,13 @@ describe("parseStreetsListSearchInput", () => {
     it("supports partial public_id search pattern", () => {
         const parsed = parseStreetsListSearchInput("a1b2c3d4");
         assert.equal(parsed.publicIdPattern, "%a1b2c3d4%");
+        assert.equal(parsed.exactPublicId, null);
+    });
+
+    it("detects a complete public_id for indexed equality", () => {
+        const publicId = "2f0e7e1a-5ad2-4d73-9706-18ce4e3dd420";
+        const parsed = parseStreetsListSearchInput(publicId);
+        assert.equal(parsed.exactPublicId, publicId);
     });
 });
 

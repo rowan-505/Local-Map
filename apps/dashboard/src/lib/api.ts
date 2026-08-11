@@ -372,6 +372,16 @@ export type BuildingAdminAreaRef = {
     slug: string;
 };
 
+export type BuildingNameEntry = {
+    id?: number;
+    name: string;
+    languageCode: "my" | "en" | "und";
+    scriptCode?: string | null;
+    nameType: "official" | "alternate" | "short" | "local" | "old" | "imported";
+    isPrimary: boolean;
+    searchWeight: number;
+};
+
 export type Building = {
     id: string;
     public_id: string;
@@ -380,8 +390,10 @@ export type Building = {
     name_mm?: string | null;
     name_en?: string | null;
     fallback_name?: string | null;
-    /** Coalesced display label (mm → en → fallback). */
+    /** Coalesced display label from names table priority. */
     name: string | null;
+    /** Canonical multilingual names from core_map_building_names. */
+    names?: BuildingNameEntry[];
     /** FK to ref.ref_building_types (when exposed by API). */
     building_type_id?: string | null;
     /** Resolved taxonomy; null when not linked to ref or inactive. */

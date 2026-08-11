@@ -25,7 +25,7 @@ export function TransportStopNextStopsSection({
   return (
     <article className={sidebarCard} aria-label="Next stops direction preview">
       <div className="px-4 py-3.5">
-        <SidebarSectionTitle>Next stops / direction preview</SidebarSectionTitle>
+        <SidebarSectionTitle>Next stops</SidebarSectionTitle>
 
         {hasNextStopsPreviewContent(previews) ? (
           <ul className="mt-3 space-y-3" role="list">
@@ -40,8 +40,8 @@ export function TransportStopNextStopsSection({
             ))}
           </ul>
         ) : (
-          <p className="mt-2 text-sm leading-6 text-neutral-500">
-            Next stop information is not available yet.
+          <p className="mt-2 text-sm leading-6 text-map-muted">
+            No next-stop data.
           </p>
         )}
       </div>
@@ -75,11 +75,11 @@ function VariantNextStopsPreview({
   const directionLabel = formatPreviewDirectionLabel(group);
 
   return (
-    <div className="rounded-xl border border-neutral-200 bg-neutral-50/80 px-3 py-2.5">
+    <div className="rounded-map-control border border-map-border bg-map-bg px-3 py-2.5">
       <div className="mb-2.5">
-        <p className="text-sm font-medium leading-5 text-neutral-900">{routeTitle}</p>
+        <p className="text-sm font-medium leading-5 text-map-ink">{routeTitle}</p>
         {directionLabel ? (
-          <p className="mt-0.5 text-xs leading-5 text-neutral-600">{directionLabel}</p>
+          <p className="mt-0.5 text-xs leading-5 text-map-muted">{directionLabel}</p>
         ) : null}
       </div>
 
@@ -118,27 +118,27 @@ function TimelineStop({
       <div className="flex w-3 shrink-0 flex-col items-center pt-1">
         <span
           className={`block rounded-full ring-2 ring-white ${
-            isCurrent ? 'h-2.5 w-2.5 bg-sky-600' : 'h-2 w-2 bg-neutral-300'
+            isCurrent ? 'h-2.5 w-2.5 bg-map-primary' : 'h-2 w-2 bg-map-border'
           }`}
           aria-hidden="true"
         />
         {!isLast ? (
-          <span className="mt-0.5 w-px flex-1 bg-neutral-200" aria-hidden="true" />
+          <span className="mt-0.5 w-px flex-1 bg-map-border" aria-hidden="true" />
         ) : null}
       </div>
       <div className="min-w-0 flex-1 pt-0.5">
         {isCurrent ? (
-          <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-400">
+          <span className="map-kicker text-map-muted">
             Current stop
           </span>
         ) : (
-          <span className="text-[10px] font-medium text-neutral-400" aria-hidden="true">
+          <span className="text-xs font-medium text-neutral-400" aria-hidden="true">
             ↓
           </span>
         )}
         <p
           className={`wrap-break-word text-sm leading-5 ${
-            isCurrent ? 'mt-0.5 font-medium text-neutral-900' : 'text-neutral-700'
+            isCurrent ? 'mt-0.5 font-medium text-map-ink' : 'text-map-muted'
           }`}
         >
           {label}

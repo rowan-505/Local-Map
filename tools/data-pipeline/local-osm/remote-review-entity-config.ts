@@ -23,6 +23,37 @@ export const REMOTE_REVIEW_ENTITY_FAMILIES = [
 
 export type EntityFamilySlug = (typeof REMOTE_REVIEW_ENTITY_FAMILIES)[number];
 
+export const IMPORT_REVIEW_CLASSES = [
+  'duplicate',
+  'conflict',
+  'manual_protected',
+  'verified_conflict',
+  'possible_delete',
+] as const;
+
+export type ImportReviewClass = (typeof IMPORT_REVIEW_CLASSES)[number];
+
+export function isImportReviewClass(value: unknown): value is ImportReviewClass {
+  return (
+    typeof value === 'string' &&
+    (IMPORT_REVIEW_CLASSES as readonly string[]).includes(value.trim().toLowerCase())
+  );
+}
+
+export function assertReviewOnlyPackageItems(
+  items: Array<{ entity_family: string; local_staging_id: string; payload: Record<string, unknown> }>
+): void {
+  for (const item of items) {
+    const importClass = item.payload.import_class;
+    if (!isImportReviewClass(importClass)) {
+      throw new Error(
+        `Stage K refuses non-review package item family=${item.entity_family} ` +
+          `local_staging_id=${item.local_staging_id} import_class=${String(importClass)}`
+      );
+    }
+  }
+}
+
 export type ChildStagingRelation = {
   /** Staging child table (names or components). */
   childTable: string;

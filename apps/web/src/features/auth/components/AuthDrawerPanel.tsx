@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { useMapUiText } from '@/features/map/i18n/mapUiText';
 import { RegionCombobox } from '@/features/regions/components/RegionCombobox';
 import { ApiError } from '../api/http';
 import { useAuth } from '../state/useAuth';
@@ -15,6 +16,7 @@ export function AuthDrawerPanel({
 }: {
   readonly initialView?: AuthModalView;
 }) {
+  const t = useMapUiText();
   const { login, register } = useAuth();
   const [view, setView] = useState<AuthModalView>(initialView);
   const [email, setEmail] = useState('');
@@ -47,16 +49,16 @@ export function AuthDrawerPanel({
       }
       // No manual close: the account panel reacts to the new auth state.
     } catch (err) {
-      setError(toErrorMessage(err, isSignup));
+      setError(toErrorMessage(err, isSignup, t));
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <section className="p-3.5">
-      <div className="rounded-2xl border border-neutral-100 bg-white p-4 shadow-sm shadow-neutral-950/3">
-        <div className="grid grid-cols-2 gap-1 rounded-full bg-neutral-100 p-1 text-sm font-semibold">
+    <section className="p-3.5 text-sm">
+      <div className="rounded-map-card border border-map-border bg-map-surface p-4 shadow-map-card">
+        <div className="grid grid-cols-2 gap-1 rounded-full bg-blue-100/55 p-1 text-sm font-semibold">
           <button
             type="button"
             className={tabClass(!isSignup)}
@@ -66,7 +68,7 @@ export function AuthDrawerPanel({
               setError(null);
             }}
           >
-            Sign in
+            {t('အကောင့်ဝင်ရန်', 'Sign in')}
           </button>
           <button
             type="button"
@@ -77,25 +79,25 @@ export function AuthDrawerPanel({
               setError(null);
             }}
           >
-            Sign up
+            {t('အကောင့်ဖွင့်ရန်', 'Sign up')}
           </button>
         </div>
 
         <form className="mt-4 space-y-3" onSubmit={onSubmit}>
           {isSignup ? (
             <Field
-              label="Display name"
+              label={t('အသုံးပြုသူအမည်', 'Display name')}
               type="text"
               autoComplete="name"
               value={displayName}
               onChange={setDisplayName}
-              placeholder="Your name"
+              placeholder={t('သင့်အမည်', 'Your name')}
               required
               minLength={2}
             />
           ) : null}
           <Field
-            label="Email"
+            label={t('အီးမေးလ်', 'Email')}
             type="email"
             autoComplete="email"
             value={email}
@@ -104,22 +106,26 @@ export function AuthDrawerPanel({
             required
           />
           <Field
-            label="Password"
+            label={t('စကားဝှက်', 'Password')}
             type="password"
             autoComplete={isSignup ? 'new-password' : 'current-password'}
             value={password}
             onChange={setPassword}
-            placeholder={isSignup ? 'At least 8 characters' : 'Your password'}
+            placeholder={
+              isSignup
+                ? t('အနည်းဆုံး စာလုံး ၈ လုံး', 'At least 8 characters')
+                : t('သင့်စကားဝှက်', 'Your password')
+            }
             required
             minLength={isSignup ? 8 : 6}
           />
           {isSignup ? (
             <label className="block">
-              <span className="mb-1 block text-xs font-semibold text-neutral-600">
-                Preferred language
+              <span className="mb-1 block text-xs font-semibold text-map-muted">
+                {t('နှစ်သက်ရာဘာသာစကား', 'Preferred language')}
               </span>
               <select
-                className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 outline-none transition-colors focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+                className="w-full rounded-map-control border border-map-border bg-map-surface px-3 py-2 text-sm text-map-ink outline-none transition-colors focus:border-map-primary "
                 value={preferredLanguage}
                 onChange={(event) =>
                   setPreferredLanguage(event.target.value === 'en' ? 'en' : 'my')
@@ -132,7 +138,7 @@ export function AuthDrawerPanel({
           ) : null}
           {isSignup ? (
             <RegionCombobox
-              label="Primary region (optional)"
+              label={t('အဓိကဒေသ', 'Primary region')}
               value={regionId}
               selectedLabel={regionLabel}
               onChange={(id, displayName) => {
@@ -153,16 +159,23 @@ export function AuthDrawerPanel({
 
           <button
             type="submit"
-            className="w-full rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="w-full rounded-map-control bg-map-primary px-4 py-2.5 text-sm font-semibold text-white shadow-map-control transition-[color,background-color,border-color,box-shadow,opacity,filter] duration-150 hover:bg-map-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
             disabled={submitting}
           >
-            {submitting ? 'Please wait…' : isSignup ? 'Create account' : 'Sign in'}
+            {submitting
+              ? t('ခဏစောင့်ပါ…', 'Please wait…')
+              : isSignup
+                ? t('အကောင့်ဖွင့်ရန်', 'Create account')
+                : t('အကောင့်ဝင်ရန်', 'Sign in')}
           </button>
         </form>
       </div>
 
-      <p className="mt-3 px-1 text-center text-xs text-neutral-500">
-        Browsing the map and search is free. An account is only needed to save places.
+      <p className="mt-3 px-1 text-center text-xs text-map-muted">
+        {t(
+          'နေရာသိမ်းရန်သာ အကောင့်လိုသည်။',
+          'Sign in only to save places.',
+        )}
       </p>
     </section>
   );
@@ -189,9 +202,9 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs font-semibold text-neutral-600">{label}</span>
+      <span className="mb-1 block text-xs font-semibold text-map-muted">{label}</span>
       <input
-        className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 outline-none transition-colors focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+        className="w-full rounded-map-control border border-map-border bg-map-surface px-3 py-2 text-sm text-map-ink outline-none transition-colors focus:border-map-primary "
         type={type}
         value={value}
         onChange={(event) => onChange(event.target.value)}
@@ -206,15 +219,27 @@ function Field({
 
 function tabClass(active: boolean): string {
   return `rounded-full px-3 py-1.5 transition-colors ${
-    active ? 'bg-white text-neutral-950 shadow-sm' : 'text-neutral-600 hover:text-neutral-900'
+    active
+      ? 'bg-map-primary text-white shadow-map-control'
+      : 'text-map-muted hover:bg-white/70 hover:text-map-primary'
   }`;
 }
 
-function toErrorMessage(error: unknown, isSignup: boolean): string {
+function toErrorMessage(
+  error: unknown,
+  isSignup: boolean,
+  t: (myanmar: string, english: string) => string,
+): string {
   if (error instanceof ApiError) {
-    if (error.status === 409) return 'An account with this email already exists.';
-    if (error.status === 401) return 'Incorrect email or password.';
+    if (error.status === 409) {
+      return t('ဤအီးမေးလ်ကို အသုံးပြုပြီးဖြစ်သည်။', 'Email already in use.');
+    }
+    if (error.status === 401) {
+      return t('အီးမေးလ် သို့မဟုတ် စကားဝှက် မမှန်ပါ။', 'Incorrect email or password.');
+    }
     if (error.message) return error.message;
   }
-  return isSignup ? 'Could not create account. Try again.' : 'Could not sign in. Try again.';
+  return isSignup
+    ? t('အကောင့်ဖွင့်၍မရပါ။', 'Could not create account.')
+    : t('အကောင့်ဝင်၍မရပါ။', 'Could not sign in.');
 }

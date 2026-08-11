@@ -474,6 +474,8 @@ export type TransportStopMergeGlobalBody = {
     candidateStopId: string;
     fieldSources?: TransportStopMergeFieldSources;
     acknowledgeSameVariantOccurrences?: boolean;
+    canonicalUpdatedAt?: string;
+    duplicateUpdatedAt?: string;
     reason?: string;
 };
 
@@ -493,6 +495,12 @@ export function mergeTransportStopsGlobal(
     if (typeof body.acknowledgeSameVariantOccurrences === "boolean") {
         payload.acknowledgeSameVariantOccurrences =
             body.acknowledgeSameVariantOccurrences;
+    }
+    if (body.canonicalUpdatedAt) {
+        payload.canonicalUpdatedAt = body.canonicalUpdatedAt;
+    }
+    if (body.duplicateUpdatedAt) {
+        payload.duplicateUpdatedAt = body.duplicateUpdatedAt;
     }
     const trimmed = body.reason?.trim();
     if (trimmed) {
