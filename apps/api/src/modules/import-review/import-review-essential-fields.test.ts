@@ -36,7 +36,7 @@ describe("import-review-essential-fields", () => {
             "places",
             "roads",
             "buildings",
-            "landuse",
+            "land_areas",
             "water_lines",
             "water_polygons",
         ] as const) {

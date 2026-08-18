@@ -141,12 +141,12 @@ CREATE TEMP TABLE stage14_family_manifest (
 
 INSERT INTO stage14_family_manifest (entity_family, staging_table, matched_core_table)
 VALUES
-    ('buildings', 'staging_building_candidates', 'core_map_buildings'),
+    ('buildings', 'staging_building_candidates', 'core_buildings'),
     ('places', 'staging_place_candidates', 'core_places'),
     ('roads', 'staging_road_candidates', 'core_streets'),
-    ('landuse', 'staging_landuse_candidates', 'core_map_landuse'),
-    ('water_lines', 'staging_water_line_candidates', 'core_map_water_lines'),
-    ('water_polygons', 'staging_water_polygon_candidates', 'core_map_water_polygons'),
+    ('landuse', 'staging_landuse_candidates', 'core_land_areas'),
+    ('water_lines', 'staging_water_line_candidates', 'core_water_lines'),
+    ('water_polygons', 'staging_water_polygon_candidates', 'core_water_polygons'),
     ('addresses', 'staging_address_candidates', 'core_addresses'),
     ('admin_areas', 'staging_admin_area_candidates', 'core_admin_areas'),
     ('routing_barriers', 'staging_routing_barrier_candidates', NULL);

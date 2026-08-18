@@ -3,9 +3,9 @@ import type { ImportReviewScopeQueryParams } from "@/src/lib/importReviewSnapsho
 
 import type { ImportReviewTableColumn } from "../config/types";
 import {
-    formatLanduseClassTableCell,
-    formatLanduseSourceClassCell,
-} from "./importReviewLanduseListDisplay";
+    formatLandAreaClassTableCell,
+    formatLandAreaSourceClassCell,
+} from "./importReviewLandAreaListDisplay";
 import {
     formatCandidateName,
     isImportReviewNameTableColumn,
@@ -178,11 +178,11 @@ export function importReviewCellValue(row: ImportReviewBuildingListItem, col: Im
     if (col.key === "building_type_display") {
         return dash(formatBuildingTypeLabel(row));
     }
-    if (col.key === "landuse_class_display") {
-        return formatLanduseClassTableCell(row);
+    if (col.key === "land_area_class_display") {
+        return formatLandAreaClassTableCell(row);
     }
     if (col.key === "imported_class_code") {
-        return formatLanduseSourceClassCell(row);
+        return formatLandAreaSourceClassCell(row);
     }
     if (col.key === "road_class_display") {
         return displayImportReviewRoadClassColumn(row);

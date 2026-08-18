@@ -14,7 +14,7 @@ export function candidateCoreReviewHref(
         places: "places",
         buildings: "buildings",
         roads: "roads",
-        landuse: "landuse",
+        "land-areas": "land-areas",
         addresses: "addresses",
         admin_areas: "admin-areas",
         water_lines: "water-lines",

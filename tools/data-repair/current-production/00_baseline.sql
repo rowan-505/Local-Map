@@ -108,7 +108,7 @@ SELECT count(*) AS total,
        count(*) FILTER (WHERE is_verified) AS verified,
        count(*) FILTER (WHERE deleted_at IS NULL AND admin_area_id IS NULL) AS missing_admin,
        count(*) FILTER (WHERE deleted_at IS NULL AND external_id IS NULL) AS null_external_id
-FROM core.core_map_buildings;
+FROM core.core_buildings;
 
 \echo '=== LANDUSE ==='
 SELECT count(*) AS total,
@@ -116,14 +116,14 @@ SELECT count(*) AS total,
        count(*) FILTER (WHERE COALESCE(is_verified, false)) AS verified,
        count(*) FILTER (WHERE deleted_at IS NULL AND admin_area_id IS NULL) AS missing_admin,
        count(*) FILTER (WHERE deleted_at IS NULL AND external_id IS NULL) AS null_external_id
-FROM core.core_map_landuse;
+FROM core.core_land_areas;
 
 \echo '=== WATER (no admin_area_id column) ==='
 SELECT 'water_lines' AS family, count(*) AS total, count(*) FILTER (WHERE deleted_at IS NULL) AS not_deleted
-FROM core.core_map_water_lines
+FROM core.core_water_lines
 UNION ALL
 SELECT 'water_polygons', count(*), count(*) FILTER (WHERE deleted_at IS NULL)
-FROM core.core_map_water_polygons;
+FROM core.core_water_polygons;
 
 \echo '=== TRANSPORT MISSING ADMIN ==='
 SELECT 'stops' AS family, count(*) AS total,
@@ -149,7 +149,7 @@ UNION ALL SELECT 'road_candidates', count(*) FROM import_review.road_candidates
 UNION ALL SELECT 'admin_area_candidates', count(*) FROM import_review.admin_area_candidates
 UNION ALL SELECT 'place_candidates', count(*) FROM import_review.place_candidates
 UNION ALL SELECT 'building_candidates', count(*) FROM import_review.building_candidates
-UNION ALL SELECT 'landuse_candidates', count(*) FROM import_review.landuse_candidates
+UNION ALL SELECT 'land_area_candidates', count(*) FROM import_review.land_area_candidates
 UNION ALL SELECT 'water_line_candidates', count(*) FROM import_review.water_line_candidates
 UNION ALL SELECT 'water_polygon_candidates', count(*) FROM import_review.water_polygon_candidates
 UNION ALL SELECT 'search.search_documents', count(*) FROM search.search_documents;

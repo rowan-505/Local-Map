@@ -701,7 +701,7 @@ export const getPublicSearchSchema = {
     description:
         "Unified public search over the search index (search.search_documents). " +
         "Matches places, grouped streets (street_group), admin areas, addresses, " +
-        "bus stops/routes, buildings, water and landuse. Streets are returned as one " +
+        "bus stops/routes, buildings, water and land areas. Streets are returned as one " +
         "logical road per result, not per segment. A Plus Code query is decoded to a " +
         "point; a short Plus Code requires lat/lng (map center or user location) to " +
         "expand, otherwise referenceRequired is returned.",
@@ -842,7 +842,7 @@ export const getPublicSearchGeometrySchema = {
                     "building",
                     "water_line",
                     "water_polygon",
-                    "landuse",
+                    "land_area",
                 ],
             },
             entityId: { type: "string", description: "Internal numeric id or uuid public_id" },

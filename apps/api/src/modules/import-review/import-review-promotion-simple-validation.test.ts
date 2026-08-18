@@ -533,11 +533,11 @@ function familyReadyRow(
                 geomDiagnostics: okGeom("ST_LineString"),
                 ...overrides,
             };
-        case "landuse":
+        case "land_areas":
             return {
                 ...row,
                 geom: "present",
-                landuse_class_id: 5n,
+                land_area_class_id: 5n,
                 name_en: "Landuse",
                 geomDiagnostics: okGeom("ST_MultiPolygon"),
                 ...overrides,

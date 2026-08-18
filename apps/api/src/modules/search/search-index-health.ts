@@ -43,7 +43,7 @@ export const SEARCH_HEALTH_FAMILY_REBUILD_VIEWS: Readonly<Record<string, string>
     transport_routes: "bus_routes",
     transport_route_variants: "bus_routes",
     buildings: "buildings",
-    landuse: "landuse",
+    land_area: "land_area",
     water_lines: "water_lines",
     water_polygons: "water_polygons",
 };
@@ -62,7 +62,7 @@ WITH families AS (
             ('transport_routes', 'transport_route'),
             ('transport_route_variants', 'transport_route_variant'),
             ('buildings', 'building'),
-            ('landuse', 'landuse'),
+            ('land_area', 'land_area'),
             ('water_lines', 'water_line'),
             ('water_polygons', 'water_polygon')
     ) AS t(entity_family, search_entity_type)
@@ -93,7 +93,7 @@ canonical AS MATERIALIZED (
     FROM search.v_search_buildings_source
     UNION ALL
     SELECT entity_type, entity_id::bigint, source_updated_at
-    FROM search.v_search_landuse_source
+    FROM search.v_search_land_area_source
     UNION ALL
     SELECT entity_type, entity_id::bigint, source_updated_at
     FROM search.v_search_water_lines_source

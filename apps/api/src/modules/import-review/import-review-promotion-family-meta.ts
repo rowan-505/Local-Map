@@ -10,7 +10,7 @@ export type ImportReviewPromotionRiskLevel = "normal" | "high_risk";
 const FAMILY_LABELS: Record<ImportReviewPromotionAllowedFamily, string> = {
     buildings: "Buildings",
     places: "Places",
-    landuse: "Land use",
+    land_areas: "Land areas",
     water_lines: "Water lines",
     water_polygons: "Water polygons",
     roads: "Roads",

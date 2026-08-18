@@ -77,7 +77,7 @@ case "${FAMILY}" in
     ;;
   landuse)
     SQL_FILE="${SCRIPT_DIR}/sql/landuse.sql"
-    EXPECTED_HEADER="classification,local_staging_id,external_id,name_und,name_my,name_en,landuse_class_id,class_code,admin_area_id,geom_ewkt,confidence_score,detail_level,source_tags,source_refs,normalized_data"
+    EXPECTED_HEADER="classification,local_staging_id,external_id,name_und,name_my,name_en,land_area_class_id,class_code,admin_area_id,geom_ewkt,confidence_score,detail_level,source_tags,source_refs,normalized_data"
     ;;
   water_lines)
     SQL_FILE="${SCRIPT_DIR}/sql/water_lines.sql"
@@ -87,9 +87,21 @@ case "${FAMILY}" in
     SQL_FILE="${SCRIPT_DIR}/sql/water_polygons.sql"
     EXPECTED_HEADER="classification,local_staging_id,external_id,name_und,name_my,name_en,class_code,geom_ewkt,source_refs,normalized_data"
     ;;
+  protected_areas)
+    SQL_FILE="${SCRIPT_DIR}/sql/protected_areas.sql"
+    EXPECTED_HEADER="classification,local_staging_id,external_id,name_und,name_my,name_en,class_code,geom_ewkt,confidence_score,source_tags,source_refs,normalized_data"
+    ;;
   routing_barriers)
     SQL_FILE="${SCRIPT_DIR}/sql/routing_barriers.sql"
     EXPECTED_HEADER="classification,local_staging_id,external_id,barrier_type,core_street_id,point_ewkt,access_tags,source_refs,normalized_data"
+    ;;
+  routing_turn_restrictions)
+    SQL_FILE="${SCRIPT_DIR}/sql/routing_turn_restrictions.sql"
+    EXPECTED_HEADER="classification,local_staging_id,external_id,restriction_type,from_street_id,to_street_id,via_node_external_id,via_ewkt,except_modes,condition,source_refs,normalized_data"
+    ;;
+  coastlines)
+    SQL_FILE="${SCRIPT_DIR}/sql/coastlines.sql"
+    EXPECTED_HEADER="scope,snapshot_version,source_snapshot_id,source_registry_id,source_checksum,source_way_count,component_count,length_km,geom_ewkt"
     ;;
   *) db_target_die "unsupported family: ${FAMILY}" ;;
 esac
@@ -138,6 +150,33 @@ db_target_require_write_gates \
 if [[ "${MODE}" == "apply" && "${DB_TARGET}" == "production" && "${FAMILY}" == "buildings" ]]; then
   if [[ "${EXECUTE_BUILDINGS_DIRECT_CORE:-}" != "I_UNDERSTAND" ]]; then
     db_target_die "set EXECUTE_BUILDINGS_DIRECT_CORE=I_UNDERSTAND for buildings production apply"
+  fi
+fi
+
+# Extra one-time gate for national land-areas / coastline production apply.
+if [[ "${MODE}" == "apply" && "${DB_TARGET}" == "production" && "${FAMILY}" == "landuse" ]]; then
+  if [[ "${EXECUTE_LAND_AREAS_DIRECT_CORE:-}" != "I_UNDERSTAND" ]]; then
+    db_target_die "set EXECUTE_LAND_AREAS_DIRECT_CORE=I_UNDERSTAND for landuse production apply"
+  fi
+fi
+if [[ "${MODE}" == "apply" && "${DB_TARGET}" == "production" && "${FAMILY}" == "coastlines" ]]; then
+  if [[ "${EXECUTE_COASTLINES_DIRECT_CORE:-}" != "I_UNDERSTAND" ]]; then
+    db_target_die "set EXECUTE_COASTLINES_DIRECT_CORE=I_UNDERSTAND for coastlines production apply"
+  fi
+fi
+if [[ "${MODE}" == "apply" && "${DB_TARGET}" == "production" && "${FAMILY}" == "protected_areas" ]]; then
+  if [[ "${EXECUTE_PROTECTED_AREAS_DIRECT_CORE:-}" != "I_UNDERSTAND" ]]; then
+    db_target_die "set EXECUTE_PROTECTED_AREAS_DIRECT_CORE=I_UNDERSTAND for protected_areas production apply"
+  fi
+fi
+if [[ "${MODE}" == "apply" && "${DB_TARGET}" == "production" && "${FAMILY}" == "routing_barriers" ]]; then
+  if [[ "${EXECUTE_ROUTING_BARRIERS_DIRECT_CORE:-}" != "I_UNDERSTAND" ]]; then
+    db_target_die "set EXECUTE_ROUTING_BARRIERS_DIRECT_CORE=I_UNDERSTAND for routing_barriers production apply"
+  fi
+fi
+if [[ "${MODE}" == "apply" && "${DB_TARGET}" == "production" && "${FAMILY}" == "routing_turn_restrictions" ]]; then
+  if [[ "${EXECUTE_ROUTING_TURN_RESTRICTIONS_DIRECT_CORE:-}" != "I_UNDERSTAND" ]]; then
+    db_target_die "set EXECUTE_ROUTING_TURN_RESTRICTIONS_DIRECT_CORE=I_UNDERSTAND for routing_turn_restrictions production apply"
   fi
 fi
 

@@ -21,19 +21,19 @@ BEGIN
   IF NOT EXISTS(SELECT 1 FROM direct_buildings_params) THEN
     RAISE EXCEPTION 'buildings: active source/snapshot not found';
   END IF;
-  IF to_regclass('core.core_map_buildings') IS NULL THEN
-    RAISE EXCEPTION 'buildings: core.core_map_buildings missing';
+  IF to_regclass('core.core_buildings') IS NULL THEN
+    RAISE EXCEPTION 'buildings: core.core_buildings missing';
   END IF;
   IF NOT EXISTS(
     SELECT 1 FROM information_schema.columns
-    WHERE table_schema='core' AND table_name='core_map_buildings'
+    WHERE table_schema='core' AND table_name='core_buildings'
       AND column_name='source_feature_id'
   ) THEN
     RAISE EXCEPTION 'buildings: migration 149 columns missing (source_feature_id)';
   END IF;
   IF NOT EXISTS(
     SELECT 1 FROM information_schema.columns
-    WHERE table_schema='core' AND table_name='core_map_buildings'
+    WHERE table_schema='core' AND table_name='core_buildings'
       AND column_name='is_geometry_manually_edited'
   ) THEN
     RAISE EXCEPTION 'buildings: migration 149 columns missing (is_geometry_manually_edited)';
@@ -127,7 +127,7 @@ SELECT
   c.source_feature_type,
   c.source_feature_id,
   system.pipeline_osm_identity_key(c.external_id) AS identity_key
-FROM core.core_map_buildings c;
+FROM core.core_buildings c;
 CREATE INDEX ON direct_buildings_core_keys(identity_key);
 CREATE INDEX ON direct_buildings_core_keys(source_registry_id, source_feature_type, source_feature_id);
 CREATE INDEX ON direct_buildings_core_keys(id);
@@ -171,7 +171,7 @@ CREATE INDEX ON direct_buildings_matches(target_id);
 
 CREATE TEMP TABLE direct_buildings_core AS
 SELECT c.*
-FROM core.core_map_buildings c
+FROM core.core_buildings c
 WHERE c.id IN (SELECT target_id FROM direct_buildings_matches);
 CREATE INDEX ON direct_buildings_core(id);
 
@@ -311,7 +311,7 @@ BEGIN
   WHILE lo <= max_row LOOP
     hi := lo + batch_size - 1;
     WITH ins AS (
-      INSERT INTO core.core_map_buildings(
+      INSERT INTO core.core_buildings(
         external_id,name,building_type_id,admin_area_id,geom,centroid,area_m2,
         levels,height_m,confidence_score,normalized_data,source_refs,is_active,
         is_verified,verification_status,source_registry_id,source_snapshot_id,
@@ -359,7 +359,7 @@ BEGIN
 END $$;
 
 WITH upd AS(
- UPDATE core.core_map_buildings c SET
+ UPDATE core.core_buildings c SET
   building_type_id=s.building_type_id,admin_area_id=s.admin_area_id,
   geom=s.geom::geometry(MultiPolygon,4326),
   centroid=s.centroid,
@@ -420,21 +420,21 @@ SELECT
   )
 FROM upd u
 JOIN direct_buildings_core b ON b.id=u.id
-JOIN core.core_map_buildings a ON a.id=u.id;
+JOIN core.core_buildings a ON a.id=u.id;
 
--- Canonical names live in core_map_building_names (imported only; never overwrite
--- official/local/alternate). Legacy core_map_buildings.name is not written.
+-- Canonical names live in core_building_names (imported only; never overwrite
+-- official/local/alternate). Legacy core_buildings.name is not written.
 -- Skip name writes for protected/skipped rows.
 CREATE TEMP TABLE direct_buildings_name_source AS
 SELECT coalesce(c.entity_id,s.target_id) building_id,s.name_my,s.name_en,s.name_und
 FROM direct_buildings_ready s
 LEFT JOIN direct_buildings_changes c ON c.external_id=s.external_id
 WHERE coalesce(c.entity_id,s.target_id) IS NOT NULL;
-INSERT INTO core.core_map_building_names(
+INSERT INTO core.core_building_names(
  building_id,name,language_code,script_code,name_type,is_primary,search_weight)
 SELECT s.building_id,n.name,n.lang,n.script,'imported',
  NOT EXISTS (
-  SELECT 1 FROM core.core_map_building_names existing
+  SELECT 1 FROM core.core_building_names existing
   WHERE existing.building_id=s.building_id
     AND existing.language_code=n.lang
     AND existing.is_primary IS TRUE
@@ -476,7 +476,7 @@ INSERT INTO system.system_publish_items(publish_batch_id,entity_family,entity_id
  publish_action,publish_status,external_id,target_schema,target_table,target_id,
  before_data,after_data,validation_result,published_at,source_snapshot_version)
 SELECT a.publish_batch_id,'buildings',c.entity_id,c.action,'success',c.external_id,
- 'core','core_map_buildings',c.entity_id,c.before_data,c.after_data,
+ 'core','core_buildings',c.entity_id,c.before_data,c.after_data,
  '{"validated":true,"source":"local_pipeline"}'::jsonb,now(),p.snapshot_version
 FROM direct_buildings_changes c CROSS JOIN direct_buildings_audit a CROSS JOIN direct_buildings_params p;
 
@@ -517,7 +517,7 @@ BEGIN
     WHERE s.classification='safe_new'
       AND s.target_id IS NULL
       AND NOT EXISTS (
-        SELECT 1 FROM core.core_map_buildings c
+        SELECT 1 FROM core.core_buildings c
         WHERE c.deleted_at IS NULL
           AND c.source_registry_id = p.source_registry_id
           AND c.source_feature_type = s.source_feature_type

@@ -53,9 +53,8 @@ CREATE INDEX IF NOT EXISTS irr_road_rbid_promoted_core_id_idx
     ON import_review.road_candidates (review_batch_id, promoted_core_id, id)
     WHERE promoted_core_id IS NOT NULL;
 
-CREATE INDEX IF NOT EXISTS core_streets_external_id_promote_idx
-    ON core.core_streets (external_id)
-    WHERE external_id IS NOT NULL AND btrim(external_id) <> '';
+-- core_streets_external_id_unique_idx is the canonical Core lookup index.
+-- Do not recreate the retired non-unique core_streets_external_id_promote_idx.
 
 SELECT pg_temp.bulk_road_verify_phase('indexes ensured');
 

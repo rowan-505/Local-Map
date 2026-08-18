@@ -2,7 +2,11 @@ import { timingSafeEqual } from "node:crypto";
 
 import type { FastifyReply, FastifyRequest } from "fastify";
 
-import type { JwtUser } from "../../plugins/auth.js";
+import {
+    requireDashboardAccess,
+    requireDashboardWrite,
+    type JwtUser,
+} from "../../plugins/auth.js";
 
 /**
  * Required when `IMPORT_REVIEW_ADMIN_TOKEN` is set (temporary symmetric guard).
@@ -51,7 +55,7 @@ function timingSafeOpaqueEqual(receivedUtf8: string, expectedUtf8: string): bool
  * Runs very early (`onRequest` on the import_review plugin subtree) — **before** Fastify validates
  * query/body/params schemas for those routes.
  *
- * - **IMPORT_REVIEW_ADMIN_TOKEN unset:** Bearer JWT verified; missing/invalid JWT → **401**; valid JWT lacking `roles: ["admin"]` passes here and hits {@link requireImportReviewAdmin}.
+ * - **IMPORT_REVIEW_ADMIN_TOKEN unset:** Bearer JWT verified; missing/invalid JWT → **401**; role capability is checked by {@link requireImportReviewRouteAccess}.
  * - **IMPORT_REVIEW_ADMIN_TOKEN set (temporary symmetric guard):** header must match env byte‑for‑byte; missing/blank → **401**, wrong → **403**; bypasses Bearer entirely.
  *
  * IMPORTANT: **`AUTH_BYPASS` does not affect import_review** — unauthenticated PATCH was previously possible solely because AUTH_BYPASS short‑circuited JWT.
@@ -91,17 +95,49 @@ export async function authenticateImportReview(request: FastifyRequest, reply: F
 }
 
 /**
- * Coarse JWT `admin` gate when using Bearer auth (`IMPORT_REVIEW_ADMIN_TOKEN` not configured).
- * Header-token synth user always satisfies this.
- *
- * TODO(import-review-rbac): Replace coarse `admin` role check with `import_review:write`.
+ * POST routes that are proven query-only. All other non-GET routes fail closed to
+ * dashboard write access. Validation and promotion-batch dry-runs are intentionally
+ * absent because they persist validation/progress state.
  */
-export async function requireImportReviewAdmin(request: FastifyRequest, reply: FastifyReply): Promise<void | FastifyReply> {
+const IMPORT_REVIEW_READ_ONLY_POST_ROUTES = new Set([
+    "/cleanup/promoted/dry-run",
+    "/addresses/promote-dry-run",
+    "/places/promote-dry-run",
+    "/place-address-links/promote-dry-run",
+]);
+
+export type ImportReviewRouteAccess = "read" | "write";
+
+export function importReviewRouteAccess(method: string, routeUrl: string): ImportReviewRouteAccess {
+    const normalizedUrl = routeUrl.replace(/^\/api\/import-review/, "");
+    if (method.toUpperCase() === "GET") {
+        return "read";
+    }
+    if (method.toUpperCase() === "POST" && IMPORT_REVIEW_READ_ONLY_POST_ROUTES.has(normalizedUrl)) {
+        return "read";
+    }
+    return "write";
+}
+
+export async function requireImportReviewRouteAccess(
+    request: FastifyRequest,
+    reply: FastifyReply
+): Promise<void | FastifyReply> {
     if (request.method === "OPTIONS") {
         return;
     }
-    const roles = request.user?.roles ?? [];
-    if (!roles.includes("admin")) {
-        return reply.code(403).send({ message: "Import review endpoints require admin role." });
+
+    const access = importReviewRouteAccess(request.method, request.routeOptions.url ?? "");
+    if (access === "read") {
+        return requireDashboardAccess(request, reply);
     }
+    return requireDashboardWrite(request, reply);
+}
+
+/** @deprecated Use capability-aware {@link requireImportReviewRouteAccess}. */
+export async function requireImportReviewAdmin(
+    request: FastifyRequest,
+    reply: FastifyReply
+): Promise<void | FastifyReply> {
+    return requireDashboardWrite(request, reply);
 }

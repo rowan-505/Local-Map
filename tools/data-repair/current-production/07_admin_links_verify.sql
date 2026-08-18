@@ -7,11 +7,11 @@ FROM core.core_places
 UNION ALL SELECT 'buildings',
        count(*) FILTER (WHERE deleted_at IS NULL AND admin_area_id IS NULL),
        count(*) FILTER (WHERE deleted_at IS NULL AND admin_area_id IS NOT NULL)
-FROM core.core_map_buildings
+FROM core.core_buildings
 UNION ALL SELECT 'landuse',
        count(*) FILTER (WHERE deleted_at IS NULL AND admin_area_id IS NULL),
        count(*) FILTER (WHERE deleted_at IS NULL AND admin_area_id IS NOT NULL)
-FROM core.core_map_landuse
+FROM core.core_land_areas
 UNION ALL SELECT 'streets',
        count(*) FILTER (WHERE deleted_at IS NULL AND admin_area_id IS NULL),
        count(*) FILTER (WHERE deleted_at IS NULL AND admin_area_id IS NOT NULL)

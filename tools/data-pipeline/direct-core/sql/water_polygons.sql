@@ -40,13 +40,16 @@ SELECT row_number()OVER()::bigint row_no,lower(nullif(btrim(classification),''))
  system.pipeline_osm_identity_key(external_id)external_id,
  nullif(btrim(name_und),'')name_und,nullif(btrim(name_my),'')name_my,
  nullif(btrim(name_en),'')name_en,lower(nullif(btrim(class_code),''))class_code,
+ (SELECT wc.id FROM ref.ref_water_classes wc
+   WHERE wc.is_active IS TRUE AND wc.code=lower(nullif(btrim(class_code),''))
+   ORDER BY wc.sort_order ASC NULLS LAST, wc.id ASC LIMIT 1)water_class_id,
  pg_temp.direct_try_geometry(geom_ewkt)geom,pg_temp.direct_try_jsonb(source_refs)source_refs,
  pg_temp.direct_try_jsonb(normalized_data)normalized_data,
  count(*)OVER(PARTITION BY system.pipeline_osm_identity_key(external_id))identity_count
 FROM direct_water_polygons_raw;
 CREATE INDEX ON direct_water_polygons_stage(identity_key);
 CREATE TEMP TABLE direct_water_polygons_core AS
-SELECT c.* FROM core.core_map_water_polygons c JOIN(SELECT DISTINCT identity_key FROM direct_water_polygons_stage)s
+SELECT c.* FROM core.core_water_polygons c JOIN(SELECT DISTINCT identity_key FROM direct_water_polygons_stage)s
  ON system.pipeline_osm_identity_key(c.external_id)=s.identity_key;
 CREATE INDEX ON direct_water_polygons_core(system.pipeline_osm_identity_key(external_id));
 CREATE TEMP TABLE direct_water_polygons_plan AS
@@ -61,6 +64,7 @@ SELECT s.*,c.id target_id,c.deleted_at target_deleted_at,
   CASE WHEN count(c.id)OVER(PARTITION BY s.identity_key)>1
    THEN 'identity resolves to multiple Core rows'END,
   CASE WHEN s.class_code IS NULL THEN 'class_code required'END,
+  CASE WHEN s.water_class_id IS NULL THEN 'water_class_id could not be resolved from class_code'END,
   CASE WHEN s.geom IS NULL OR ST_SRID(s.geom)<>4326 OR GeometryType(s.geom)<>'MULTIPOLYGON'
    OR ST_IsEmpty(s.geom)OR NOT ST_IsValid(s.geom)THEN 'invalid MultiPolygon geometry'END,
   CASE WHEN s.source_refs IS NULL OR s.normalized_data IS NULL THEN 'invalid JSON'END,
@@ -74,7 +78,7 @@ SELECT s.*,c.id target_id,c.deleted_at target_deleted_at,
    THEN 'safe_update target is manual-protected'END,
   CASE WHEN s.classification='safe_new'AND c.id IS NOT NULL AND(
    c.name IS DISTINCT FROM coalesce(s.name_my,s.name_en,s.name_und)
-   OR c.class_code IS DISTINCT FROM s.class_code OR NOT ST_Equals(c.geom,s.geom))
+   OR c.water_class_id IS DISTINCT FROM s.water_class_id OR NOT ST_Equals(c.geom,s.geom))
    THEN 'safe_new identity already exists with different data'END
  ],NULL)::text[]errors
 FROM direct_water_polygons_stage s LEFT JOIN direct_water_polygons_core c
@@ -90,9 +94,10 @@ CREATE TEMP TABLE direct_water_polygons_changes(
  action text NOT NULL,entity_id bigint NOT NULL,external_id text NOT NULL,before_data jsonb,after_data jsonb
 )ON COMMIT DROP;
 WITH ins AS(
- INSERT INTO core.core_map_water_polygons(external_id,name,class_code,geom,source_refs,normalized_data,
+ INSERT INTO core.core_water_polygons(external_id,name,water_class_id,geom,source_refs,normalized_data,source_registry_id,source_snapshot_id,source_feature_type,source_feature_id,region_code,
   is_active,is_verified,verification_status)
- SELECT s.external_id,s.resolved_name,s.class_code,s.geom::geometry(MultiPolygon,4326),
+ SELECT s.external_id,s.resolved_name,s.water_class_id,s.geom::geometry(MultiPolygon,4326),
+  p.source_registry_id,p.source_snapshot_id,'osm',s.external_id,p.region_code,
   s.source_refs||jsonb_build_object('external_id',s.external_id,
    'source_snapshot_version',p.snapshot_version,'region_code',p.region_code,'loader','direct_core.water_polygons'),
   s.normalized_data||jsonb_build_object('local_staging_id',s.local_staging_id,
@@ -100,29 +105,35 @@ WITH ins AS(
  FROM direct_water_polygons_plan s CROSS JOIN direct_water_polygons_params p
  WHERE s.classification='safe_new'AND s.target_id IS NULL RETURNING id,external_id
 )INSERT INTO direct_water_polygons_changes SELECT 'insert',i.id,i.external_id,NULL,to_jsonb(c)
-FROM ins i JOIN core.core_map_water_polygons c ON c.id=i.id;
+FROM ins i JOIN core.core_water_polygons c ON c.id=i.id;
 WITH upd AS(
- UPDATE core.core_map_water_polygons c SET name=s.resolved_name,class_code=s.class_code,
+ UPDATE core.core_water_polygons c SET name=s.resolved_name,
+  water_class_id=s.water_class_id,
   geom=s.geom::geometry(MultiPolygon,4326),
+  source_registry_id=coalesce(c.source_registry_id,p.source_registry_id),
+  source_snapshot_id=coalesce(c.source_snapshot_id,p.source_snapshot_id),
+  source_feature_type=coalesce(c.source_feature_type,'osm'),
+  source_feature_id=coalesce(c.source_feature_id,s.external_id),
+  region_code=coalesce(c.region_code,p.region_code),
   source_refs=c.source_refs||s.source_refs||jsonb_build_object('external_id',s.external_id,
    'source_snapshot_version',p.snapshot_version,'region_code',p.region_code,'loader','direct_core.water_polygons'),
   normalized_data=c.normalized_data||s.normalized_data||jsonb_build_object(
    'local_staging_id',s.local_staging_id,'import_class',s.classification),updated_at=now()
  FROM direct_water_polygons_plan s CROSS JOIN direct_water_polygons_params p
  WHERE c.id=s.target_id AND s.classification='safe_update'
-  AND(c.name,c.class_code,c.geom,c.source_refs,c.normalized_data)IS DISTINCT FROM(
-   s.resolved_name,s.class_code,s.geom,
+  AND(c.name,c.water_class_id,c.geom,c.source_refs,c.normalized_data)IS DISTINCT FROM(
+   s.resolved_name,s.water_class_id,s.geom,
    c.source_refs||s.source_refs||jsonb_build_object('external_id',s.external_id,
     'source_snapshot_version',p.snapshot_version,'region_code',p.region_code,'loader','direct_core.water_polygons'),
    c.normalized_data||s.normalized_data||jsonb_build_object(
     'local_staging_id',s.local_staging_id,'import_class',s.classification))
  RETURNING c.id,c.external_id
 )INSERT INTO direct_water_polygons_changes SELECT 'update',u.id,u.external_id,to_jsonb(b),to_jsonb(a)
-FROM upd u JOIN direct_water_polygons_core b ON b.id=u.id JOIN core.core_map_water_polygons a ON a.id=u.id;
+FROM upd u JOIN direct_water_polygons_core b ON b.id=u.id JOIN core.core_water_polygons a ON a.id=u.id;
 CREATE TEMP TABLE direct_water_polygons_name_source AS
 SELECT coalesce(c.entity_id,s.target_id)water_polygon_id,s.name_my,s.name_en,s.name_und
 FROM direct_water_polygons_plan s LEFT JOIN direct_water_polygons_changes c ON c.external_id=s.external_id;
-INSERT INTO core.core_map_water_polygon_names(
+INSERT INTO core.core_water_polygon_names(
  water_polygon_id,name,language_code,script_code,name_type,is_primary,search_weight)
 SELECT water_polygon_id,name,lang,script,'official',true,100
 FROM direct_water_polygons_name_source s CROSS JOIN LATERAL(VALUES
@@ -131,8 +142,8 @@ FROM direct_water_polygons_name_source s CROSS JOIN LATERAL(VALUES
 ON CONFLICT(water_polygon_id,language_code,name_type)WHERE is_primary=true
 DO UPDATE SET name=EXCLUDED.name,script_code=EXCLUDED.script_code,
  search_weight=100,updated_at=now()
-WHERE (core_map_water_polygon_names.name,core_map_water_polygon_names.script_code,
-       core_map_water_polygon_names.search_weight)
+WHERE (core_water_polygon_names.name,core_water_polygon_names.script_code,
+       core_water_polygon_names.search_weight)
  IS DISTINCT FROM(EXCLUDED.name,EXCLUDED.script_code,100);
 CREATE TEMP TABLE direct_water_polygons_audit(import_batch_id bigint,publish_batch_id bigint)ON COMMIT DROP;
 WITH ib AS(
@@ -157,7 +168,7 @@ INSERT INTO system.system_publish_items(publish_batch_id,entity_family,entity_id
  external_id,target_schema,target_table,target_id,before_data,after_data,validation_result,published_at,
  source_snapshot_version)
 SELECT a.publish_batch_id,'water_polygons',c.entity_id,c.action,'success',c.external_id,'core',
- 'core_map_water_polygons',c.entity_id,c.before_data,c.after_data,
+ 'core_water_polygons',c.entity_id,c.before_data,c.after_data,
  '{"validated":true,"source":"local_pipeline"}'::jsonb,now(),p.snapshot_version
 FROM direct_water_polygons_changes c CROSS JOIN direct_water_polygons_audit a CROSS JOIN direct_water_polygons_params p;
 DO $$
@@ -165,7 +176,7 @@ DECLARE staged bigint;resolved bigint;
 BEGIN
  SELECT count(*)INTO staged FROM direct_water_polygons_plan;
  SELECT count(*)INTO resolved FROM direct_water_polygons_plan s WHERE EXISTS(
-  SELECT 1 FROM core.core_map_water_polygons c WHERE c.deleted_at IS NULL
+  SELECT 1 FROM core.core_water_polygons c WHERE c.deleted_at IS NULL
    AND system.pipeline_osm_identity_key(c.external_id)=s.identity_key);
  IF staged<>resolved THEN RAISE EXCEPTION 'water_polygons verification: staged=% resolved=%',staged,resolved;END IF;
 END $$;

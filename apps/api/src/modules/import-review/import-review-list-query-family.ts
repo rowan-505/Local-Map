@@ -5,7 +5,7 @@ import {
     buildLightweightTypedNameColumns,
     colRef,
     effectiveBuildingTypeIdExpr,
-    effectiveLanduseClassIdExpr,
+    effectiveLandAreaClassIdExpr,
     optionalTypedCandidateColumn,
     shapeColumn,
 } from "./import-review-candidate-sql.js";
@@ -31,7 +31,8 @@ export function buildGenericLightweightListExtensionSelect(
         Prisma.sql`
             , ${shapeColumn(config, "building_type", "text")} AS building_type
             , ${effectiveBuildingTypeIdExpr(config)} AS building_type_id
-            , ${effectiveLanduseClassIdExpr(config)} AS landuse_class_id
+            , ${effectiveLandAreaClassIdExpr(config)} AS land_area_class_id
+            , ${optionalTypedCandidateColumn(config, "water_class_id", "bigint")} AS water_class_id
             , ${shapeColumn(config, "admin_area_id", "bigint")} AS admin_area_id
             , ${shapeColumn(config, "levels", "int")} AS levels
             , ${shapeColumn(config, "height_m", "numeric")} AS height_m
@@ -64,11 +65,11 @@ export function buildGenericLightweightListExtensionSelect(
         parts.push(Prisma.sql`, bt.code AS building_type_code, bt.name AS building_type_name`);
     }
 
-    if (config.landuseClassJoin) {
+    if (config.landAreaClassJoin) {
         parts.push(Prisma.sql`
-            , lc.code AS landuse_class_code
-            , lc.name_en AS landuse_class_name
-            , lc.name_mm AS landuse_class_name_mm
+            , lc.code AS land_area_class_code
+            , lc.name_en AS land_area_class_name
+            , lc.name_mm AS land_area_class_name_mm
         `);
     }
 
@@ -150,10 +151,10 @@ export function buildGenericLightweightListFromClause(config: ImportReviewEntity
                 AND eff_aa.deleted_at IS NULL
         `;
     }
-    if (config.landuseClassJoin) {
+    if (config.landAreaClassJoin) {
         return Prisma.sql`
             ${base}
-            LEFT JOIN ref.ref_landuse_classes AS lc ON lc.id = ${effectiveLanduseClassIdExpr(config)}
+            LEFT JOIN ref.ref_land_area_classes AS lc ON lc.id = ${effectiveLandAreaClassIdExpr(config)}
         `;
     }
     if (config.effectiveAdminAreaJoin) {

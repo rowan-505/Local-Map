@@ -17,7 +17,7 @@ const ALL_FAMILIES = [
     "roads",
     "buildings",
     "places",
-    "landuse",
+    "land_areas",
     "water_lines",
     "water_polygons",
     "addresses",

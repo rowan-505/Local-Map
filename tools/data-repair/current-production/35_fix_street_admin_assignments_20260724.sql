@@ -475,7 +475,7 @@ END $$;
 
 SELECT 'other_tables_unchanged_counts' AS k,
   (SELECT count(*) FROM core.core_places) AS places,
-  (SELECT count(*) FROM core.core_map_buildings) AS buildings,
-  (SELECT count(*) FROM core.core_map_landuse) AS landuse;
+  (SELECT count(*) FROM core.core_buildings) AS buildings,
+  (SELECT count(*) FROM core.core_land_areas) AS landuse;
 
 \echo '=== POST VERIFY COMPLETE ==='

@@ -17,7 +17,6 @@ import {
     patchCoreReviewRestoreSchema,
 } from "./core-review.openapi.js";
 import {
-    EDIT_CORE_REVIEW_ROLES,
     getCoreReviewCreateSchema,
     getCoreReviewPatchSchema,
     sanitizeCoreReviewWriteBody,
@@ -83,10 +82,6 @@ function replyCoreReviewWriteError(
     });
 }
 
-function canEditCoreReview(request: FastifyRequest): boolean {
-    return request.user.roles.some((role) => EDIT_CORE_REVIEW_ROLES.has(role));
-}
-
 async function handleCoreReviewLifecycle(
     request: FastifyRequest,
     reply: FastifyReply,
@@ -104,10 +99,6 @@ async function handleCoreReviewLifecycle(
     const def = getCoreReviewEntityByPath(paramsParsed.data.entity);
     if (!def) {
         return reply.code(404).send({ message: "Unknown core-review entity" });
-    }
-
-    if (!canEditCoreReview(request)) {
-        return reply.code(403).send({ message: "Admin or editor role required" });
     }
 
     try {
@@ -154,7 +145,7 @@ const coreReviewRoutes: FastifyPluginAsync = async (app) => {
 
     app.get(
         "/verification-summary",
-        { preHandler: app.authenticate },
+        { preHandler: [app.authenticate, app.requireDashboardAccess] },
         async (_request, reply) => {
             try {
                 return reply.send(
@@ -169,7 +160,7 @@ const coreReviewRoutes: FastifyPluginAsync = async (app) => {
     app.get(
         "/:entity",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardAccess],
             schema: getCoreReviewListSchema,
         },
         async (request, reply) => {
@@ -225,7 +216,7 @@ const coreReviewRoutes: FastifyPluginAsync = async (app) => {
     app.get(
         "/:entity/count",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardAccess],
             schema: getCoreReviewStreetsCountSchema,
         },
         async (request, reply) => {
@@ -277,7 +268,7 @@ const coreReviewRoutes: FastifyPluginAsync = async (app) => {
     app.get(
         "/:entity/:id",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardAccess],
             schema: getCoreReviewDetailSchema,
         },
         async (request, reply) => {
@@ -318,7 +309,7 @@ const coreReviewRoutes: FastifyPluginAsync = async (app) => {
     app.post(
         "/:entity",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardWrite],
             schema: postCoreReviewEntitySchema,
         },
         async (request, reply) => {
@@ -333,10 +324,6 @@ const coreReviewRoutes: FastifyPluginAsync = async (app) => {
             const def = getCoreReviewEntityByPath(paramsParsed.data.entity);
             if (!def) {
                 return reply.code(404).send({ message: "Unknown core-review entity" });
-            }
-
-            if (!canEditCoreReview(request)) {
-                return reply.code(403).send({ message: "Admin or editor role required" });
             }
 
             const sanitized = sanitizeCoreReviewWriteBody(normalizeWriteBodyAliases(request.body));
@@ -396,7 +383,7 @@ const coreReviewRoutes: FastifyPluginAsync = async (app) => {
     app.patch(
         "/:entity/:id",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardWrite],
             schema: patchCoreReviewEntitySchema,
         },
         async (request, reply) => {
@@ -411,10 +398,6 @@ const coreReviewRoutes: FastifyPluginAsync = async (app) => {
             const def = getCoreReviewEntityByPath(paramsParsed.data.entity);
             if (!def) {
                 return reply.code(404).send({ message: "Unknown core-review entity" });
-            }
-
-            if (!canEditCoreReview(request)) {
-                return reply.code(403).send({ message: "Admin or editor role required" });
             }
 
             const sanitized = sanitizeCoreReviewWriteBody(normalizeWriteBodyAliases(request.body));
@@ -481,7 +464,7 @@ const coreReviewRoutes: FastifyPluginAsync = async (app) => {
     app.patch(
         "/:entity/:id/soft-delete",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardWrite],
             schema: patchCoreReviewSoftDeleteSchema,
         },
         async (request, reply) => handleCoreReviewLifecycle(request, reply, service, "soft-delete"),
@@ -490,7 +473,7 @@ const coreReviewRoutes: FastifyPluginAsync = async (app) => {
     app.patch(
         "/:entity/:id/restore",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardWrite],
             schema: patchCoreReviewRestoreSchema,
         },
         async (request, reply) => handleCoreReviewLifecycle(request, reply, service, "restore"),

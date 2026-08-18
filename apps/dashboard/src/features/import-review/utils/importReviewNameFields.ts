@@ -24,7 +24,7 @@ export const IMPORT_REVIEW_CLASSIFICATION_FIELD_KEYS = [
 ] as const;
 
 /** Controlled landuse / OSM category slugs — never feature display names. */
-export const IMPORT_REVIEW_LANDUSE_CLASS_CODES = [
+export const IMPORT_REVIEW_LAND_AREA_CLASS_CODES = [
     "residential",
     "industrial",
     "commercial",
@@ -51,9 +51,9 @@ export const IMPORT_REVIEW_LANDUSE_CLASS_CODES = [
     "wood",
 ] as const;
 
-const LANDUSE_CLASS_CODE_SET = new Set<string>(IMPORT_REVIEW_LANDUSE_CLASS_CODES);
+const LANDUSE_CLASS_CODE_SET = new Set<string>(IMPORT_REVIEW_LAND_AREA_CLASS_CODES);
 
-export function isKnownLanduseClassCode(value: unknown): boolean {
+export function isKnownLandAreaClassCode(value: unknown): boolean {
     const s = trimString(value);
     return s !== null && LANDUSE_CLASS_CODE_SET.has(s.toLowerCase());
 }
@@ -155,17 +155,17 @@ function addClassificationValue(blocked: Set<string>, value: unknown): void {
 export function collectImportReviewClassificationValues(candidate: ImportReviewNameCandidate): Set<string> {
     const blocked = new Set<string>();
 
-    for (const code of IMPORT_REVIEW_LANDUSE_CLASS_CODES) {
+    for (const code of IMPORT_REVIEW_LAND_AREA_CLASS_CODES) {
         blocked.add(code);
     }
 
     addClassificationValue(blocked, candidate.class_code);
     addClassificationValue(blocked, candidate.external_id);
 
-    if (isKnownLanduseClassCode(candidate.canonical_name)) {
+    if (isKnownLandAreaClassCode(candidate.canonical_name)) {
         addClassificationValue(blocked, candidate.canonical_name);
     }
-    if (isKnownLanduseClassCode(candidate.name)) {
+    if (isKnownLandAreaClassCode(candidate.name)) {
         addClassificationValue(blocked, candidate.name);
     }
     const classCode = trimString(candidate.class_code)?.toLowerCase();

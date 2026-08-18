@@ -15,7 +15,7 @@ describe("township-admin-policy", () => {
             "streets",
             "places",
             "buildings",
-            "landuse",
+            "land-areas",
             "bus-stops",
         ]);
         assert.equal(townshipAdminEntities, TOWNSHIP_ADMIN_ENTITY_SLUGS);
@@ -32,12 +32,12 @@ describe("township-admin-policy", () => {
         assert.equal(townshipAdminEntityInferKind("places"), "place");
         assert.equal(townshipAdminEntityInferKind("bus-stops"), "bus_stop");
         assert.equal(townshipAdminEntityInferKind("buildings"), "building");
-        assert.equal(townshipAdminEntityInferKind("landuse"), "landuse");
+        assert.equal(townshipAdminEntityInferKind("land-areas"), "land_area");
     });
 
     it("maps slugs to geometry roles", () => {
         assert.equal(townshipAdminEntityGeometryRole("streets"), "line");
         assert.equal(townshipAdminEntityGeometryRole("bus-stops"), "point");
-        assert.equal(townshipAdminEntityGeometryRole("landuse"), "polygon");
+        assert.equal(townshipAdminEntityGeometryRole("land-areas"), "polygon");
     });
 });

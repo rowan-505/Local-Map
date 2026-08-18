@@ -9,7 +9,7 @@ export type CoreEntityKey =
     | "buildings"
     | "places"
     | "streets"
-    | "landuse"
+    | "land-areas"
     | "water-lines"
     | "water-polygons"
     | "addresses"
@@ -37,7 +37,8 @@ export type CoreRefSourceKind =
     | "reference-options:source_types"
     | "reference-options:admin_levels"
     | "streets"
-    | "landuse-classes";
+    | "land-area-classes"
+    | "water-classes";
 
 export type CoreEntityFieldDef = {
     key: string;

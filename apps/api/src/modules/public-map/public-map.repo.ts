@@ -1572,7 +1572,7 @@ export type GeometryEntityType =
     | "building"
     | "water_line"
     | "water_polygon"
-    | "landuse";
+    | "land_area";
 
 /**
  * Geometry of an entity assembled by collecting many underlying rows (a grouped
@@ -1711,7 +1711,7 @@ const GEOMETRY_SOURCES: Record<
         pointLike: false,
     },
     building: {
-        from: "core.core_map_buildings b",
+        from: "core.core_buildings b",
         geomExpr: "b.geom",
         activeCondition: "b.is_active = true AND b.deleted_at IS NULL",
         idColumn: "b.id",
@@ -1719,7 +1719,7 @@ const GEOMETRY_SOURCES: Record<
         pointLike: false,
     },
     water_line: {
-        from: "core.core_map_water_lines w",
+        from: "core.core_water_lines w",
         geomExpr: "w.geom",
         activeCondition: "w.is_active = true AND w.deleted_at IS NULL",
         idColumn: "w.id",
@@ -1727,15 +1727,15 @@ const GEOMETRY_SOURCES: Record<
         pointLike: false,
     },
     water_polygon: {
-        from: "core.core_map_water_polygons w",
+        from: "core.core_water_polygons w",
         geomExpr: "w.geom",
         activeCondition: "w.is_active = true AND w.deleted_at IS NULL",
         idColumn: "w.id",
         publicIdColumn: null,
         pointLike: false,
     },
-    landuse: {
-        from: "core.core_map_landuse lu",
+    land_area: {
+        from: "core.core_land_areas lu",
         geomExpr: "lu.geom",
         activeCondition: "lu.is_active = true AND lu.deleted_at IS NULL",
         idColumn: "lu.id",

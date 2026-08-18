@@ -24,7 +24,7 @@ const EXPECTED_TABLES: Record<(typeof CUTOVER_FAMILIES)[number], string> = {
   places: 'import_review.place_candidates',
   roads: 'import_review.road_candidates',
   buildings: 'import_review.building_candidates',
-  landuse: 'import_review.landuse_candidates',
+  landuse: 'import_review.land_area_candidates',
   water_lines: 'import_review.water_line_candidates',
   water_polygons: 'import_review.water_polygon_candidates',
   routing_barriers: 'import_review.routing_barrier_candidates',

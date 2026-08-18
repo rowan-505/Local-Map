@@ -28,8 +28,10 @@ import {
     type ImportReviewPublishBatchDetail,
 } from "@/src/lib/api";
 import { importReviewPath } from "@/src/lib/dashboardNavigation";
+import { useDashboardRoleAccess } from "@/src/hooks/useDashboardRoleAccess";
 
 export default function ImportReviewPromotionBatchDetailClient() {
+    const dashboardAccess = useDashboardRoleAccess();
     const params = useParams();
     const searchParams = useSearchParams();
     const routeBatchId = typeof params.batchId === "string" ? params.batchId : "";
@@ -142,12 +144,19 @@ export default function ImportReviewPromotionBatchDetailClient() {
                     />
                 ) : null}
 
-                {batchDetail && batchId && !transportPromotionBlocked ? (
+                {batchDetail && batchId && !transportPromotionBlocked && dashboardAccess.canWrite ? (
                     <ImportReviewPromotionSimpleStepPanel
                         batchId={batchId}
                         batchDetail={batchDetail}
                         families={displayFamilies}
                         onBatchUpdated={setBatchDetail}
+                    />
+                ) : null}
+
+                {batchDetail && !dashboardAccess.canWrite ? (
+                    <ImportReviewStatusBanner
+                        message="Read-only demo — validation, dry-run, promotion, reset, and retry actions are disabled."
+                        tone="warning"
                     />
                 ) : null}
 

@@ -29,14 +29,14 @@ SELECT
     count(*) FILTER (WHERE geom IS NOT NULL AND st_srid(geom) <> 4326) AS wrong_srid,
     count(*) FILTER (WHERE geom IS NOT NULL AND st_isempty(geom)) AS empty_geometry,
     count(*) FILTER (WHERE geom IS NOT NULL AND NOT st_isvalid(geom)) AS invalid_geometry
-FROM core.core_map_buildings;
+FROM core.core_buildings;
 
 SELECT
     'preimport_baseline_floor' AS section,
     :'expected_preimport_buildings'::bigint AS expected_preimport_buildings,
     count(*) AS current_buildings,
     count(*) >= :'expected_preimport_buildings'::bigint AS pass
-FROM core.core_map_buildings;
+FROM core.core_buildings;
 
 SELECT
     'tile_contract' AS section,
@@ -76,13 +76,13 @@ SELECT
         WHERE nullif(btrim(building.name), '') IS NULL
           AND NOT EXISTS (
               SELECT 1
-              FROM core.core_map_building_names AS building_name
+              FROM core.core_building_names AS building_name
               WHERE building_name.building_id = building.id
                 AND nullif(btrim(building_name.name), '') IS NOT NULL
           )
     ) AS ordinary_unnamed_rows_in_search
 FROM search.v_search_buildings_source AS search_source
-JOIN core.core_map_buildings AS building
+JOIN core.core_buildings AS building
   ON building.id = search_source.entity_id;
 
 SELECT
@@ -99,7 +99,7 @@ SELECT
         WHERE building_name.name_type = 'imported'
           AND search_source.display_name IS NOT NULL
     ) AS imported_names_visible_in_search
-FROM core.core_map_building_names AS building_name
+FROM core.core_building_names AS building_name
 LEFT JOIN tiles.tiles_buildings_v AS tile
   ON tile.id = building_name.building_id
 LEFT JOIN search.v_search_buildings_source AS search_source
@@ -133,7 +133,7 @@ SELECT
            OR NOT st_isvalid(geom)
            OR geometrytype(geom) NOT IN ('POLYGON', 'MULTIPOLYGON')
     ) AS invalid_geometry
-FROM core.core_map_buildings
+FROM core.core_buildings
 WHERE region_code = :'region_code';
 
 SELECT
@@ -141,7 +141,7 @@ SELECT
     count(*) AS duplicate_groups
 FROM (
     SELECT source_registry_id, source_feature_type, source_feature_id
-    FROM core.core_map_buildings
+    FROM core.core_buildings
     WHERE source_registry_id IS NOT NULL
       AND source_feature_type IS NOT NULL
       AND source_feature_id IS NOT NULL
@@ -154,18 +154,18 @@ SELECT
     count(*) FILTER (WHERE building.id IS NULL) AS orphan_building_links,
     count(*) FILTER (WHERE place.id IS NULL) AS orphan_place_links
 FROM core.core_place_buildings AS place_building
-LEFT JOIN core.core_map_buildings AS building
+LEFT JOIN core.core_buildings AS building
   ON building.id = place_building.building_id
 LEFT JOIN core.core_places AS place
   ON place.id = place_building.place_id;
 
 SELECT
     'relation_sizes' AS section,
-    pg_relation_size('core.core_map_buildings') AS table_bytes,
-    pg_indexes_size('core.core_map_buildings') AS index_bytes,
-    pg_total_relation_size('core.core_map_buildings') AS total_bytes,
-    pg_size_pretty(pg_relation_size('core.core_map_buildings')) AS table_size,
-    pg_size_pretty(pg_indexes_size('core.core_map_buildings')) AS index_size,
-    pg_size_pretty(pg_total_relation_size('core.core_map_buildings')) AS total_size;
+    pg_relation_size('core.core_buildings') AS table_bytes,
+    pg_indexes_size('core.core_buildings') AS index_bytes,
+    pg_total_relation_size('core.core_buildings') AS total_bytes,
+    pg_size_pretty(pg_relation_size('core.core_buildings')) AS table_size,
+    pg_size_pretty(pg_indexes_size('core.core_buildings')) AS index_size,
+    pg_size_pretty(pg_total_relation_size('core.core_buildings')) AS total_size;
 
 ROLLBACK;

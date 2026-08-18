@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { normalizeEntityAdminAreaKind } from "./entity-admin-area-kind.js";
 
-const entityKindInputSchema = z.enum(["place", "street", "building", "landuse", "bus_stop", "road"]);
+const entityKindInputSchema = z.enum(["place", "street", "building", "land_area", "bus_stop", "road"]);
 
 const geoJsonGeometrySchema = z.object({
     type: z.string(),
@@ -25,7 +25,7 @@ export const entityAdminAreaInferBodySchema = z
         if (!kind) {
             ctx.addIssue({
                 code: "custom",
-                message: "kind must be place, street, building, landuse, bus_stop, or road",
+                message: "kind must be place, street, building, land_area, bus_stop, or road",
                 path: ["kind"],
             });
             return;
@@ -48,7 +48,7 @@ export const entityAdminAreaInferBodySchema = z
             }
             return;
         }
-        if ((kind === "building" || kind === "landuse") && !body.geometry) {
+        if ((kind === "building" || kind === "land_area") && !body.geometry) {
             ctx.addIssue({
                 code: "custom",
                 message: `geometry is required for ${kind} inference`,

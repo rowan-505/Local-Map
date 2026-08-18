@@ -34,3 +34,18 @@ export function rolesFromJwtAccessToken(token: string | null): string[] {
     }
     return roles.filter((r): r is string => typeof r === "string" && r.trim() !== "");
 }
+
+const DASHBOARD_ACCESS_ROLES = new Set(["viewer", "editor", "admin", "super_admin"]);
+const DASHBOARD_WRITE_ROLES = new Set(["editor", "admin", "super_admin"]);
+
+export function hasDashboardAccess(roles: readonly string[]): boolean {
+    return roles.some((role) => DASHBOARD_ACCESS_ROLES.has(role));
+}
+
+export function canDashboardWrite(roles: readonly string[]): boolean {
+    return roles.some((role) => DASHBOARD_WRITE_ROLES.has(role));
+}
+
+export function isViewer(roles: readonly string[]): boolean {
+    return roles.includes("viewer") && !canDashboardWrite(roles);
+}

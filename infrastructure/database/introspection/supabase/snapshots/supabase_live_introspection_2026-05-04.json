@@ -183,22 +183,22 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_buildings",
+      "table_name": "core_buildings",
       "table_type": "BASE TABLE"
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_landuse",
+      "table_name": "core_land_areas",
       "table_type": "BASE TABLE"
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_water_lines",
+      "table_name": "core_water_lines",
       "table_type": "BASE TABLE"
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_water_polygons",
+      "table_name": "core_water_polygons",
       "table_type": "BASE TABLE"
     },
     {
@@ -3661,7 +3661,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_buildings",
+      "table_name": "core_buildings",
       "column_name": "id",
       "data_type": "bigint",
       "udt_name": "int8",
@@ -3670,7 +3670,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_buildings",
+      "table_name": "core_buildings",
       "column_name": "source_staging_id",
       "data_type": "bigint",
       "udt_name": "int8",
@@ -3679,7 +3679,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_buildings",
+      "table_name": "core_buildings",
       "column_name": "external_id",
       "data_type": "text",
       "udt_name": "text",
@@ -3688,7 +3688,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_buildings",
+      "table_name": "core_buildings",
       "column_name": "name",
       "data_type": "text",
       "udt_name": "text",
@@ -3697,7 +3697,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_buildings",
+      "table_name": "core_buildings",
       "column_name": "class_code",
       "data_type": "text",
       "udt_name": "text",
@@ -3706,7 +3706,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_buildings",
+      "table_name": "core_buildings",
       "column_name": "normalized_data",
       "data_type": "jsonb",
       "udt_name": "jsonb",
@@ -3715,7 +3715,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_buildings",
+      "table_name": "core_buildings",
       "column_name": "source_refs",
       "data_type": "jsonb",
       "udt_name": "jsonb",
@@ -3724,7 +3724,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_buildings",
+      "table_name": "core_buildings",
       "column_name": "geom",
       "data_type": "USER-DEFINED",
       "udt_name": "geometry",
@@ -3733,7 +3733,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_buildings",
+      "table_name": "core_buildings",
       "column_name": "is_active",
       "data_type": "boolean",
       "udt_name": "bool",
@@ -3742,7 +3742,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_buildings",
+      "table_name": "core_buildings",
       "column_name": "created_at",
       "data_type": "timestamp with time zone",
       "udt_name": "timestamptz",
@@ -3751,7 +3751,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_buildings",
+      "table_name": "core_buildings",
       "column_name": "updated_at",
       "data_type": "timestamp with time zone",
       "udt_name": "timestamptz",
@@ -3760,7 +3760,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_landuse",
+      "table_name": "core_land_areas",
       "column_name": "id",
       "data_type": "bigint",
       "udt_name": "int8",
@@ -3769,7 +3769,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_landuse",
+      "table_name": "core_land_areas",
       "column_name": "source_staging_id",
       "data_type": "bigint",
       "udt_name": "int8",
@@ -3778,7 +3778,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_landuse",
+      "table_name": "core_land_areas",
       "column_name": "external_id",
       "data_type": "text",
       "udt_name": "text",
@@ -3787,7 +3787,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_landuse",
+      "table_name": "core_land_areas",
       "column_name": "name",
       "data_type": "text",
       "udt_name": "text",
@@ -3796,7 +3796,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_landuse",
+      "table_name": "core_land_areas",
       "column_name": "class_code",
       "data_type": "text",
       "udt_name": "text",
@@ -3805,7 +3805,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_landuse",
+      "table_name": "core_land_areas",
       "column_name": "normalized_data",
       "data_type": "jsonb",
       "udt_name": "jsonb",
@@ -3814,7 +3814,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_landuse",
+      "table_name": "core_land_areas",
       "column_name": "source_refs",
       "data_type": "jsonb",
       "udt_name": "jsonb",
@@ -3823,7 +3823,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_landuse",
+      "table_name": "core_land_areas",
       "column_name": "geom",
       "data_type": "USER-DEFINED",
       "udt_name": "geometry",
@@ -3832,7 +3832,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_landuse",
+      "table_name": "core_land_areas",
       "column_name": "is_active",
       "data_type": "boolean",
       "udt_name": "bool",
@@ -3841,7 +3841,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_landuse",
+      "table_name": "core_land_areas",
       "column_name": "created_at",
       "data_type": "timestamp with time zone",
       "udt_name": "timestamptz",
@@ -3850,7 +3850,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_landuse",
+      "table_name": "core_land_areas",
       "column_name": "updated_at",
       "data_type": "timestamp with time zone",
       "udt_name": "timestamptz",
@@ -3859,7 +3859,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_water_lines",
+      "table_name": "core_water_lines",
       "column_name": "id",
       "data_type": "bigint",
       "udt_name": "int8",
@@ -3868,7 +3868,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_water_lines",
+      "table_name": "core_water_lines",
       "column_name": "source_staging_id",
       "data_type": "bigint",
       "udt_name": "int8",
@@ -3877,7 +3877,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_water_lines",
+      "table_name": "core_water_lines",
       "column_name": "external_id",
       "data_type": "text",
       "udt_name": "text",
@@ -3886,7 +3886,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_water_lines",
+      "table_name": "core_water_lines",
       "column_name": "name",
       "data_type": "text",
       "udt_name": "text",
@@ -3895,7 +3895,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_water_lines",
+      "table_name": "core_water_lines",
       "column_name": "class_code",
       "data_type": "text",
       "udt_name": "text",
@@ -3904,7 +3904,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_water_lines",
+      "table_name": "core_water_lines",
       "column_name": "normalized_data",
       "data_type": "jsonb",
       "udt_name": "jsonb",
@@ -3913,7 +3913,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_water_lines",
+      "table_name": "core_water_lines",
       "column_name": "source_refs",
       "data_type": "jsonb",
       "udt_name": "jsonb",
@@ -3922,7 +3922,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_water_lines",
+      "table_name": "core_water_lines",
       "column_name": "geom",
       "data_type": "USER-DEFINED",
       "udt_name": "geometry",
@@ -3931,7 +3931,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_water_lines",
+      "table_name": "core_water_lines",
       "column_name": "is_active",
       "data_type": "boolean",
       "udt_name": "bool",
@@ -3940,7 +3940,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_water_lines",
+      "table_name": "core_water_lines",
       "column_name": "created_at",
       "data_type": "timestamp with time zone",
       "udt_name": "timestamptz",
@@ -3949,7 +3949,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_water_lines",
+      "table_name": "core_water_lines",
       "column_name": "updated_at",
       "data_type": "timestamp with time zone",
       "udt_name": "timestamptz",
@@ -3958,7 +3958,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_water_polygons",
+      "table_name": "core_water_polygons",
       "column_name": "id",
       "data_type": "bigint",
       "udt_name": "int8",
@@ -3967,7 +3967,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_water_polygons",
+      "table_name": "core_water_polygons",
       "column_name": "source_staging_id",
       "data_type": "bigint",
       "udt_name": "int8",
@@ -3976,7 +3976,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_water_polygons",
+      "table_name": "core_water_polygons",
       "column_name": "external_id",
       "data_type": "text",
       "udt_name": "text",
@@ -3985,7 +3985,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_water_polygons",
+      "table_name": "core_water_polygons",
       "column_name": "name",
       "data_type": "text",
       "udt_name": "text",
@@ -3994,7 +3994,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_water_polygons",
+      "table_name": "core_water_polygons",
       "column_name": "class_code",
       "data_type": "text",
       "udt_name": "text",
@@ -4003,7 +4003,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_water_polygons",
+      "table_name": "core_water_polygons",
       "column_name": "normalized_data",
       "data_type": "jsonb",
       "udt_name": "jsonb",
@@ -4012,7 +4012,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_water_polygons",
+      "table_name": "core_water_polygons",
       "column_name": "source_refs",
       "data_type": "jsonb",
       "udt_name": "jsonb",
@@ -4021,7 +4021,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_water_polygons",
+      "table_name": "core_water_polygons",
       "column_name": "geom",
       "data_type": "USER-DEFINED",
       "udt_name": "geometry",
@@ -4030,7 +4030,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_water_polygons",
+      "table_name": "core_water_polygons",
       "column_name": "is_active",
       "data_type": "boolean",
       "udt_name": "bool",
@@ -4039,7 +4039,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_water_polygons",
+      "table_name": "core_water_polygons",
       "column_name": "created_at",
       "data_type": "timestamp with time zone",
       "udt_name": "timestamptz",
@@ -4048,7 +4048,7 @@
     },
     {
       "table_schema": "core",
-      "table_name": "core_map_water_polygons",
+      "table_name": "core_water_polygons",
       "column_name": "updated_at",
       "data_type": "timestamp with time zone",
       "udt_name": "timestamptz",

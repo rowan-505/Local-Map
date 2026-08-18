@@ -6,18 +6,18 @@ SELECT 'place_names_mm_or_blank', count(*)::text
 FROM core.core_place_names WHERE language_code = 'mm' OR language_code IS NULL OR btrim(language_code) = ''
 UNION ALL
 SELECT 'landuse_class_mismatch', count(*)::text
-FROM core.core_map_landuse l
+FROM core.core_land_areas l
 WHERE deleted_at IS NULL
-  AND class_code IS DISTINCT FROM (SELECT code FROM ref.ref_landuse_classes c WHERE c.id = l.landuse_class_id)
+  AND class_code IS DISTINCT FROM (SELECT code FROM ref.ref_land_area_classes c WHERE c.id = l.land_area_class_id)
 UNION ALL
 SELECT 'places_missing_admin', count(*)::text
 FROM core.core_places WHERE deleted_at IS NULL AND admin_area_id IS NULL
 UNION ALL
 SELECT 'buildings_missing_admin', count(*)::text
-FROM core.core_map_buildings WHERE deleted_at IS NULL AND admin_area_id IS NULL
+FROM core.core_buildings WHERE deleted_at IS NULL AND admin_area_id IS NULL
 UNION ALL
 SELECT 'landuse_missing_admin', count(*)::text
-FROM core.core_map_landuse WHERE deleted_at IS NULL AND admin_area_id IS NULL
+FROM core.core_land_areas WHERE deleted_at IS NULL AND admin_area_id IS NULL
 UNION ALL
 SELECT 'stops_missing_admin', count(*)::text
 FROM transport.stops WHERE deleted_at IS NULL AND admin_area_id IS NULL

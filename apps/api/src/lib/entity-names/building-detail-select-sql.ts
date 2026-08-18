@@ -6,7 +6,7 @@ import {
 } from "./derive-display-name.js";
 
 /**
- * Building type/class label when `core.core_map_buildings.class_code` is not present
+ * Building type/class label when `core.core_buildings.class_code` is not present
  * (use ref FK + normalized_data fallbacks).
  */
 export const buildingClassCodeCoalesceSql = Prisma.sql`COALESCE(
@@ -30,13 +30,13 @@ export const buildingNameTypePriorityOrderSql = Prisma.sql`
 `;
 
 /**
- * Display name from core.core_map_building_names (canonical).
+ * Display name from core.core_building_names (canonical).
  * Soft-fallback to deprecated b.name only when names table has nothing.
  */
 export const buildingDisplayNameCoalesceSql = Prisma.sql`COALESCE(
     (
         SELECT n.name
-        FROM core.core_map_building_names AS n
+        FROM core.core_building_names AS n
         WHERE n.building_id = b.id
           AND nullif(btrim(n.name), '') IS NOT NULL
         ORDER BY
@@ -51,14 +51,14 @@ export const buildingDisplayNameCoalesceSql = Prisma.sql`COALESCE(
             n.id ASC
         LIMIT 1
     ),
-    -- deprecated: legacy core_map_buildings.name; do not write new values
+    -- deprecated: legacy core_buildings.name; do not write new values
     NULLIF(btrim(b.name), '')
 )`;
 
 export const buildingNameLabelSelectSql = Prisma.sql`
     (
         SELECT n.name
-        FROM core.core_map_building_names AS n
+        FROM core.core_building_names AS n
         WHERE n.building_id = b.id
           AND nullif(btrim(n.name), '') IS NOT NULL
           AND (
@@ -79,7 +79,7 @@ export const buildingNameLabelSelectSql = Prisma.sql`
     ) AS name_mm,
     (
         SELECT n.name
-        FROM core.core_map_building_names AS n
+        FROM core.core_building_names AS n
         WHERE n.building_id = b.id
           AND nullif(btrim(n.name), '') IS NOT NULL
           AND (
@@ -100,7 +100,7 @@ export const buildingNameLabelSelectSql = Prisma.sql`
     ) AS name_en,
     (
         SELECT n.name
-        FROM core.core_map_building_names AS n
+        FROM core.core_building_names AS n
         WHERE n.building_id = b.id
           AND nullif(btrim(n.name), '') IS NOT NULL
         ORDER BY
@@ -131,7 +131,7 @@ export const buildingNameLabelSelectSql = Prisma.sql`
             ),
             '[]'::jsonb
         )
-        FROM core.core_map_building_names AS n
+        FROM core.core_building_names AS n
         WHERE n.building_id = b.id
     ) AS names_json
 `;

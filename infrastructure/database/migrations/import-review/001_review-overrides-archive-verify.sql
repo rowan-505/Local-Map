@@ -25,7 +25,7 @@ DECLARE
         'import_review.bus_route_stop_candidates',
         'import_review.bus_route_variant_candidates',
         'import_review.bus_stop_candidates',
-        'import_review.landuse_candidates',
+        'import_review.land_area_candidates',
         'import_review.place_candidates',
         'import_review.road_candidates',
         'import_review.routing_barrier_candidates',

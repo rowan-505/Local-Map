@@ -23,8 +23,6 @@ import {
     postPlaceBuildingLinkSchema,
 } from "./place-buildings.openapi.js";
 
-const EDIT_LINK_ROLES = new Set(["admin", "editor"]);
-
 const placeBuildingRoutes: FastifyPluginAsync = async (app) => {
     const repo = new PlaceBuildingsRepository(app.prisma);
     const service = new PlaceBuildingsService(repo);
@@ -32,7 +30,7 @@ const placeBuildingRoutes: FastifyPluginAsync = async (app) => {
     app.get(
         "/places/:id/buildings",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardAccess],
             schema: getPlaceBuildingsSchema,
         },
         async (request, reply) => {
@@ -61,7 +59,7 @@ const placeBuildingRoutes: FastifyPluginAsync = async (app) => {
     app.post(
         "/places/:id/buildings",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardWrite],
             schema: postPlaceBuildingLinkSchema,
         },
         async (request, reply) => {
@@ -79,14 +77,6 @@ const placeBuildingRoutes: FastifyPluginAsync = async (app) => {
                 return reply.code(400).send({
                     message: "Invalid payload",
                     issues: bodyParsed.error.flatten(),
-                });
-            }
-
-            const canEdit = request.user.roles.some((role) => EDIT_LINK_ROLES.has(role));
-
-            if (!canEdit) {
-                return reply.code(403).send({
-                    message: "Admin or editor role required",
                 });
             }
 
@@ -114,7 +104,7 @@ const placeBuildingRoutes: FastifyPluginAsync = async (app) => {
     app.patch(
         "/places/:id/buildings/:buildingId",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardWrite],
             schema: patchPlaceBuildingLinkSchema,
         },
         async (request, reply) => {
@@ -132,14 +122,6 @@ const placeBuildingRoutes: FastifyPluginAsync = async (app) => {
                 return reply.code(400).send({
                     message: "Invalid payload",
                     issues: bodyParsed.error.flatten(),
-                });
-            }
-
-            const canEdit = request.user.roles.some((role) => EDIT_LINK_ROLES.has(role));
-
-            if (!canEdit) {
-                return reply.code(403).send({
-                    message: "Admin or editor role required",
                 });
             }
 
@@ -167,7 +149,7 @@ const placeBuildingRoutes: FastifyPluginAsync = async (app) => {
     app.delete(
         "/places/:id/buildings/:buildingId",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardWrite],
             schema: deletePlaceBuildingLinkSchema,
         },
         async (request, reply) => {
@@ -177,14 +159,6 @@ const placeBuildingRoutes: FastifyPluginAsync = async (app) => {
                 return reply.code(400).send({
                     message: "Invalid place or building id",
                     issues: parsed.error.flatten(),
-                });
-            }
-
-            const canEdit = request.user.roles.some((role) => EDIT_LINK_ROLES.has(role));
-
-            if (!canEdit) {
-                return reply.code(403).send({
-                    message: "Admin or editor role required",
                 });
             }
 
@@ -208,7 +182,7 @@ const placeBuildingRoutes: FastifyPluginAsync = async (app) => {
     app.get(
         "/buildings/:id/places",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardAccess],
             schema: getBuildingPlacesSchema,
         },
         async (request, reply) => {

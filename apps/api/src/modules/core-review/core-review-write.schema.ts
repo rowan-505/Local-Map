@@ -237,11 +237,11 @@ export const coreReviewPatchStreetSchema = z
         { message: "At least one field is required" },
     );
 
-// ── Map features (landuse / water) ──────────────────────────────────────────
+// ── Map features (land areas / water) ──────────────────────────────────────
 
 const detailLevelSchema = z.enum(["zone", "parcel"]);
 
-const landuseFields = {
+const landAreaFields = {
     nameMm: nullableTrimmedString,
     name_mm: nullableTrimmedString,
     nameEn: nullableTrimmedString,
@@ -250,10 +250,15 @@ const landuseFields = {
     name_und: nullableTrimmedString,
     /** Legacy single name column — prefer name_mm/name_en. */
     name: nullableTrimmedString,
+    /** @deprecated Compatibility only. Prefer landAreaClassId; free-text class_code is not authoritative. */
     classCode: nullableTrimmedString,
+    /** @deprecated Compatibility only. Prefer land_area_class_id. */
     class_code: nullableTrimmedString,
-    landuseClassId: optionalBigintId,
-    landuse_class_id: optionalBigintId,
+    /** Stable ref code alternative to landAreaClassId (resolved server-side to FK). */
+    landAreaClassCode: nullableTrimmedString,
+    land_area_class_code: nullableTrimmedString,
+    landAreaClassId: optionalBigintId,
+    land_area_class_id: optionalBigintId,
     adminAreaId: nullableBigintId,
     admin_area_id: nullableBigintId,
     confidenceScore: z.number().finite().min(0).max(100).optional(),
@@ -271,30 +276,39 @@ const landuseFields = {
     edit_reason: optionalTrimmedString,
 };
 
-export const coreReviewCreateLanduseSchema = z
+export const coreReviewCreateLandAreaSchema = z
     .object({
-        ...landuseFields,
-        landuseClassId: optionalBigintId,
-        landuse_class_id: optionalBigintId,
+        ...landAreaFields,
+        landAreaClassId: optionalBigintId,
+        land_area_class_id: optionalBigintId,
         geometry: polygonOrMultiPolygonSchema.optional(),
         geom: polygonOrMultiPolygonSchema.optional(),
     })
     .refine(
-        (v) => v.landuseClassId !== undefined || v.landuse_class_id !== undefined,
-        { message: "landuseClassId is required", path: ["landuseClassId"] }
+        (v) =>
+            v.landAreaClassId !== undefined ||
+            v.land_area_class_id !== undefined ||
+            Boolean(v.landAreaClassCode?.trim()) ||
+            Boolean(v.land_area_class_code?.trim()) ||
+            Boolean(v.classCode?.trim()) ||
+            Boolean(v.class_code?.trim()),
+        {
+            message: "landAreaClassId or landAreaClassCode is required",
+            path: ["landAreaClassId"],
+        }
     )
     .refine((v) => v.geometry !== undefined || v.geom !== undefined, {
         message: "geometry is required",
         path: ["geometry"],
     });
 
-export const coreReviewPatchLanduseSchema = z
+export const coreReviewPatchLandAreaSchema = z
     .object({
-        ...landuseFields,
+        ...landAreaFields,
         geometry: polygonOrMultiPolygonSchema.optional(),
         geom: polygonOrMultiPolygonSchema.optional(),
-        landuseClassId: optionalBigintId,
-        landuse_class_id: optionalBigintId,
+        landAreaClassId: optionalBigintId,
+        land_area_class_id: optionalBigintId,
     })
     .refine((v) => {
         const keys = Object.keys(v).filter((k) => k !== "editReason" && k !== "edit_reason");
@@ -305,6 +319,8 @@ const mapFeatureFields = {
     name: nullableTrimmedString,
     classCode: nullableTrimmedString,
     class_code: nullableTrimmedString,
+    waterClassId: optionalBigintId,
+    water_class_id: optionalBigintId,
     isActive: optionalBoolean,
     is_active: optionalBoolean,
     ...coreReviewVerificationWriteFields,
@@ -321,13 +337,8 @@ export const coreReviewCreateWaterLineSchema = z
         path: ["geometry"],
     })
     .refine(
-        (v) => {
-            const code =
-                (typeof v.classCode === "string" ? v.classCode.trim() : "") ||
-                (typeof v.class_code === "string" ? v.class_code.trim() : "");
-            return code !== "";
-        },
-        { message: "class_code is required", path: ["classCode"] },
+        (v) => v.waterClassId !== undefined || v.water_class_id !== undefined,
+        { message: "waterClassId is required", path: ["waterClassId"] },
     );
 
 export const coreReviewPatchWaterLineSchema = z
@@ -350,13 +361,8 @@ export const coreReviewCreateWaterPolygonSchema = z
         path: ["geometry"],
     })
     .refine(
-        (v) => {
-            const code =
-                (typeof v.classCode === "string" ? v.classCode.trim() : "") ||
-                (typeof v.class_code === "string" ? v.class_code.trim() : "");
-            return code !== "";
-        },
-        { message: "class_code is required", path: ["classCode"] },
+        (v) => v.waterClassId !== undefined || v.water_class_id !== undefined,
+        { message: "waterClassId is required", path: ["waterClassId"] },
     );
 
 export const coreReviewPatchWaterPolygonSchema = z
@@ -527,7 +533,7 @@ const CREATE_SCHEMAS: Record<CoreReviewEntitySlug, z.ZodType> = {
     buildings: coreReviewCreateBuildingSchema,
     places: coreReviewCreatePlaceSchema,
     streets: coreReviewCreateStreetSchema,
-    landuse: coreReviewCreateLanduseSchema,
+    "land-areas": coreReviewCreateLandAreaSchema,
     "water-lines": coreReviewCreateWaterLineSchema,
     "water-polygons": coreReviewCreateWaterPolygonSchema,
     addresses: coreReviewCreateAddressSchema,
@@ -538,7 +544,7 @@ const PATCH_SCHEMAS: Record<CoreReviewEntitySlug, z.ZodType> = {
     buildings: coreReviewPatchBuildingSchema,
     places: coreReviewPatchPlaceSchema,
     streets: coreReviewPatchStreetSchema,
-    landuse: coreReviewPatchLanduseSchema,
+    "land-areas": coreReviewPatchLandAreaSchema,
     "water-lines": coreReviewPatchWaterLineSchema,
     "water-polygons": coreReviewPatchWaterPolygonSchema,
     addresses: coreReviewPatchAddressSchema,
@@ -575,8 +581,6 @@ export function sanitizeCoreReviewWriteBody(body: unknown): unknown {
         "normalized_data",
         "sourceRefs",
         "source_refs",
-        "sourceStagingId",
-        "source_staging_id",
         "isVerified",
         "is_verified",
     ]);
@@ -611,7 +615,7 @@ const WRITE_ID_ALIAS_PAIRS: [string, string][] = [
     ["adminLevelId", "admin_level_id"],
     ["sourceTypeId", "source_type_id"],
     ["parentId", "parent_id"],
-    ["landuseClassId", "landuse_class_id"],
+    ["landAreaClassId", "land_area_class_id"],
     ["adminAreaId", "admin_area_id"],
     ["roadClassId", "road_class_id"],
     ["buildingTypeId", "building_type_id"],

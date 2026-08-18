@@ -68,7 +68,7 @@ export const PUBLIC_SEARCH_ENTITY_TYPES = [
     "building",
     "water_line",
     "water_polygon",
-    "landuse",
+    "land_area",
 ] as const;
 
 export type PublicSearchEntityType = (typeof PUBLIC_SEARCH_ENTITY_TYPES)[number];
@@ -118,7 +118,7 @@ export const SEARCH_GEOMETRY_ENTITY_TYPES = [
     "building",
     "water_line",
     "water_polygon",
-    "landuse",
+    "land_area",
 ] as const;
 
 export type SearchGeometryEntityType = (typeof SEARCH_GEOMETRY_ENTITY_TYPES)[number];

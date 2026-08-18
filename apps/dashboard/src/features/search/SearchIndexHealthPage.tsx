@@ -251,7 +251,7 @@ export default function SearchIndexHealthPage() {
                 ? {
                       title: `Reindex ${entityTypeLabel(pendingAction.entity_type)} #${pendingAction.entity_id}`,
                       description:
-                          "Rebuilds the search document for one entity. Use family reindex for addresses, buildings, landuse, and water.",
+                          "Rebuilds the search document for one entity. Use family reindex for addresses, buildings, land areas, and water.",
                       confirmLabel: "Reindex entity",
                   }
                 : null;
@@ -491,7 +491,7 @@ export default function SearchIndexHealthPage() {
                                 </h2>
                                 <p className="mt-1 text-xs text-gray-600">
                                     For supported entity types only (places, admin areas, street
-                                    groups, transport). Addresses, buildings, landuse, and water use
+                                    groups, transport). Addresses, buildings, land areas, and water use
                                     family rebuild instead.
                                 </p>
                                 <div className="mt-3 flex flex-wrap items-end gap-3">

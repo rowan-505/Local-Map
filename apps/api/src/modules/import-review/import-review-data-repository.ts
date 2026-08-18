@@ -40,10 +40,11 @@ export type BuildingListRowDb = {
     building_type_id: bigint | null;
     building_type_code?: string | null;
     building_type_name?: string | null;
-    landuse_class_id: bigint | null;
-    landuse_class_code?: string | null;
-    landuse_class_name?: string | null;
-    landuse_class_name_mm?: string | null;
+    land_area_class_id: bigint | null;
+    land_area_class_code?: string | null;
+    land_area_class_name?: string | null;
+    land_area_class_name_mm?: string | null;
+    water_class_id?: bigint | null;
     admin_area_id: bigint | null;
     levels: number | null;
     height_m: unknown;

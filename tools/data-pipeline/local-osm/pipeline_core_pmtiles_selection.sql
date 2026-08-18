@@ -8,6 +8,8 @@
 
 CREATE SCHEMA IF NOT EXISTS system;
 
+\ir pipeline_osm_category_normalize.sql
+
 CREATE OR REPLACE FUNCTION system.pipeline_has_real_name(p_name text)
 RETURNS boolean
 LANGUAGE sql
@@ -120,6 +122,7 @@ AS $$
     END;
 $$;
 
+-- Ordinary basemap fill: always PMTiles-only (even when named).
 CREATE OR REPLACE FUNCTION system.pipeline_landuse_ordinary_basemap(p_class_code text)
 RETURNS boolean
 LANGUAGE sql
@@ -129,11 +132,51 @@ AS $$
         'residential', 'farmland', 'farmyard', 'paddy', 'orchard', 'meadow',
         'grass', 'grassland', 'forest', 'wood', 'scrub', 'brownfield',
         'greenfield', 'construction', 'quarry', 'basin', 'reservoir',
-        'industrial', 'retail', 'commercial', 'railway', 'highway',
-        'garages', 'allotments', 'village_green', 'recreation_ground',
+        'railway', 'highway', 'garages', 'allotments', 'village_green',
         'plant_nursery', 'aquaculture', 'salt_pond', 'landfill', 'vacant',
-        'other', 'yes'
+        'bare_rock', 'heath', 'mud', 'sand', 'other', 'yes'
     );
+$$;
+
+-- Product-relevant even when unnamed (Core candidates).
+CREATE OR REPLACE FUNCTION system.pipeline_landuse_important_unnamed(p_class_code text)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+AS $$
+    SELECT lower(btrim(coalesce(p_class_code, ''))) IN (
+        'park', 'recreation_ground',
+        'education', 'university', 'school', 'campus',
+        'healthcare', 'hospital',
+        'religious', 'cemetery', 'military',
+        'government', 'civic', 'institution', 'transport',
+        'protected', 'nature_reserve', 'national_park', 'conservation',
+        -- Wetlands stay in the land-area pipeline (no separate wetland table).
+        'wetland', 'marsh', 'swamp', 'mangrove', 'reedbed',
+        'saltmarsh', 'tidalflat', 'bog', 'fen', 'wet_meadow',
+        'beach'
+    );
+$$;
+
+CREATE OR REPLACE FUNCTION system.pipeline_landuse_pmtiles_reason(p_class_code text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+AS $$
+    SELECT CASE lower(btrim(coalesce(p_class_code, '')))
+        WHEN 'residential' THEN 'ordinary_residential_landuse'
+        WHEN 'farmland' THEN 'ordinary_farmland'
+        WHEN 'farmyard' THEN 'ordinary_farmland'
+        WHEN 'paddy' THEN 'ordinary_farmland'
+        WHEN 'orchard' THEN 'ordinary_farmland'
+        WHEN 'meadow' THEN 'ordinary_farmland'
+        WHEN 'forest' THEN 'ordinary_forest'
+        WHEN 'wood' THEN 'ordinary_forest'
+        WHEN 'industrial' THEN 'ordinary_industrial_landuse'
+        WHEN 'commercial' THEN 'ordinary_industrial_landuse'
+        WHEN 'retail' THEN 'ordinary_industrial_landuse'
+        ELSE 'ordinary_basemap_geometry'
+    END;
 $$;
 
 CREATE OR REPLACE FUNCTION system.pipeline_landuse_core_type(
@@ -145,6 +188,13 @@ LANGUAGE sql
 IMMUTABLE
 AS $$
     SELECT CASE
+        WHEN lower(btrim(coalesce(p_class_code, ''))) IN (
+            'wetland', 'marsh', 'swamp', 'mangrove', 'reedbed',
+            'saltmarsh', 'tidalflat', 'bog', 'fen', 'wet_meadow'
+          )
+            THEN 'wetland_or_coastal_habitat'
+        WHEN lower(btrim(coalesce(p_class_code, ''))) = 'beach'
+            THEN 'named_park_or_public_zone'
         WHEN lower(btrim(coalesce(p_class_code, ''))) IN ('park', 'recreation_ground')
           OR lower(btrim(coalesce(p_tags->>'leisure', ''))) IN ('park', 'nature_reserve', 'garden')
             THEN 'named_park_or_public_zone'
@@ -156,7 +206,8 @@ AS $$
             THEN 'protected_area'
         WHEN lower(btrim(coalesce(p_class_code, ''))) IN (
             'education', 'university', 'school', 'campus', 'healthcare', 'hospital',
-            'religious', 'cemetery', 'military', 'government', 'civic'
+            'religious', 'cemetery', 'military', 'government', 'civic', 'institution',
+            'transport'
           )
             THEN 'named_campus_or_public_zone'
         WHEN lower(btrim(coalesce(p_class_code, ''))) = 'industrial'
@@ -280,44 +331,69 @@ BEGIN
     END IF;
 
     IF v_family = 'landuse' THEN
-        IF NOT v_has_name THEN
-            v_reason := CASE lower(btrim(coalesce(p_class_code, '')))
-                WHEN 'farmland' THEN 'ordinary_farmland'
-                WHEN 'paddy' THEN 'ordinary_farmland'
-                WHEN 'orchard' THEN 'ordinary_farmland'
-                WHEN 'farmyard' THEN 'ordinary_farmland'
-                WHEN 'forest' THEN 'ordinary_forest'
-                WHEN 'wood' THEN 'ordinary_forest'
-                WHEN 'residential' THEN 'ordinary_residential_landuse'
-                WHEN 'industrial' THEN 'ordinary_industrial_landuse'
-                ELSE 'ordinary_basemap_geometry'
-            END;
+        -- Core: named + explicitly important / product-relevant land areas.
+        -- Ordinary residential/farmland/forest/grassland fill → PMTiles only
+        -- (even when named). Wetlands stay in this land-area family.
+        -- Unrecognized OSM values are skipped in Stage 05 (never staged).
+        IF NOT system.pipeline_is_coremap_land_area_code(p_class_code) THEN
             RETURN jsonb_build_object(
                 'eligible_for_core', false,
                 'core_selection_reason', NULL,
-                'pmtiles_only_reason', v_reason
+                'pmtiles_only_reason', 'unrecognized_land_area_class'
             );
         END IF;
 
-        -- Named but ordinary visual landuse still stays PMTiles unless useful type.
-        IF system.pipeline_landuse_ordinary_basemap(p_class_code)
-           AND lower(btrim(coalesce(p_class_code, ''))) IN (
-                'farmland', 'paddy', 'orchard', 'farmyard', 'forest', 'wood',
-                'residential', 'meadow', 'grass', 'grassland', 'scrub'
-           ) THEN
+        -- Protected-area tags can elevate non-ordinary classes.
+        IF lower(btrim(coalesce(v_tags->>'boundary', ''))) = 'protected_area'
+           OR v_tags ? 'protect_class'
+           OR system.pipeline_landuse_important_unnamed(p_class_code)
+        THEN
+            v_type := coalesce(
+                system.pipeline_landuse_core_type(p_class_code, v_tags),
+                'recognized_land_area_class'
+            );
+            RETURN jsonb_build_object(
+                'eligible_for_core', true,
+                'core_selection_reason', v_type,
+                'pmtiles_only_reason', NULL
+            );
+        END IF;
+
+        -- Ordinary basemap fill never enters Core / Import Review.
+        IF system.pipeline_landuse_ordinary_basemap(p_class_code) THEN
             RETURN jsonb_build_object(
                 'eligible_for_core', false,
                 'core_selection_reason', NULL,
-                'pmtiles_only_reason', CASE lower(btrim(coalesce(p_class_code, '')))
-                    WHEN 'forest' THEN 'ordinary_forest'
-                    WHEN 'wood' THEN 'ordinary_forest'
-                    WHEN 'residential' THEN 'ordinary_residential_landuse'
-                    ELSE 'ordinary_farmland'
-                END
+                'pmtiles_only_reason', system.pipeline_landuse_pmtiles_reason(p_class_code)
             );
         END IF;
 
-        v_type := system.pipeline_landuse_core_type(p_class_code, v_tags);
+        -- Remaining recognized classes (e.g. industrial/commercial/retail): named only.
+        IF v_has_name THEN
+            v_type := coalesce(
+                system.pipeline_landuse_core_type(p_class_code, v_tags),
+                'named_searchable_area'
+            );
+            RETURN jsonb_build_object(
+                'eligible_for_core', true,
+                'core_selection_reason', v_type,
+                'pmtiles_only_reason', NULL
+            );
+        END IF;
+
+        RETURN jsonb_build_object(
+            'eligible_for_core', false,
+            'core_selection_reason', NULL,
+            'pmtiles_only_reason', system.pipeline_landuse_pmtiles_reason(p_class_code)
+        );
+    END IF;
+
+    -- water_lines / water_polygons
+    IF system.pipeline_is_coremap_water_class_code(p_class_code) THEN
+        v_type := coalesce(
+            system.pipeline_water_core_type(v_family, p_class_code, v_tags, v_has_name),
+            'recognized_water_class'
+        );
         RETURN jsonb_build_object(
             'eligible_for_core', true,
             'core_selection_reason', v_type,
@@ -325,7 +401,6 @@ BEGIN
         );
     END IF;
 
-    -- water_lines / water_polygons
     v_type := system.pipeline_water_core_type(v_family, p_class_code, v_tags, v_has_name);
     IF v_type IS NOT NULL THEN
         RETURN jsonb_build_object(

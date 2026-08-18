@@ -65,7 +65,7 @@ export function PromotionCardBody({ children, className = "" }: { children: Reac
 const PUBLISH_ENTITY_FAMILY_LABELS: Record<string, string> = {
     buildings: "Buildings",
     places: "Places",
-    landuse: "Landuse",
+    land_areas: "Landuse",
     water_lines: "Water lines",
     water_polygons: "Water polygons",
     bus_routes: "Bus routes",

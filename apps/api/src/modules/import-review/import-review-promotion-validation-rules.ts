@@ -3,9 +3,9 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 import {
     ImportReviewCandidateColumnRegistry,
     effectiveAdminAreaIdExpr,
-    landuseClassCodeEffectiveExpr,
-    landuseClassIdExpr,
-    landuseEffectiveClassIdRawExpr,
+    landAreaClassCodeEffectiveExpr,
+    landAreaClassIdExpr,
+    landAreaEffectiveClassIdRawExpr,
 } from "./import-review-candidate-column-registry.js";
 import {
     ImportReviewSchemaCapabilityRegistry,
@@ -29,7 +29,7 @@ import type {
 
 export const MIN_AREA_M2 = 1;
 export const MAX_AREA_M2 = 500_000;
-export const MAX_LANDUSE_AREA_M2 = 50_000_000;
+export const MAX_LAND_AREA_AREA_M2 = 50_000_000;
 export const SPATIAL_OVERLAP_RATIO = 0.85;
 export const SPATIAL_DWITHIN_M = 2;
 export const NEARBY_NAME_DWITHIN_M = 50;
@@ -378,7 +378,7 @@ export class ImportReviewPromotionValidationRules {
         itemIds: bigint[]
     ): Promise<ImportReviewPublishValidationIssueRow[]> {
         const family = config.entityFamily as ImportReviewEntityFamilySlug;
-        if (family === "buildings" || family === "landuse" || family === "water_polygons") {
+        if (family === "buildings" || family === "land_areas" || family === "water_polygons") {
             return this.validatePolygonGeometry(config, itemIds, family === "buildings");
         }
         if (family === "water_lines" || family === "roads") {
@@ -541,8 +541,8 @@ export class ImportReviewPromotionValidationRules {
     ): Promise<ImportReviewPublishValidationIssueRow[]> {
         const a = config.tableAlias;
         const join = itemsJoinSql(config);
-        const maxArea = config.entityFamily === "landuse" ? MAX_LANDUSE_AREA_M2 : MAX_AREA_M2;
-        const useMakeValidFix = config.entityFamily === "landuse";
+        const maxArea = config.entityFamily === "land_areas" ? MAX_LAND_AREA_AREA_M2 : MAX_AREA_M2;
+        const useMakeValidFix = config.entityFamily === "land_areas";
         const geomExpr = useMakeValidFix
             ? Prisma.sql`ST_MakeValid(${col(a, "geom")})`
             : col(a, "geom");
@@ -839,15 +839,15 @@ export class ImportReviewPromotionValidationRules {
                           ${col(a, "canonical_name")}, ${col(a, "normalized_data")}->>'name', ''
                       )), '') IS NULL
                   `
-                  : family === "landuse"
+                  : family === "land_areas"
                     ? Prisma.sql`
                     UNION ALL
                     SELECT spi.id, 'CLASS_CODE_MISSING',
-                        'class_code is recommended for landuse features.', 'warning'
+                        'class_code is recommended for land area features.', 'warning'
                     ${join}
                     WHERE spi.id IN (${Prisma.join(itemIds)})
                       AND ${col(a, "id")} IS NOT NULL
-                      AND ${landuseClassCodeEffectiveExpr(a)} IS NULL
+                      AND ${landAreaClassCodeEffectiveExpr(a)} IS NULL
                   `
                     : family === "water_polygons" || family === "water_lines"
                       ? Prisma.sql`
@@ -1235,24 +1235,24 @@ export class ImportReviewPromotionValidationRules {
             return this.validateAdminAreaReferences(config, itemIds);
         }
 
-        if (family === "landuse") {
-            const rawClassId = landuseEffectiveClassIdRawExpr(a, {
-                hasLanduseClassIdColumn: caps.hasLanduseClassIdColumn,
+        if (family === "land_areas") {
+            const rawClassId = landAreaEffectiveClassIdRawExpr(a, {
+                hasLandAreaClassIdColumn: caps.hasLandAreaClassIdColumn,
             });
-            const validClassId = landuseClassIdExpr(a, {
-                hasLanduseClassIdColumn: caps.hasLanduseClassIdColumn,
+            const validClassId = landAreaClassIdExpr(a, {
+                hasLandAreaClassIdColumn: caps.hasLandAreaClassIdColumn,
             });
             const optionalColumnNotice = this.optionalAdminAreaColumnNoticeSql(
                 config,
                 itemIds,
                 caps.hasAdminAreaIdColumn,
-                "Landuse validation uses normalized_data for admin_area_id; landuse_candidates has no admin_area_id column. This reference is optional for landuse."
+                "Land area validation uses normalized_data for admin_area_id; land_area_candidates has no admin_area_id column. This reference is optional for land areas."
             );
 
             return this.prisma.$queryRaw<ImportReviewPublishValidationIssueRow[]>`
                 SELECT publish_item_id, code, message, severity FROM (
                     SELECT spi.id AS publish_item_id, 'INVALID_LANDUSE_CLASS_ID'::text AS code,
-                        'landuse_class_id does not exist in ref.ref_landuse_classes.'::text AS message,
+                        'land_area_class_id does not exist in ref.ref_land_area_classes.'::text AS message,
                         'error'::text AS severity
                     ${join}
                     WHERE spi.id IN (${Prisma.join(itemIds)})
@@ -1433,14 +1433,14 @@ export class ImportReviewPromotionValidationRules {
         if (family === "places") {
             return this.validatePlaceDuplicates(config, itemIds);
         }
-        if (family === "landuse") {
-            return this.validateExternalIdDuplicate(config, itemIds, "core.core_map_landuse");
+        if (family === "land_areas") {
+            return this.validateExternalIdDuplicate(config, itemIds, "core.core_land_areas");
         }
         if (family === "water_polygons") {
-            return this.validateExternalIdDuplicate(config, itemIds, "core.core_map_water_polygons");
+            return this.validateExternalIdDuplicate(config, itemIds, "core.core_water_polygons");
         }
         if (family === "water_lines") {
-            return this.validateExternalIdDuplicate(config, itemIds, "core.core_map_water_lines");
+            return this.validateExternalIdDuplicate(config, itemIds, "core.core_water_lines");
         }
         if (family === "admin_areas") {
             return this.validateAdminAreaDuplicates(config, itemIds);
@@ -1514,20 +1514,8 @@ export class ImportReviewPromotionValidationRules {
                   AND spi.publish_action = 'insert'
                   AND ${col(a, "external_id")} IS NOT NULL AND trim(${col(a, "external_id")}) <> ''
                   AND EXISTS (
-                      SELECT 1 FROM core.core_map_buildings AS c
+                      SELECT 1 FROM core.core_buildings AS c
                       WHERE c.external_id = ${col(a, "external_id")} AND ${activeCoreRowSql("c")}
-                  )
-
-                UNION ALL
-                SELECT spi.id, 'duplicate_source_staging_id',
-                    'Active core building already exists with the same source_staging_id.', 'error'
-                ${join}
-                WHERE spi.id IN (${Prisma.join(itemIds)})
-                  AND spi.publish_action = 'insert'
-                  AND ${col(a, "local_staging_id")} IS NOT NULL
-                  AND EXISTS (
-                      SELECT 1 FROM core.core_map_buildings AS c
-                      WHERE c.source_staging_id = ${col(a, "local_staging_id")} AND ${activeCoreRowSql("c")}
                   )
 
                 UNION ALL
@@ -1538,7 +1526,7 @@ export class ImportReviewPromotionValidationRules {
                   AND spi.publish_action = 'insert'
                   AND ${col(a, "geom")} IS NOT NULL
                   AND EXISTS (
-                      SELECT 1 FROM core.core_map_buildings AS c
+                      SELECT 1 FROM core.core_buildings AS c
                       WHERE ${activeCoreRowSql("c")} AND c.geom IS NOT NULL
                         AND c.geom && ${col(a, "geom")}
                         AND ST_DWithin(c.geom::geography, ${col(a, "geom")}::geography, ${SPATIAL_DWITHIN_M})
@@ -1554,7 +1542,7 @@ export class ImportReviewPromotionValidationRules {
                   AND spi.publish_action = 'update'
                   AND ${col(a, "geom")} IS NOT NULL
                   AND EXISTS (
-                      SELECT 1 FROM core.core_map_buildings AS c
+                      SELECT 1 FROM core.core_buildings AS c
                       WHERE ${activeCoreRowSql("c")} AND c.geom IS NOT NULL
                         AND c.geom && ${col(a, "geom")}
                         AND (${col(a, "matched_core_id")} IS NULL OR c.id <> ${col(a, "matched_core_id")})

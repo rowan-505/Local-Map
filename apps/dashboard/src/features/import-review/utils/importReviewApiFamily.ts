@@ -16,7 +16,9 @@ const ROUTE_SLUG_TO_API_FAMILY: Readonly<Record<string, string>> = {
     buildings: "buildings",
     places: "places",
     roads: "roads",
-    landuse: "landuse",
+    "land-areas": "land_areas",
+    /** Legacy dashboard route slug. */
+    landuse: "land_areas",
     addresses: "addresses",
 };
 

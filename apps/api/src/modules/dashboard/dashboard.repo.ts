@@ -10,7 +10,7 @@ import type {
 /** Base table names under schema `core` (unquoted lowercase). Allowlist only — never built from clients. */
 const CORE_STATS_TABLE_ALLOWLIST_SQL = `
   'core_places',
-  'core_map_buildings',
+  'core_buildings',
   'core_streets',
   'core_admin_areas',
   'core_addresses',
@@ -36,7 +36,7 @@ const TRANSPORT_STATS_TABLE_ALLOWLIST_SQL = `
  */
 type CatalogFlagRow = {
     t_core_places: boolean;
-    t_core_map_buildings: boolean;
+    t_core_buildings: boolean;
     t_core_streets: boolean;
     t_core_admin_areas: boolean;
     t_core_addresses: boolean;
@@ -53,8 +53,8 @@ type CatalogFlagRow = {
     t_transport_route_stops: boolean;
     c_core_places_deleted_at: boolean;
     c_core_places_is_verified: boolean;
-    c_core_map_buildings_deleted_at: boolean;
-    c_core_map_buildings_is_active: boolean;
+    c_core_buildings_deleted_at: boolean;
+    c_core_buildings_is_active: boolean;
     c_core_streets_is_active: boolean;
 };
 
@@ -111,7 +111,7 @@ present_transport AS (
 )
 SELECT
   EXISTS (SELECT 1 FROM present p WHERE p.table_name = 'core_places') AS t_core_places,
-  EXISTS (SELECT 1 FROM present p WHERE p.table_name = 'core_map_buildings') AS t_core_map_buildings,
+  EXISTS (SELECT 1 FROM present p WHERE p.table_name = 'core_buildings') AS t_core_buildings,
   EXISTS (SELECT 1 FROM present p WHERE p.table_name = 'core_streets') AS t_core_streets,
   EXISTS (SELECT 1 FROM present p WHERE p.table_name = 'core_admin_areas') AS t_core_admin_areas,
   EXISTS (SELECT 1 FROM present p WHERE p.table_name = 'core_addresses') AS t_core_addresses,
@@ -147,17 +147,17 @@ SELECT
       FROM information_schema.columns col
       WHERE col.table_catalog = current_database()
         AND col.table_schema = 'core'
-        AND col.table_name = 'core_map_buildings'
+        AND col.table_name = 'core_buildings'
         AND col.column_name = 'deleted_at'
-  ) AS c_core_map_buildings_deleted_at,
+  ) AS c_core_buildings_deleted_at,
   EXISTS (
       SELECT 1
       FROM information_schema.columns col
       WHERE col.table_catalog = current_database()
         AND col.table_schema = 'core'
-        AND col.table_name = 'core_map_buildings'
+        AND col.table_name = 'core_buildings'
         AND col.column_name = 'is_active'
-  ) AS c_core_map_buildings_is_active,
+  ) AS c_core_buildings_is_active,
   EXISTS (
       SELECT 1
       FROM information_schema.columns col
@@ -210,7 +210,7 @@ function healthPlaces(
 function buildSnapshotQuery(f: CatalogFlagRow): Prisma.Sql {
     const parts: Prisma.Sql[] = [
         countFrom("places", "core.core_places", f.t_core_places),
-        countFrom("map_buildings", "core.core_map_buildings", f.t_core_map_buildings),
+        countFrom("map_buildings", "core.core_buildings", f.t_core_buildings),
         countFrom("streets", "core.core_streets", f.t_core_streets),
         countFrom("admin_areas", "core.core_admin_areas", f.t_core_admin_areas),
         countFrom("addresses", "core.core_addresses", f.t_core_addresses),
@@ -231,17 +231,17 @@ function buildSnapshotQuery(f: CatalogFlagRow): Prisma.Sql {
         healthPlaces("places_unverified", "deleted_at IS NULL AND is_verified IS NOT TRUE", f, true),
         healthCount(
             "buildings_active",
-            "core.core_map_buildings",
+            "core.core_buildings",
             "deleted_at IS NULL AND is_active IS TRUE",
-            f.t_core_map_buildings,
-            f.c_core_map_buildings_deleted_at && f.c_core_map_buildings_is_active
+            f.t_core_buildings,
+            f.c_core_buildings_deleted_at && f.c_core_buildings_is_active
         ),
         healthCount(
             "buildings_deleted",
-            "core.core_map_buildings",
+            "core.core_buildings",
             "deleted_at IS NOT NULL",
-            f.t_core_map_buildings,
-            f.c_core_map_buildings_deleted_at
+            f.t_core_buildings,
+            f.c_core_buildings_deleted_at
         ),
         healthCount(
             "streets_active",

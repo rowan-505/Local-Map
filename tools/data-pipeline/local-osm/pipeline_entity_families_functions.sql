@@ -15,8 +15,10 @@ AS $$
         'roads',
         'buildings',
         'landuse',
+        'protected_areas',
         'water_lines',
         'water_polygons',
+        'coastlines',
         'admin_areas',
         'bus_stops',
         'bus_routes',
@@ -183,6 +185,7 @@ AS $$
         WHEN 'road_name' THEN system.pipeline_family_enabled(p_entity_families, 'roads')
         WHEN 'routing_road' THEN system.pipeline_family_enabled(p_entity_families, 'routing_roads')
         WHEN 'water_line' THEN system.pipeline_family_enabled(p_entity_families, 'water_lines')
+        WHEN 'coastline' THEN system.pipeline_family_enabled(p_entity_families, 'coastlines')
         WHEN 'bus_route' THEN system.pipeline_family_enabled(p_entity_families, 'bus_routes')
         WHEN 'bus_route_name' THEN system.pipeline_family_enabled(p_entity_families, 'bus_routes')
         WHEN 'bus_route_variant' THEN system.pipeline_family_enabled_any(
@@ -195,6 +198,7 @@ AS $$
         )
         WHEN 'building' THEN system.pipeline_family_enabled(p_entity_families, 'buildings')
         WHEN 'landuse' THEN system.pipeline_family_enabled(p_entity_families, 'landuse')
+        WHEN 'protected_area' THEN system.pipeline_family_enabled(p_entity_families, 'protected_areas')
         WHEN 'water_polygon' THEN system.pipeline_family_enabled(p_entity_families, 'water_polygons')
         WHEN 'admin_area' THEN system.pipeline_family_enabled(p_entity_families, 'admin_areas')
         WHEN 'admin_area_name' THEN system.pipeline_family_enabled(p_entity_families, 'admin_areas')

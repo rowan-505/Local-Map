@@ -53,7 +53,11 @@ function adminAreaSearchClause(search?: string): Prisma.Sql {
     )`;
 }
 
-function numericMapFeatureSearchClause(alias: string, search?: string): Prisma.Sql {
+function numericMapFeatureSearchClause(
+    alias: string,
+    search?: string,
+    canonicalClassCode: Prisma.Sql = Prisma.sql`NULL::text`
+): Prisma.Sql {
     if (!search) {
         return Prisma.empty;
     }
@@ -63,7 +67,7 @@ function numericMapFeatureSearchClause(alias: string, search?: string): Prisma.S
     }
     return Prisma.sql`AND (
         COALESCE(${Prisma.raw(alias)}.name, '') ILIKE ${`%${search}%`}
-        OR COALESCE(${Prisma.raw(alias)}.class_code, '') ILIKE ${`%${search}%`}
+        OR COALESCE(${canonicalClassCode}, '') ILIKE ${`%${search}%`}
         OR COALESCE(${Prisma.raw(alias)}.external_id, '') ILIKE ${`%${search}%`}
     )`;
 }
@@ -331,22 +335,39 @@ export class CoreReviewEntitiesRepository {
         return rows[0] ?? null;
     }
 
-    // ── Map polygons (landuse, water polygons) ──────────────────────────────────
+    // ── Map polygons (land areas, water polygons) ──────────────────────────────────
 
     private async listMapPolygons(
-        table: "core.core_map_landuse" | "core.core_map_water_polygons",
+        table: "core.core_land_areas" | "core.core_water_polygons",
         alias: string,
         params: CoreReviewEntityListParams
     ) {
-        const search = numericMapFeatureSearchClause(alias, params.search);
+        const isWater = table === "core.core_water_polygons";
+        const canonicalClassCode = isWater ? Prisma.sql`wc.code` : Prisma.sql`lc.code`;
+        const search = numericMapFeatureSearchClause(alias, params.search, canonicalClassCode);
         const order = Prisma.sql`${Prisma.raw(alias)}.updated_at ${sortDir(params.sortOrder)} NULLS LAST`;
+        const waterSelect = isWater
+            ? Prisma.sql`
+                ${Prisma.raw(alias)}.water_class_id::text AS "waterClassId",
+                wc.code AS "waterClassCode",
+                wc.name_en AS "waterClassNameEn",
+                wc.name_mm AS "waterClassNameMm",`
+            : Prisma.sql``;
+        const classificationJoin = isWater
+            ? Prisma.sql`
+            LEFT JOIN ref.ref_water_classes AS wc
+              ON wc.id = ${Prisma.raw(alias)}.water_class_id`
+            : Prisma.sql`
+            LEFT JOIN ref.ref_land_area_classes AS lc
+              ON lc.id = ${Prisma.raw(alias)}.land_area_class_id`;
 
         return this.prisma.$queryRaw<Record<string, unknown>[]>(Prisma.sql`
             SELECT
                 ${Prisma.raw(alias)}.id::text AS id,
                 ${Prisma.raw(alias)}.external_id AS "externalId",
                 ${Prisma.raw(alias)}.name,
-                ${Prisma.raw(alias)}.class_code AS "classCode",
+                ${canonicalClassCode} AS "classCode",
+                ${waterSelect}
                 ${Prisma.raw(alias)}.is_active AS "isActive",
                 ${Prisma.raw(alias)}.is_verified AS "isVerified",
                 ${Prisma.raw(alias)}.verification_status AS "verificationStatus",
@@ -354,8 +375,9 @@ export class CoreReviewEntitiesRepository {
                 ${Prisma.raw(alias)}.updated_at AS "updatedAt",
                 ST_AsGeoJSON(${Prisma.raw(alias)}.geom)::json AS geometry
             FROM ${Prisma.raw(table)} AS ${Prisma.raw(alias)}
+            ${classificationJoin}
             WHERE ${genericListStatusClause(
-                  table === "core.core_map_landuse" ? "landuse" : "water-polygons",
+                  table === "core.core_land_areas" ? "land-areas" : "water-polygons",
                   alias,
                   params.status
               )}
@@ -368,16 +390,22 @@ export class CoreReviewEntitiesRepository {
     }
 
     private async countMapPolygons(
-        table: "core.core_map_landuse" | "core.core_map_water_polygons",
+        table: "core.core_land_areas" | "core.core_water_polygons",
         alias: string,
         params: CoreReviewEntityListParams
     ): Promise<number> {
-        const search = numericMapFeatureSearchClause(alias, params.search);
+        const isWater = table === "core.core_water_polygons";
+        const canonicalClassCode = isWater ? Prisma.sql`wc.code` : Prisma.sql`lc.code`;
+        const search = numericMapFeatureSearchClause(alias, params.search, canonicalClassCode);
+        const classificationJoin = isWater
+            ? Prisma.sql`LEFT JOIN ref.ref_water_classes AS wc ON wc.id = ${Prisma.raw(alias)}.water_class_id`
+            : Prisma.sql`LEFT JOIN ref.ref_land_area_classes AS lc ON lc.id = ${Prisma.raw(alias)}.land_area_class_id`;
         const rows = await this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
             SELECT COUNT(*)::bigint AS count
             FROM ${Prisma.raw(table)} AS ${Prisma.raw(alias)}
+            ${classificationJoin}
             WHERE ${genericListStatusClause(
-                  table === "core.core_map_landuse" ? "landuse" : "water-polygons",
+                  table === "core.core_land_areas" ? "land-areas" : "water-polygons",
                   alias,
                   params.status
               )} ${search}
@@ -387,18 +415,34 @@ export class CoreReviewEntitiesRepository {
     }
 
     private async getMapPolygonById(
-        table: "core.core_map_landuse" | "core.core_map_water_polygons",
+        table: "core.core_land_areas" | "core.core_water_polygons",
         alias: string,
         id: string,
         options: { anyStatus?: boolean } = {}
     ) {
+        const isWater = table === "core.core_water_polygons";
+        const waterSelect = isWater
+            ? Prisma.sql`
+                ${Prisma.raw(alias)}.water_class_id::text AS "waterClassId",
+                wc.code AS "waterClassCode",
+                wc.name_en AS "waterClassNameEn",
+                wc.name_mm AS "waterClassNameMm",`
+            : Prisma.sql``;
+        const classificationJoin = isWater
+            ? Prisma.sql`
+            LEFT JOIN ref.ref_water_classes AS wc
+              ON wc.id = ${Prisma.raw(alias)}.water_class_id`
+            : Prisma.sql`
+            LEFT JOIN ref.ref_land_area_classes AS lc
+              ON lc.id = ${Prisma.raw(alias)}.land_area_class_id`;
+        const canonicalClassCode = isWater ? Prisma.sql`wc.code` : Prisma.sql`lc.code`;
         const rows = await this.prisma.$queryRaw<Record<string, unknown>[]>(Prisma.sql`
             SELECT
                 ${Prisma.raw(alias)}.id::text AS id,
-                ${Prisma.raw(alias)}.source_staging_id::text AS "sourceStagingId",
                 ${Prisma.raw(alias)}.external_id AS "externalId",
                 ${Prisma.raw(alias)}.name,
-                ${Prisma.raw(alias)}.class_code AS "classCode",
+                ${canonicalClassCode} AS "classCode",
+                ${waterSelect}
                 ${Prisma.raw(alias)}.normalized_data AS "normalizedData",
                 ${Prisma.raw(alias)}.source_refs AS "sourceRefs",
                 ${Prisma.raw(alias)}.is_active AS "isActive",
@@ -408,12 +452,13 @@ export class CoreReviewEntitiesRepository {
                 ${Prisma.raw(alias)}.updated_at AS "updatedAt",
                 ST_AsGeoJSON(${Prisma.raw(alias)}.geom)::json AS geometry
             FROM ${Prisma.raw(table)} AS ${Prisma.raw(alias)}
+            ${classificationJoin}
             WHERE ${Prisma.raw(alias)}.id = ${BigInt(id)}
               AND ${
                   options.anyStatus
                       ? Prisma.sql`TRUE`
                       : genericListStatusClause(
-                            table === "core.core_map_landuse" ? "landuse" : "water-polygons",
+                            table === "core.core_land_areas" ? "land-areas" : "water-polygons",
                             alias,
                             "active"
                         )
@@ -423,30 +468,30 @@ export class CoreReviewEntitiesRepository {
         return rows[0] ?? null;
     }
 
-    listLanduse(params: CoreReviewEntityListParams) {
-        return this.listMapPolygons("core.core_map_landuse", "lu", params);
+    listLandAreas(params: CoreReviewEntityListParams) {
+        return this.listMapPolygons("core.core_land_areas", "lu", params);
     }
-    countLanduse(params: CoreReviewEntityListParams) {
-        return this.countMapPolygons("core.core_map_landuse", "lu", params);
+    countLandAreas(params: CoreReviewEntityListParams) {
+        return this.countMapPolygons("core.core_land_areas", "lu", params);
     }
-    getLanduseById(id: string, options: { anyStatus?: boolean } = {}) {
-        return this.getMapPolygonById("core.core_map_landuse", "lu", id, options);
+    getLandAreaById(id: string, options: { anyStatus?: boolean } = {}) {
+        return this.getMapPolygonById("core.core_land_areas", "lu", id, options);
     }
 
     listWaterPolygons(params: CoreReviewEntityListParams) {
-        return this.listMapPolygons("core.core_map_water_polygons", "wp", params);
+        return this.listMapPolygons("core.core_water_polygons", "wp", params);
     }
     countWaterPolygons(params: CoreReviewEntityListParams) {
-        return this.countMapPolygons("core.core_map_water_polygons", "wp", params);
+        return this.countMapPolygons("core.core_water_polygons", "wp", params);
     }
     getWaterPolygonById(id: string, options: { anyStatus?: boolean } = {}) {
-        return this.getMapPolygonById("core.core_map_water_polygons", "wp", id, options);
+        return this.getMapPolygonById("core.core_water_polygons", "wp", id, options);
     }
 
     // ── Water lines ───────────────────────────────────────────────────────────
 
     async listWaterLines(params: CoreReviewEntityListParams) {
-        const search = numericMapFeatureSearchClause("wl", params.search);
+        const search = numericMapFeatureSearchClause("wl", params.search, Prisma.sql`wc.code`);
         const order = Prisma.sql`wl.updated_at ${sortDir(params.sortOrder)} NULLS LAST`;
 
         return this.prisma.$queryRaw<Record<string, unknown>[]>(Prisma.sql`
@@ -454,14 +499,19 @@ export class CoreReviewEntitiesRepository {
                 wl.id::text AS id,
                 wl.external_id AS "externalId",
                 wl.name,
-                wl.class_code AS "classCode",
+                wc.code AS "classCode",
+                wl.water_class_id::text AS "waterClassId",
+                wc.code AS "waterClassCode",
+                wc.name_en AS "waterClassNameEn",
+                wc.name_mm AS "waterClassNameMm",
                 wl.is_active AS "isActive",
                 wl.is_verified AS "isVerified",
                 wl.verification_status AS "verificationStatus",
                 wl.created_at AS "createdAt",
                 wl.updated_at AS "updatedAt",
                 ST_AsGeoJSON(wl.geom)::json AS geometry
-            FROM core.core_map_water_lines AS wl
+            FROM core.core_water_lines AS wl
+            LEFT JOIN ref.ref_water_classes AS wc ON wc.id = wl.water_class_id
             WHERE ${genericListStatusClause("water-lines", "wl", params.status)}
               ${search}
               ${verificationFilterClause("wl", params)}
@@ -472,9 +522,10 @@ export class CoreReviewEntitiesRepository {
     }
 
     async countWaterLines(params: CoreReviewEntityListParams): Promise<number> {
-        const search = numericMapFeatureSearchClause("wl", params.search);
+        const search = numericMapFeatureSearchClause("wl", params.search, Prisma.sql`wc.code`);
         const rows = await this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
-            SELECT COUNT(*)::bigint AS count FROM core.core_map_water_lines AS wl
+            SELECT COUNT(*)::bigint AS count FROM core.core_water_lines AS wl
+            LEFT JOIN ref.ref_water_classes AS wc ON wc.id = wl.water_class_id
             WHERE ${genericListStatusClause("water-lines", "wl", params.status)}
               ${search}
               ${verificationFilterClause("wl", params)}
@@ -486,10 +537,13 @@ export class CoreReviewEntitiesRepository {
         const rows = await this.prisma.$queryRaw<Record<string, unknown>[]>(Prisma.sql`
             SELECT
                 wl.id::text AS id,
-                wl.source_staging_id::text AS "sourceStagingId",
                 wl.external_id AS "externalId",
                 wl.name,
-                wl.class_code AS "classCode",
+                wc.code AS "classCode",
+                wl.water_class_id::text AS "waterClassId",
+                wc.code AS "waterClassCode",
+                wc.name_en AS "waterClassNameEn",
+                wc.name_mm AS "waterClassNameMm",
                 wl.normalized_data AS "normalizedData",
                 wl.source_refs AS "sourceRefs",
                 wl.is_active AS "isActive",
@@ -498,7 +552,8 @@ export class CoreReviewEntitiesRepository {
                 wl.created_at AS "createdAt",
                 wl.updated_at AS "updatedAt",
                 ST_AsGeoJSON(wl.geom)::json AS geometry
-            FROM core.core_map_water_lines AS wl
+            FROM core.core_water_lines AS wl
+            LEFT JOIN ref.ref_water_classes AS wc ON wc.id = wl.water_class_id
             WHERE wl.id = ${BigInt(id)}
               AND ${
                   options.anyStatus

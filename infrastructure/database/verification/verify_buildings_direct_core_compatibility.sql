@@ -8,15 +8,15 @@
 \pset pager off
 
 SELECT 'counts' AS section,
-  (SELECT count(*) FROM core.core_map_buildings) AS buildings,
-  (SELECT count(*) FROM core.core_map_building_names) AS names,
+  (SELECT count(*) FROM core.core_buildings) AS buildings,
+  (SELECT count(*) FROM core.core_building_names) AS names,
   (SELECT count(*) FROM core.core_place_buildings) AS links;
 
 SELECT 'migration_149_columns' AS section, count(*) AS n,
   count(*) = 7 AS passes
 FROM information_schema.columns
 WHERE table_schema = 'core'
-  AND table_name = 'core_map_buildings'
+  AND table_name = 'core_buildings'
   AND column_name IN (
     'source_registry_id', 'source_snapshot_id', 'source_feature_type',
     'source_feature_id', 'region_code',
@@ -27,7 +27,7 @@ SELECT 'source_identity_uidx' AS section,
   EXISTS (
     SELECT 1 FROM pg_indexes
     WHERE schemaname = 'core'
-      AND indexname = 'core_map_buildings_source_identity_uidx'
+      AND indexname = 'core_buildings_source_identity_uidx'
   ) AS passes;
 
 SELECT 'pipeline_osm_identity_key' AS section,
@@ -42,7 +42,7 @@ SELECT 'complete_identity_collisions' AS section, count(*) AS n,
   count(*) = 0 AS passes
 FROM (
   SELECT source_registry_id, source_feature_type, source_feature_id
-  FROM core.core_map_buildings
+  FROM core.core_buildings
   WHERE source_registry_id IS NOT NULL
     AND source_feature_type IS NOT NULL
     AND source_feature_id IS NOT NULL
@@ -52,7 +52,7 @@ FROM (
 
 SELECT 'bare_numeric_invented_type' AS section, count(*) AS n,
   count(*) = 0 AS passes
-FROM core.core_map_buildings
+FROM core.core_buildings
 WHERE external_id ~ '^[1-9][0-9]*$'
   AND source_feature_type IS NOT NULL
   AND source_feature_id IS NOT NULL
@@ -70,7 +70,7 @@ SELECT 'identity_formats' AS section,
     ELSE 'other'
   END AS fmt,
   count(*) AS n
-FROM core.core_map_buildings
+FROM core.core_buildings
 GROUP BY 1
 ORDER BY n DESC;
 
@@ -81,7 +81,7 @@ SELECT 'protected_rows' AS section,
     WHERE is_geometry_manually_edited OR is_attributes_manually_edited
   ) AS manual_edit_flags,
   count(*) FILTER (WHERE deleted_at IS NOT NULL) AS soft_deleted
-FROM core.core_map_buildings;
+FROM core.core_buildings;
 
 SELECT 'integration_views' AS section,
   (SELECT count(*) FROM tiles.tiles_buildings_v) AS tiles_buildings_v,

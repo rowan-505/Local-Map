@@ -98,7 +98,7 @@ export function buildRoadLightweightListExtensionSelect(config: ImportReviewEnti
         , NULL::text AS name
         , NULL::text AS building_type
         , NULL::bigint AS building_type_id
-        , NULL::bigint AS landuse_class_id
+        , NULL::bigint AS land_area_class_id
         , ${roadsExplicitAdminAreaIdExpr(alias)} AS admin_area_id
         , NULL::int AS levels
         , NULL::numeric AS height_m

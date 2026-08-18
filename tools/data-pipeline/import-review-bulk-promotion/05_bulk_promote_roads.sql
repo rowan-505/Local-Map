@@ -182,9 +182,8 @@ CREATE INDEX IF NOT EXISTS irr_road_extid_promote_idx
     ON import_review.road_candidates (external_id)
     WHERE external_id IS NOT NULL AND btrim(external_id) <> '';
 
-CREATE INDEX IF NOT EXISTS core_streets_external_id_promote_idx
-    ON core.core_streets (external_id)
-    WHERE external_id IS NOT NULL AND btrim(external_id) <> '';
+-- core_streets_external_id_unique_idx is the canonical Core lookup index.
+-- Do not recreate the retired non-unique core_streets_external_id_promote_idx.
 
 CREATE INDEX IF NOT EXISTS core_admin_areas_geom_gix
     ON core.core_admin_areas USING gist (geom);
@@ -198,7 +197,7 @@ CREATE INDEX IF NOT EXISTS core_admin_areas_centroid_gix
 CREATE INDEX IF NOT EXISTS core_admin_areas_level_idx
     ON core.core_admin_areas (admin_level_id);
 
-SELECT pg_temp.bulk_road_emit_phase('indexes ensured (road_candidates + core_streets + admin_areas)');
+SELECT pg_temp.bulk_road_emit_phase('indexes ensured (road_candidates + admin_areas)');
 
 \echo '=== Select unpromoted chunk into bulk_road_base ==='
 

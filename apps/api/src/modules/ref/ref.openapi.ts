@@ -4,7 +4,7 @@ import { bearerAuth, messageSchema, Tags } from "../../lib/openapi/common.js";
 
 const serverErrorMessageSchema = messageSchema;
 
-const refLanduseClassRowSchema = {
+const refLandAreaClassRowSchema = {
     type: "object",
     required: ["id", "code", "name_en", "name_mm", "parent_id", "sort_order", "min_zoom", "is_active"],
     properties: {
@@ -20,12 +20,23 @@ const refLanduseClassRowSchema = {
     additionalProperties: false,
 } as const;
 
-export const getRefLanduseClassesSchema = {
+export const getRefLandAreaClassesSchema = {
     tags: [Tags.Ref],
-    summary: "List active landuse classes",
+    summary: "List active land area classes",
     security: [...bearerAuth],
     response: {
-        200: { type: "array", items: refLanduseClassRowSchema },
+        200: { type: "array", items: refLandAreaClassRowSchema },
+        401: messageSchema,
+        500: serverErrorMessageSchema,
+    },
+} satisfies FastifySchema;
+
+export const getRefWaterClassesSchema = {
+    tags: [Tags.Ref],
+    summary: "List active water classes",
+    security: [...bearerAuth],
+    response: {
+        200: { type: "array", items: refLandAreaClassRowSchema },
         401: messageSchema,
         500: serverErrorMessageSchema,
     },

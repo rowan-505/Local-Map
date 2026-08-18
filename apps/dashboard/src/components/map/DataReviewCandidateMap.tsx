@@ -44,7 +44,7 @@ export type ImportReviewEntityType =
     | "building"
     | "place"
     | "road"
-    | "landuse"
+    | "land_area"
     | "water_line"
     | "water_polygon"
     | "generic";
@@ -267,7 +267,7 @@ function raiseImportReviewLayers(map: maplibregl.Map) {
 }
 
 function usesPolygonLayers(entity: ImportReviewEntityType): boolean {
-    return entity === "building" || entity === "landuse" || entity === "water_polygon";
+    return entity === "building" || entity === "land_area" || entity === "water_polygon";
 }
 
 function usesLineLayers(entity: ImportReviewEntityType): boolean {
@@ -308,7 +308,7 @@ function applyEntityPaint(map: maplibregl.Map, entity: ImportReviewEntityType, r
             map.setPaintProperty(LAYER_FILL_ID, "fill-color", "#0284c7");
             map.setPaintProperty(LAYER_FILL_ID, "fill-opacity", 0.28);
             map.setPaintProperty(LAYER_FILL_ID, "fill-outline-color", "rgba(0,0,0,0)");
-        } else if (entity === "landuse") {
+        } else if (entity === "land_area") {
             map.setPaintProperty(LAYER_FILL_ID, "fill-color", "#65a30d");
             map.setPaintProperty(LAYER_FILL_ID, "fill-opacity", 0.22);
             map.setPaintProperty(LAYER_FILL_ID, "fill-outline-color", "rgba(0,0,0,0)");
@@ -324,7 +324,7 @@ function applyEntityPaint(map: maplibregl.Map, entity: ImportReviewEntityType, r
             map.setPaintProperty(LAYER_POLYGON_OUTLINE_ID, "line-color", "#0369a1");
             map.setPaintProperty(LAYER_POLYGON_OUTLINE_ID, "line-width", 2);
             map.setPaintProperty(LAYER_POLYGON_OUTLINE_ID, "line-opacity", 0.9);
-        } else if (entity === "landuse") {
+        } else if (entity === "land_area") {
             map.setPaintProperty(LAYER_POLYGON_OUTLINE_ID, "line-color", "#3f6212");
             map.setPaintProperty(LAYER_POLYGON_OUTLINE_ID, "line-width", 2);
             map.setPaintProperty(LAYER_POLYGON_OUTLINE_ID, "line-opacity", 0.9);

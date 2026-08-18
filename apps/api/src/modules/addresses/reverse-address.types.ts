@@ -19,7 +19,7 @@ export type ReverseAddressComponentSource =
     | "core_place"
     | "core_street"
     | "core_admin_area"
-    | "core_landuse"
+    | "core_land_area"
     | "coordinates";
 
 export type ReverseAddressResolverComponent = {

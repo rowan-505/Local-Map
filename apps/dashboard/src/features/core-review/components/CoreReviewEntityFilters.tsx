@@ -9,7 +9,7 @@ import {
     useCoreReviewRefAdminAreas,
     useCoreReviewRefBuildingTypes,
     useCoreReviewRefCategories,
-    useCoreReviewRefLanduseClasses,
+    useCoreReviewRefLandAreaClasses,
     useCoreReviewRefRoadClasses,
 } from "../hooks/coreReviewRefQueries";
 
@@ -59,7 +59,7 @@ export default function CoreReviewEntityFilters({
         categories: false,
         roadClasses: Boolean(filterSupport.roadClassId),
         adminAreas: adminAreaTownshipOnly && Boolean(filterSupport.adminAreaId),
-        landuseClasses: false,
+        landAreaClasses: false,
     });
 
     const enableRef = useCallback((key: keyof typeof refsEnabled) => {
@@ -84,8 +84,8 @@ export default function CoreReviewEntityFilters({
         Boolean(filterSupport.adminAreaId) && refsEnabled.adminAreas,
         adminAreaTownshipOnly,
     );
-    const landuseClassesQuery = useCoreReviewRefLanduseClasses(
-        Boolean(filterSupport.landuseClassId) && refsEnabled.landuseClasses
+    const landAreaClassesQuery = useCoreReviewRefLandAreaClasses(
+        Boolean(filterSupport.landAreaClassId) && refsEnabled.landAreaClasses
     );
 
     const buildingTypes: Option[] = useMemo(
@@ -116,15 +116,15 @@ export default function CoreReviewEntityFilters({
         [adminAreasQuery.data]
     );
 
-    const landuseClasses: Option[] = useMemo(
+    const landAreaClasses: Option[] = useMemo(
         () =>
-            (landuseClassesQuery.data ?? [])
+            (landAreaClassesQuery.data ?? [])
                 .filter((r) => r.is_active)
                 .map((r) => ({
                     id: r.id,
                     label: r.name_mm ? `${r.name_en} — ${r.name_mm}` : r.name_en,
                 })),
-        [landuseClassesQuery.data]
+        [landAreaClassesQuery.data]
     );
 
     return (
@@ -242,13 +242,13 @@ export default function CoreReviewEntityFilters({
                     />
                 ) : null}
 
-                {filterSupport.landuseClassId ? (
+                {filterSupport.landAreaClassId ? (
                     <FilterSelect
                         label="Landuse class"
-                        value={draft.landuseClassId}
-                        options={landuseClasses}
-                        onOpen={() => enableRef("landuseClasses")}
-                        onChange={(v) => setDraft((d) => ({ ...d, landuseClassId: v }))}
+                        value={draft.landAreaClassId}
+                        options={landAreaClasses}
+                        onOpen={() => enableRef("landAreaClasses")}
+                        onChange={(v) => setDraft((d) => ({ ...d, landAreaClassId: v }))}
                     />
                 ) : null}
 

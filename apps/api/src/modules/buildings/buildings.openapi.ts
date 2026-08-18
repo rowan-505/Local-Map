@@ -73,7 +73,6 @@ const buildingRowSchema = {
     required: [
         "id",
         "public_id",
-        "source_staging_id",
         "external_id",
         "name",
         "names",
@@ -101,11 +100,10 @@ const buildingRowSchema = {
     properties: {
         id: { type: "string" },
         public_id: { type: "string", format: "uuid" },
-        source_staging_id: { type: "string", nullable: true },
         external_id: { type: "string", nullable: true },
-        name_mm: { type: "string", nullable: true, description: "Derived Myanmar label from core_map_building_names (dashboard compat)" },
-        name_en: { type: "string", nullable: true, description: "Derived English label from core_map_building_names (dashboard compat)" },
-        fallback_name: { type: "string", nullable: true, description: "First available name from core_map_building_names" },
+        name_mm: { type: "string", nullable: true, description: "Derived Myanmar label from core_building_names (dashboard compat)" },
+        name_en: { type: "string", nullable: true, description: "Derived English label from core_building_names (dashboard compat)" },
+        fallback_name: { type: "string", nullable: true, description: "First available name from core_building_names" },
         name: {
             type: "string",
             nullable: true,
@@ -113,7 +111,7 @@ const buildingRowSchema = {
         },
         names: {
             type: "array",
-            description: "Canonical name rows from core.core_map_building_names",
+            description: "Canonical name rows from core.core_building_names",
             items: {
                 type: "object",
                 required: ["name", "languageCode", "nameType", "isPrimary", "searchWeight"],
@@ -210,7 +208,7 @@ const createBuildingBodyOpenApi = {
         name: {
             type: "string",
             nullable: true,
-            description: "Deprecated write field; not stored on core_map_buildings.name. Prefer name_mm/name_en.",
+            description: "Deprecated write field; not stored on core_buildings.name. Prefer name_mm/name_en.",
         },
         name_mm: { type: "string", nullable: true },
         name_en: { type: "string", nullable: true },
@@ -243,7 +241,7 @@ const updateBuildingBodyOpenApi = {
         name: {
             type: "string",
             nullable: true,
-            description: "Deprecated write field; not stored on core_map_buildings.name. Prefer name_mm/name_en.",
+            description: "Deprecated write field; not stored on core_buildings.name. Prefer name_mm/name_en.",
         },
         name_mm: { type: "string", nullable: true },
         name_en: { type: "string", nullable: true },

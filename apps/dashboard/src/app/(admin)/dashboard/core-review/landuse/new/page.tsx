@@ -1,7 +1,8 @@
-"use client";
+import { redirect } from "next/navigation";
 
-import CoreEntityFormRoutePage from "@/src/features/core-review/forms/CoreEntityFormRoutePage";
+import { coreReviewPath } from "@/src/lib/dashboardNavigation";
 
-export default function NewPage() {
-    return <CoreEntityFormRoutePage entityKey="landuse" mode="create" />;
+/** Legacy URL → land-areas/new. */
+export default function LegacyLanduseCoreReviewNewRedirectPage() {
+    redirect(coreReviewPath("land-areas/new"));
 }

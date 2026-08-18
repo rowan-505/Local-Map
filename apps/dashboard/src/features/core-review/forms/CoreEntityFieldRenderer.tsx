@@ -135,7 +135,7 @@ export default function CoreEntityFieldRenderer({
     if (field.type === "township-admin" && field.townshipAdmin && watch && setValue) {
         const usesStoredAdminInfer =
             field.townshipAdmin.entityKind === "street" ||
-            field.townshipAdmin.entityKind === "landuse" ||
+            field.townshipAdmin.entityKind === "land_area" ||
             field.townshipAdmin.entityKind === "bus_stop" ||
             field.townshipAdmin.entityKind === "place" ||
             field.townshipAdmin.entityKind === "building";

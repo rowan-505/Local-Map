@@ -79,7 +79,7 @@ PAGER=cat psql "$LOCAL_DATABASE_URL" \
 Before Stage 07, `run_local_osm_pipeline.sh` runs `00b_preflight_prod_mirror.sql`:
 
 - `mirror_meta` present and fresh
-- required tables: `core_places`, `core_streets`, `core_map_buildings`
+- required tables: `core_places`, `core_streets`, `core_buildings`
 
 Override: `SKIP_PROD_MIRROR_PREFLIGHT=true` (emergency only).
 
@@ -92,4 +92,4 @@ Ref/system: source types, POI categories, road classes, admin levels, address co
 
 - `prod_mirror.core_places`
 - `prod_mirror.core_streets`
-- `prod_mirror.core_map_buildings`
+- `prod_mirror.core_buildings`

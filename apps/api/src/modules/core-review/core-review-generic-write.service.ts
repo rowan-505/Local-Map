@@ -3,9 +3,9 @@ import type { PrismaClient } from "@prisma/client";
 import type { JwtUser } from "../../plugins/auth.js";
 import { CoreReviewRefValidator } from "../../lib/core-review/ref-validation.js";
 import {
-    applyLanduseAdminAreaForCreate,
-    applyLanduseAdminAreaForUpdate,
-} from "../../lib/core-review/landuse-admin-area-write.js";
+    applyLandAreaAdminAreaForCreate,
+    applyLandAreaAdminAreaForUpdate,
+} from "../../lib/core-review/land-area-admin-area-write.js";
 import {
     applyTownshipAdminAreaToGenericWriteBody,
     genericWriteSlugUsesTownshipPolicy,
@@ -21,13 +21,13 @@ import {
 } from "./admin-area-boundary-fields.js";
 import { CoreReviewEntitiesRepository } from "./core-review-entities.repo.js";
 import { CoreReviewEntitiesWriteRepository } from "./core-review-entities-write.repo.js";
-import { CoreReviewLanduseRepository } from "./entities/landuse.repo.js";
+import { CoreReviewLandAreasRepository } from "./entities/land-areas.repo.js";
 import { CoreReviewNotFoundError, CoreReviewValidationError } from "./core-review-write.errors.js";
 import { validationMessageFromIssues } from "./core-review-write.helpers.js";
 import { pickAlias, pickGeometry } from "./core-review-write.schema.js";
 import { buildDetailResponse } from "./core-review.pagination.js";
 import { serializeGenericCoreRow } from "./core-review-serializers.js";
-import { getCoreReviewLanduseDetail } from "./entities/landuse.handler.js";
+import { getCoreReviewLandAreaDetail } from "./entities/land-areas.handler.js";
 import { scheduleUnifiedSearchDocuments } from "../search/unified-search-sync.js";
 import type { CoreReviewEntitySlug } from "./core-review.types.js";
 
@@ -57,7 +57,7 @@ export class CoreReviewGenericWriteService {
     private readonly writeRepo: CoreReviewEntitiesWriteRepository;
     private readonly entitiesRepo: CoreReviewEntitiesRepository;
     private readonly refValidator: CoreReviewRefValidator;
-    private readonly landuseRepo: CoreReviewLanduseRepository;
+    private readonly landAreasRepo: CoreReviewLandAreasRepository;
     private readonly entityAdminArea: EntityAdminAreaService;
 
     constructor(prisma: PrismaClient) {
@@ -65,7 +65,7 @@ export class CoreReviewGenericWriteService {
         this.writeRepo = new CoreReviewEntitiesWriteRepository(prisma);
         this.entitiesRepo = new CoreReviewEntitiesRepository(prisma);
         this.refValidator = new CoreReviewRefValidator(prisma);
-        this.landuseRepo = new CoreReviewLanduseRepository(prisma);
+        this.landAreasRepo = new CoreReviewLandAreasRepository(prisma);
         this.entityAdminArea = new EntityAdminAreaService(new EntityAdminAreaRepository(prisma));
     }
 
@@ -122,9 +122,9 @@ export class CoreReviewGenericWriteService {
         log?: WriteLogger,
     ) {
         switch (slug) {
-            case "landuse": {
+            case "land-areas": {
                 try {
-                    await applyLanduseAdminAreaForCreate(
+                    await applyLandAreaAdminAreaForCreate(
                         this.entityAdminArea,
                         body,
                         pickGeometry(body),
@@ -134,17 +134,17 @@ export class CoreReviewGenericWriteService {
                     this.mapEntityAdminAreaError(error);
                 }
                 await this.validateIssues([
-                    this.refValidator.validateLanduseClassId(
-                        pickAlias<bigint>(body, "landuseClassId", "landuse_class_id"),
+                    this.refValidator.validateLandAreaClassId(
+                        pickAlias<bigint>(body, "landAreaClassId", "land_area_class_id"),
                         true
                     ),
                     this.refValidator.validateAdminAreaId(
                         pickAlias<bigint | null>(body, "adminAreaId", "admin_area_id") ?? null
                     ),
                 ]);
-                const publicId = await this.landuseRepo.createLanduse(body);
-                if (!publicId) throw new CoreReviewValidationError("Failed to create landuse feature");
-                return getCoreReviewLanduseDetail(this.landuseRepo, publicId);
+                const publicId = await this.landAreasRepo.createLandArea(body);
+                if (!publicId) throw new CoreReviewValidationError("Failed to create land area feature");
+                return getCoreReviewLandAreaDetail(this.landAreasRepo, publicId);
             }
             case "water-lines": {
                 const id = await this.writeRepo.createWaterLine(body);
@@ -153,7 +153,7 @@ export class CoreReviewGenericWriteService {
                 return buildDetailResponse(serializeGenericCoreRow(row!));
             }
             case "water-polygons": {
-                const id = await this.writeRepo.createMapPolygon("core.core_map_water_polygons", body);
+                const id = await this.writeRepo.createMapPolygon("core.core_water_polygons", body);
                 if (!id) throw new CoreReviewValidationError("Failed to create water polygon");
                 const row = await this.entitiesRepo.getWaterPolygonById(id);
                 return buildDetailResponse(serializeGenericCoreRow(row!));
@@ -235,20 +235,20 @@ export class CoreReviewGenericWriteService {
         log?: WriteLogger,
     ) {
         switch (slug) {
-            case "landuse": {
-                const existingLanduse = await this.landuseRepo.getLanduseById(id);
-                if (!existingLanduse) {
+            case "land-areas": {
+                const existingLandArea = await this.landAreasRepo.getLandAreaById(id);
+                if (!existingLandArea) {
                     throw new CoreReviewNotFoundError();
                 }
-                const landuseGeometry = pickGeometry(body) ?? existingLanduse.geometry;
-                const existingAdminAreaId = existingLanduse.admin_area_id
-                    ? BigInt(existingLanduse.admin_area_id)
+                const landAreaGeometry = pickGeometry(body) ?? existingLandArea.geometry;
+                const existingAdminAreaId = existingLandArea.admin_area_id
+                    ? BigInt(existingLandArea.admin_area_id)
                     : null;
                 try {
-                    await applyLanduseAdminAreaForUpdate(
+                    await applyLandAreaAdminAreaForUpdate(
                         this.entityAdminArea,
                         body,
-                        landuseGeometry,
+                        landAreaGeometry,
                         existingAdminAreaId,
                         user,
                     );
@@ -256,17 +256,17 @@ export class CoreReviewGenericWriteService {
                     this.mapEntityAdminAreaError(error);
                 }
                 await this.validateIssues([
-                    this.refValidator.validateLanduseClassId(
-                        pickAlias<bigint | null>(body, "landuseClassId", "landuse_class_id"),
+                    this.refValidator.validateLandAreaClassId(
+                        pickAlias<bigint | null>(body, "landAreaClassId", "land_area_class_id"),
                         false
                     ),
                     this.refValidator.validateAdminAreaId(
                         pickAlias<bigint | null>(body, "adminAreaId", "admin_area_id")
                     ),
                 ]);
-                const ok = await this.landuseRepo.updateLanduse(id, body);
+                const ok = await this.landAreasRepo.updateLandArea(id, body);
                 if (!ok) throw new CoreReviewNotFoundError();
-                const detail = await getCoreReviewLanduseDetail(this.landuseRepo, id);
+                const detail = await getCoreReviewLandAreaDetail(this.landAreasRepo, id);
                 if (!detail) throw new CoreReviewNotFoundError();
                 return detail;
             }
@@ -277,7 +277,7 @@ export class CoreReviewGenericWriteService {
                 return buildDetailResponse(serializeGenericCoreRow(row!));
             }
             case "water-polygons": {
-                const ok = await this.writeRepo.updateMapPolygon("core.core_map_water_polygons", id, body);
+                const ok = await this.writeRepo.updateMapPolygon("core.core_water_polygons", id, body);
                 if (!ok) throw new CoreReviewNotFoundError();
                 const row = await this.entitiesRepo.getWaterPolygonById(id);
                 return buildDetailResponse(serializeGenericCoreRow(row!));

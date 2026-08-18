@@ -60,7 +60,7 @@ function verificationTotalsQueryKey(input: {
     roadClassId: string;
     isPublic: string;
     routeId: string;
-    landuseClassId: string;
+    landAreaClassId: string;
     detailLevel: string;
     cropCode: string;
     boundaryStatus: string;
@@ -79,7 +79,7 @@ function verificationTotalsQueryKey(input: {
         input.roadClassId,
         input.isPublic,
         input.routeId,
-        input.landuseClassId,
+        input.landAreaClassId,
         input.detailLevel,
         input.cropCode,
         input.boundaryStatus,
@@ -112,7 +112,7 @@ export function useCoreReviewVerificationTotals(options: {
             roadClassId: appliedDraft.roadClassId.trim(),
             isPublic: appliedDraft.isPublic.trim(),
             routeId: appliedDraft.routeId.trim(),
-            landuseClassId: appliedDraft.landuseClassId.trim(),
+            landAreaClassId: appliedDraft.landAreaClassId.trim(),
             detailLevel: appliedDraft.detailLevel.trim(),
             cropCode: appliedDraft.cropCode.trim(),
             boundaryStatus: appliedDraft.boundaryStatus.trim(),

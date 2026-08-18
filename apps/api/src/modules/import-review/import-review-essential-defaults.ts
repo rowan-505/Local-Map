@@ -214,7 +214,7 @@ function resolveClassCode(
     return (
         pickEffectiveString("class_code", overrides, ctx.class_code, normPick(ctx.normalized_data, "class_code")) ??
         trimString(normPick(ctx.normalized_data, "water_class")) ??
-        trimString(normPick(ctx.normalized_data, "landuse_class"))
+        trimString(normPick(ctx.normalized_data, "land_area_class"))
     );
 }
 
@@ -276,7 +276,7 @@ export async function buildEssentialDefaultOverridesPatch(
 
     /** Roads: do not auto-fill admin_area_id or road_class_id on save — promotion may derive them later. */
 
-    if (family === "landuse" || family === "water_lines" || family === "water_polygons") {
+    if (family === "land_areas" || family === "water_lines" || family === "water_polygons") {
         if (!resolveClassCode(ctx, overrides)) {
             const imported =
                 trimString(ctx.class_code) ?? trimString(normPick(ctx.normalized_data, "class_code"));

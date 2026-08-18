@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { getCoreEntityConfig } from "@/src/lib/core-review/entityConfigs";
+import { useDashboardRoleAccess } from "@/src/hooks/useDashboardRoleAccess";
 import CoreReviewConfirmDialog from "../lifecycle/CoreReviewConfirmDialog";
 import { isCoreReviewRowDeleted } from "../lifecycle/coreReviewLifecycleUtils";
 import type { CoreReviewEntityConfig } from "../config/entity-config-types";
@@ -43,14 +44,19 @@ export default function CoreReviewEntityDrawer<T extends Record<string, unknown>
     onInlineEditGuardReady,
     startInEditMode = false,
 }: CoreReviewEntityDrawerProps<T>) {
-    const drawerState = useCoreReviewDrawerState({ rowId, open, startInEditMode });
+    const dashboardAccess = useDashboardRoleAccess();
+    const drawerState = useCoreReviewDrawerState({
+        rowId,
+        open,
+        startInEditMode: dashboardAccess.canWrite && startInEditMode,
+    });
     const formConfig = getCoreEntityConfig(config.entityKey);
     const [saveNotice, setSaveNotice] = useState<{ rowId: string; message: string } | null>(null);
 
     const editForm = useCoreEntityEditForm({
         entityKey: config.entityKey,
         recordId: rowId ?? "",
-        enabled: open && drawerState.isEditing && Boolean(rowId),
+        enabled: dashboardAccess.canWrite && open && drawerState.isEditing && Boolean(rowId),
     });
 
     const viewSuccessMessage =
@@ -62,7 +68,9 @@ export default function CoreReviewEntityDrawer<T extends Record<string, unknown>
 
     const supportsInlineEdit = config.supportsInlineEdit === true && formConfig.writeApiAvailable;
     const canEdit =
-        supportsInlineEdit && row ? !isCoreReviewRowDeleted(row as Record<string, unknown>) : false;
+        dashboardAccess.canWrite && supportsInlineEdit && row
+            ? !isCoreReviewRowDeleted(row as Record<string, unknown>)
+            : false;
 
     const discardInlineEditDraft = useCallback(() => {
         editForm.cancelDraft();

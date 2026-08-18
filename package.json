@@ -34,6 +34,7 @@
     "tiles:martin:restart-local": "bash infrastructure/tiles/martin/scripts/restart-local.sh",
     "test:overview-style": "npm test --prefix packages/map-style",
     "test:osm-source-identity": "tsx --test tools/data-pipeline/local-osm/source-identity.test.ts",
+    "test:osm-category-normalize": "tsx --test tools/data-pipeline/local-osm/osm-category-normalize.test.ts",
     "test:osm-candidate-validation": "tsx --test tools/data-pipeline/local-osm/candidate-validation.test.ts",
     "test:osm-import-review-routing": "tsx --test tools/data-pipeline/local-osm/remote-review-routing.test.ts",
     "data:repair:remaining": "bash tools/data-repair/current-production/run-remaining-repair.sh"

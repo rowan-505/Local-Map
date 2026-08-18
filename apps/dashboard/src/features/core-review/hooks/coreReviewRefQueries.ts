@@ -6,7 +6,8 @@ import {
     getAdminAreaOptions,
     getBuildingTypes,
     getCategories,
-    getRefLanduseClasses,
+    getRefLandAreaClasses,
+    getRefWaterClasses,
     getRoadClasses,
     getStreets,
 } from "@/src/lib/api";
@@ -20,7 +21,8 @@ import {
      roadClasses: () => ["core-review", "refs", "road-classes"] as const,
      buildingTypes: () => ["core-review", "refs", "building-types"] as const,
      adminAreas: (limit: number) => ["core-review", "refs", "admin-areas", limit] as const,
-     landuseClasses: () => ["core-review", "refs", "landuse-classes"] as const,
+     landAreaClasses: () => ["core-review", "refs", "land-area-classes"] as const,
+     waterClasses: () => ["core-review", "refs", "water-classes"] as const,
     streets: (limit: number) => ["core-review", "refs", "streets", limit] as const,
 } as const;
  
@@ -66,10 +68,18 @@ export function useCoreReviewRefAdminAreas(limit: number, enabled: boolean, town
     });
 }
  
- export function useCoreReviewRefLanduseClasses(enabled: boolean) {
+ export function useCoreReviewRefLandAreaClasses(enabled: boolean) {
      return useQuery({
-         queryKey: coreReviewRefQueryKeys.landuseClasses(),
-         queryFn: ({ signal }) => getRefLanduseClasses({ signal }),
+         queryKey: coreReviewRefQueryKeys.landAreaClasses(),
+         queryFn: ({ signal }) => getRefLandAreaClasses({ signal }),
+         ...refQueryDefaults(enabled),
+     });
+ }
+
+ export function useCoreReviewRefWaterClasses(enabled: boolean) {
+     return useQuery({
+         queryKey: coreReviewRefQueryKeys.waterClasses(),
+         queryFn: ({ signal }) => getRefWaterClasses({ signal }),
          ...refQueryDefaults(enabled),
      });
  }

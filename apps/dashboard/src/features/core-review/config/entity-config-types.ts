@@ -19,7 +19,7 @@ export type CoreReviewFilterSupport = {
     isPublic: boolean;
     includeDeleted: boolean;
     routeId: boolean;
-    landuseClassId?: boolean;
+    landAreaClassId?: boolean;
     detailLevel?: boolean;
     cropCode?: boolean;
     boundaryStatus?: boolean;

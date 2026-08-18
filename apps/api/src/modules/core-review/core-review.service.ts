@@ -15,10 +15,10 @@ import {
 } from "./entities/buildings.handler.js";
 import { getCoreReviewPlaceDetail, listCoreReviewPlaces } from "./entities/places.handler.js";
 import {
-    getCoreReviewLanduseDetail,
-    listCoreReviewLanduse,
-} from "./entities/landuse.handler.js";
-import { CoreReviewLanduseRepository } from "./entities/landuse.repo.js";
+    getCoreReviewLandAreaDetail,
+    listCoreReviewLandAreas,
+} from "./entities/land-areas.handler.js";
+import { CoreReviewLandAreasRepository } from "./entities/land-areas.repo.js";
 import { getCoreReviewStreetDetail, countCoreReviewStreets, listCoreReviewStreets } from "./entities/streets.handler.js";
 import {
     getCoreReviewAddressDetail,
@@ -80,7 +80,7 @@ function filterEcho(query: CoreReviewListQueryParsed): Record<string, unknown> {
         isPublic: query.isPublic,
         includeDeleted: query.includeDeleted,
         routeId: query.routeId,
-        landuseClassId: query.landuseClassId,
+        landAreaClassId: query.landAreaClassId,
         detailLevel: query.detailLevel,
         cropCode: query.cropCode,
         boundaryStatus: query.boundaryStatus,
@@ -122,7 +122,7 @@ export class CoreReviewService {
     private readonly entitiesRepo: CoreReviewEntitiesRepository;
     private readonly genericWriteService: CoreReviewGenericWriteService;
     private readonly lifecycleService: CoreReviewLifecycleService;
-    private readonly landuseRepo: CoreReviewLanduseRepository;
+    private readonly landAreasRepo: CoreReviewLandAreasRepository;
     private readonly addressesRepo: CoreReviewAddressesRepository;
     private readonly addressesWriteService: CoreReviewAddressesWriteService;
 
@@ -142,7 +142,7 @@ export class CoreReviewService {
         this.entitiesRepo = new CoreReviewEntitiesRepository(prisma);
         this.genericWriteService = new CoreReviewGenericWriteService(prisma);
         this.lifecycleService = new CoreReviewLifecycleService(prisma);
-        this.landuseRepo = new CoreReviewLanduseRepository(prisma);
+        this.landAreasRepo = new CoreReviewLandAreasRepository(prisma);
         this.addressesRepo = new CoreReviewAddressesRepository(prisma);
         this.addressesWriteService = new CoreReviewAddressesWriteService(prisma);
     }
@@ -193,8 +193,8 @@ export class CoreReviewService {
                 return listCoreReviewPlaces(this.placesRepo, def, query);
             case "streets":
                 return listCoreReviewStreets(this.streetsRepo, def, query);
-            case "landuse":
-                return listCoreReviewLanduse(this.landuseRepo, def, query);
+            case "land-areas":
+                return listCoreReviewLandAreas(this.landAreasRepo, def, query);
             case "water-lines": {
                 const p = toListParams(def, query);
                 return listGeneric(
@@ -254,8 +254,8 @@ export class CoreReviewService {
                 return getCoreReviewPlaceDetail(this.placesRepo, id);
             case "streets":
                 return getCoreReviewStreetDetail(this.streetsRepo, id);
-            case "landuse":
-                return getCoreReviewLanduseDetail(this.landuseRepo, id);
+            case "land-areas":
+                return getCoreReviewLandAreaDetail(this.landAreasRepo, id);
             case "water-lines": {
                 const row = await this.entitiesRepo.getWaterLineById(id);
                 return row ? buildDetailResponse(serializeGenericCoreRow(row)) : null;

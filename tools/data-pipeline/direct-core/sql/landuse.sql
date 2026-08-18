@@ -1,3 +1,8 @@
+-- Direct-Core land areas loader.
+-- Classification path (authoritative):
+--   OSM tags → normalize to stable CoreMap class code → resolve ref.ref_land_area_classes.id
+--   → write land_area_class_id. Legacy class_code is written only as a mirror of ref.code.
+-- Do not treat arbitrary OSM tag values as the Core classification source.
 \set ON_ERROR_STOP on
 \pset pager off
 
@@ -23,7 +28,7 @@ END $$;
 
 CREATE TEMP TABLE direct_landuse_raw(
  classification text,local_staging_id text,external_id text,name_und text,
- name_my text,name_en text,landuse_class_id text,class_code text,
+ name_my text,name_en text,land_area_class_id text,class_code text,
  admin_area_id text,geom_ewkt text,confidence_score text,detail_level text,
  source_tags text,source_refs text,normalized_data text
 )ON COMMIT DROP;
@@ -48,7 +53,7 @@ SELECT row_number()OVER()::bigint row_no,lower(nullif(btrim(classification),''))
  system.pipeline_osm_identity_key(external_id)identity_key,
  system.pipeline_osm_identity_key(external_id)external_id,
  nullif(btrim(name_und),'')name_und,nullif(btrim(name_my),'')name_my,
- nullif(btrim(name_en),'')name_en,pg_temp.direct_try_bigint(landuse_class_id)landuse_class_id,
+ nullif(btrim(name_en),'')name_en,pg_temp.direct_try_bigint(land_area_class_id)land_area_class_id,
  lower(nullif(btrim(class_code),''))class_code,
  pg_temp.direct_try_bigint(admin_area_id)admin_area_id,
  pg_temp.direct_try_geometry(geom_ewkt)geom,
@@ -60,8 +65,24 @@ SELECT row_number()OVER()::bigint row_no,lower(nullif(btrim(classification),''))
  count(*)OVER(PARTITION BY system.pipeline_osm_identity_key(external_id))identity_count
 FROM direct_landuse_raw;
 CREATE INDEX ON direct_landuse_stage(identity_key);
+
+-- Resolve class FK by CODE on the target DB (never trust local numeric IDs).
+UPDATE direct_landuse_stage s
+SET land_area_class_id = r.id,
+    class_code = lower(btrim(r.code))
+FROM ref.ref_land_area_classes r
+WHERE lower(btrim(r.code)) = s.class_code;
+
+-- Drop admin_area_id values that are not present on this target DB.
+UPDATE direct_landuse_stage s
+SET admin_area_id = NULL
+WHERE s.admin_area_id IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM core.core_admin_areas a
+    WHERE a.id = s.admin_area_id AND a.deleted_at IS NULL
+  );
 CREATE TEMP TABLE direct_landuse_core AS
-SELECT c.* FROM core.core_map_landuse c JOIN(SELECT DISTINCT identity_key FROM direct_landuse_stage)s
+SELECT c.* FROM core.core_land_areas c JOIN(SELECT DISTINCT identity_key FROM direct_landuse_stage)s
  ON system.pipeline_osm_identity_key(c.external_id)=s.identity_key;
 CREATE INDEX ON direct_landuse_core(system.pipeline_osm_identity_key(external_id));
 
@@ -79,9 +100,9 @@ SELECT s.*,c.id target_id,c.deleted_at target_deleted_at,
   CASE WHEN count(c.id)OVER(PARTITION BY s.identity_key)>1
    THEN 'identity resolves to multiple Core rows'END,
   CASE WHEN s.class_code IS NULL THEN 'class_code required'END,
-  CASE WHEN s.landuse_class_id IS NULL OR NOT EXISTS(
-   SELECT 1 FROM ref.ref_landuse_classes x WHERE x.id=s.landuse_class_id
-  )THEN 'invalid landuse_class_id'END,
+  CASE WHEN s.land_area_class_id IS NULL OR NOT EXISTS(
+   SELECT 1 FROM ref.ref_land_area_classes x WHERE x.id=s.land_area_class_id
+  )THEN 'invalid land_area_class_id'END,
   CASE WHEN s.admin_area_id IS NOT NULL AND NOT EXISTS(
    SELECT 1 FROM core.core_admin_areas x WHERE x.id=s.admin_area_id AND x.deleted_at IS NULL
   )THEN 'invalid admin_area_id'END,
@@ -103,8 +124,8 @@ SELECT s.*,c.id target_id,c.deleted_at target_deleted_at,
    THEN 'safe_update target is manual-protected'END,
   CASE WHEN s.classification='safe_new'AND c.id IS NOT NULL AND(
    c.name IS DISTINCT FROM coalesce(s.name_my,s.name_en,s.name_und)
-   OR c.landuse_class_id IS DISTINCT FROM s.landuse_class_id
-   OR c.class_code IS DISTINCT FROM s.class_code OR c.admin_area_id IS DISTINCT FROM s.admin_area_id
+   OR c.land_area_class_id IS DISTINCT FROM s.land_area_class_id
+   OR c.admin_area_id IS DISTINCT FROM s.admin_area_id
    OR c.confidence_score IS DISTINCT FROM s.confidence_score
    OR c.detail_level IS DISTINCT FROM s.detail_level OR NOT ST_Equals(c.geom,s.geom))
    THEN 'safe_new identity already exists with different data'END
@@ -122,24 +143,36 @@ END $$;
 CREATE TEMP TABLE direct_landuse_changes(
  action text NOT NULL,entity_id bigint NOT NULL,external_id text NOT NULL,before_data jsonb,after_data jsonb
 )ON COMMIT DROP;
+DO $$
+DECLARE v_new bigint;
+BEGIN
+ SELECT count(*) INTO v_new FROM direct_landuse_plan
+ WHERE classification='safe_new' AND target_id IS NULL;
+ RAISE NOTICE 'landuse: safe_new insert candidates=%', v_new;
+ IF v_new = 0 THEN
+   RAISE EXCEPTION 'landuse: zero safe_new insert candidates after planning';
+ END IF;
+END $$;
 WITH ins AS(
- INSERT INTO core.core_map_landuse(external_id,name,class_code,landuse_class_id,admin_area_id,
+ INSERT INTO core.core_land_areas(external_id,name,land_area_class_id,admin_area_id,
   geom,centroid,area_m2,confidence_score,detail_level,source_tags,source_refs,
-  normalized_data,is_active,is_verified,manual_override,verification_status)
- SELECT s.external_id,s.resolved_name,s.class_code,s.landuse_class_id,s.admin_area_id,
+  normalized_data,is_active,is_verified,manual_override,verification_status,
+  source_registry_id,source_snapshot_id,region_code)
+ SELECT s.external_id,s.resolved_name,s.land_area_class_id,s.admin_area_id,
   s.geom::geometry(MultiPolygon,4326),s.centroid,s.area_m2,s.confidence_score,
   s.detail_level,s.source_tags,s.source_refs||jsonb_build_object('external_id',s.external_id,
    'source_snapshot_version',p.snapshot_version,'region_code',p.region_code,'loader','direct_core.landuse'),
   s.normalized_data||jsonb_build_object('local_staging_id',s.local_staging_id,
-   'import_class',s.classification),true,false,false,'unverified'
+   'import_class',s.classification),true,false,false,'unverified',
+  p.source_registry_id,p.source_snapshot_id,p.region_code
  FROM direct_landuse_plan s CROSS JOIN direct_landuse_params p
  WHERE s.classification='safe_new'AND s.target_id IS NULL RETURNING id,external_id
 )
-INSERT INTO direct_landuse_changes SELECT 'insert',i.id,i.external_id,NULL,to_jsonb(c)
-FROM ins i JOIN core.core_map_landuse c ON c.id=i.id;
+INSERT INTO direct_landuse_changes(action,entity_id,external_id,before_data,after_data)
+SELECT 'insert',i.id,i.external_id,NULL,NULL FROM ins i;
 WITH upd AS(
- UPDATE core.core_map_landuse c SET name=s.resolved_name,class_code=s.class_code,
-  landuse_class_id=s.landuse_class_id,admin_area_id=s.admin_area_id,
+ UPDATE core.core_land_areas c SET name=s.resolved_name,
+  land_area_class_id=s.land_area_class_id,admin_area_id=s.admin_area_id,
   geom=s.geom::geometry(MultiPolygon,4326),centroid=s.centroid,area_m2=s.area_m2,
   confidence_score=s.confidence_score,detail_level=s.detail_level,source_tags=s.source_tags,
   source_refs=c.source_refs||s.source_refs||jsonb_build_object('external_id',s.external_id,
@@ -148,9 +181,9 @@ WITH upd AS(
    'local_staging_id',s.local_staging_id,'import_class',s.classification),updated_at=now()
  FROM direct_landuse_plan s CROSS JOIN direct_landuse_params p
  WHERE c.id=s.target_id AND s.classification='safe_update'
-  AND(c.name,c.class_code,c.landuse_class_id,c.admin_area_id,c.geom,c.centroid,c.area_m2,
+  AND(c.name,c.land_area_class_id,c.admin_area_id,c.geom,c.centroid,c.area_m2,
    c.confidence_score,c.detail_level,c.source_tags,c.source_refs,c.normalized_data)
-  IS DISTINCT FROM(s.resolved_name,s.class_code,s.landuse_class_id,s.admin_area_id,s.geom,
+  IS DISTINCT FROM(s.resolved_name,s.land_area_class_id,s.admin_area_id,s.geom,
    s.centroid,s.area_m2,s.confidence_score,s.detail_level,s.source_tags,
    c.source_refs||s.source_refs||jsonb_build_object('external_id',s.external_id,
     'source_snapshot_version',p.snapshot_version,'region_code',p.region_code,'loader','direct_core.landuse'),
@@ -159,22 +192,23 @@ WITH upd AS(
  RETURNING c.id,c.external_id
 )
 INSERT INTO direct_landuse_changes SELECT 'update',u.id,u.external_id,to_jsonb(b),to_jsonb(a)
-FROM upd u JOIN direct_landuse_core b ON b.id=u.id JOIN core.core_map_landuse a ON a.id=u.id;
+FROM upd u JOIN direct_landuse_core b ON b.id=u.id JOIN core.core_land_areas a ON a.id=u.id;
 
 CREATE TEMP TABLE direct_landuse_name_source AS
-SELECT coalesce(c.entity_id,s.target_id)landuse_id,s.name_my,s.name_en,s.name_und
-FROM direct_landuse_plan s LEFT JOIN direct_landuse_changes c ON c.external_id=s.external_id;
-INSERT INTO core.core_map_landuse_names(
- landuse_id,name,language_code,script_code,name_type,is_primary,search_weight)
-SELECT landuse_id,name,lang,script,'official',true,100
+SELECT coalesce(c.entity_id,s.target_id)land_area_id,s.name_my,s.name_en,s.name_und
+FROM direct_landuse_plan s LEFT JOIN direct_landuse_changes c ON c.external_id=s.external_id
+WHERE coalesce(c.entity_id,s.target_id) IS NOT NULL;
+INSERT INTO core.core_land_area_names(
+ land_area_id,name,language_code,script_code,name_type,is_primary,search_weight)
+SELECT land_area_id,name,lang,script,'official',true,100
 FROM direct_landuse_name_source s CROSS JOIN LATERAL(VALUES
  (s.name_my,'my','Mymr'),(s.name_en,'en','Latn'),(s.name_und,'und',NULL)
 )n(name,lang,script)WHERE nullif(btrim(name),'')IS NOT NULL
-ON CONFLICT(landuse_id,language_code,name_type)WHERE is_primary=true
+ON CONFLICT(land_area_id,language_code,name_type)WHERE is_primary IS TRUE
 DO UPDATE SET name=EXCLUDED.name,script_code=EXCLUDED.script_code,
  search_weight=100,updated_at=now()
-WHERE (core_map_landuse_names.name,core_map_landuse_names.script_code,
-       core_map_landuse_names.search_weight)
+WHERE (core_land_area_names.name,core_land_area_names.script_code,
+       core_land_area_names.search_weight)
  IS DISTINCT FROM(EXCLUDED.name,EXCLUDED.script_code,100);
 
 CREATE TEMP TABLE direct_landuse_audit(import_batch_id bigint,publish_batch_id bigint)ON COMMIT DROP;
@@ -200,7 +234,7 @@ INSERT INTO system.system_publish_items(publish_batch_id,entity_family,entity_id
  publish_status,external_id,target_schema,target_table,target_id,before_data,after_data,
  validation_result,published_at,source_snapshot_version)
 SELECT a.publish_batch_id,'landuse',c.entity_id,c.action,'success',c.external_id,'core',
- 'core_map_landuse',c.entity_id,c.before_data,c.after_data,
+ 'core_land_areas',c.entity_id,c.before_data,c.after_data,
  '{"validated":true,"source":"local_pipeline"}'::jsonb,now(),p.snapshot_version
 FROM direct_landuse_changes c CROSS JOIN direct_landuse_audit a CROSS JOIN direct_landuse_params p;
 DO $$
@@ -208,7 +242,7 @@ DECLARE staged bigint;resolved bigint;
 BEGIN
  SELECT count(*)INTO staged FROM direct_landuse_plan;
  SELECT count(*)INTO resolved FROM direct_landuse_plan s WHERE EXISTS(
-  SELECT 1 FROM core.core_map_landuse c WHERE c.deleted_at IS NULL
+  SELECT 1 FROM core.core_land_areas c WHERE c.deleted_at IS NULL
    AND system.pipeline_osm_identity_key(c.external_id)=s.identity_key);
  IF staged<>resolved THEN RAISE EXCEPTION 'landuse verification: staged=% resolved=%',staged,resolved;END IF;
 END $$;

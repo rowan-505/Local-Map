@@ -52,15 +52,15 @@ with
 prereq as (
     select
         to_regclass('ref.ref_building_types') is not null as has_ref,
-        to_regclass('core.core_map_buildings') is not null as has_core,
+        to_regclass('core.core_buildings') is not null as has_core,
         to_regclass('ref.ref_building_type_merge_map') is not null as has_merge_map,
         to_regclass('tiles.tiles_buildings_v') is not null as has_tiles_view,
-        to_regclass('system.backup_core_map_buildings_before_building_type_simplification') is not null
+        to_regclass('system.backup_core_buildings_before_building_type_simplification') is not null
             as has_buildings_backup
 ),
 check_01_orphan_fk as (
     select count(*)::bigint as bad_count
-    from core.core_map_buildings as b
+    from core.core_buildings as b
     where b.building_type_id is not null
       and not exists (
           select 1
@@ -74,7 +74,7 @@ check_01_merge_source_refs as (
             when to_regclass('ref.ref_building_type_merge_map') is null then 0::bigint
             else (
                 select count(*)::bigint
-                from core.core_map_buildings as b
+                from core.core_buildings as b
                 inner join ref.ref_building_types as bt
                     on bt.id = b.building_type_id
                 inner join ref.ref_building_type_merge_map as m
@@ -153,7 +153,7 @@ check_04_tiles_inactive_ref as (
             else (
                 select count(*)::bigint
                 from tiles.tiles_buildings_v as t
-                inner join core.core_map_buildings as b
+                inner join core.core_buildings as b
                     on b.id = t.id
                 inner join ref.ref_building_types as bt
                     on bt.id = b.building_type_id
@@ -165,15 +165,15 @@ check_04_tiles_inactive_ref as (
 check_05_new_nulls as (
     select
         case
-            when to_regclass('system.backup_core_map_buildings_before_building_type_simplification') is null
+            when to_regclass('system.backup_core_buildings_before_building_type_simplification') is null
                 then 0::bigint
             else (
                 select count(*)::bigint
-                from core.core_map_buildings as b
+                from core.core_buildings as b
                 where b.building_type_id is null
                   and exists (
                       select 1
-                      from system.backup_core_map_buildings_before_building_type_simplification as bk
+                      from system.backup_core_buildings_before_building_type_simplification as bk
                       where bk.id = b.id
                         and bk.building_type_id is not null
                   )
@@ -188,7 +188,7 @@ check_06_null_counts as (
               and b.is_active is true
               and b.deleted_at is null
         )::bigint as null_active_non_deleted
-    from core.core_map_buildings as b
+    from core.core_buildings as b
 ),
 check_08_unknown as (
     select
@@ -205,7 +205,7 @@ check_08_unknown as (
                 where t.building_type_code = 'unknown'
             )
         end as tiles_unknown
-    from core.core_map_buildings as b
+    from core.core_buildings as b
     inner join ref.ref_building_types as bt
         on bt.id = b.building_type_id
     where bt.code = 'unknown'
@@ -259,7 +259,7 @@ gate_rows as (
             else 'FAIL'
         end as status,
         case
-            when not (select has_ref and has_core from checks) then 'ref.ref_building_types or core.core_map_buildings missing'
+            when not (select has_ref and has_core from checks) then 'ref.ref_building_types or core.core_buildings missing'
             else format(
                 'orphan_fk=%s; still_on_merge_source_code=%s',
                 (select c01_orphan_fk from checks),
@@ -335,9 +335,9 @@ gate_rows as (
             else 'FAIL'
         end,
         case
-            when not (select has_core from checks) then 'core.core_map_buildings missing'
+            when not (select has_core from checks) then 'core.core_buildings missing'
             when not (select has_buildings_backup from checks) then
-                'system.backup_core_map_buildings_before_building_type_simplification missing (run 061 first)'
+                'system.backup_core_buildings_before_building_type_simplification missing (run 061 first)'
             else format(
                 'buildings_that_had_type_id_now_null=%s (NULL was allowed before 061; this flags regressions only)',
                 (select c05_new_null_building_type_id from checks)
@@ -417,7 +417,7 @@ order by
 select
     coalesce(bt.code, '(null building_type_id)') as building_type_code,
     count(*)::bigint as building_count
-from core.core_map_buildings as b
+from core.core_buildings as b
 left join ref.ref_building_types as bt
     on bt.id = b.building_type_id
 where b.is_active is true
@@ -453,7 +453,7 @@ select
         from ref.ref_building_type_merge_map as m
         where m.source_code = bt.code
     ) as is_merge_map_source,
-    (select count(*)::bigint from core.core_map_buildings as b where b.building_type_id = bt.id)
+    (select count(*)::bigint from core.core_buildings as b where b.building_type_id = bt.id)
         as core_building_refs,
     case
         when to_regclass('import_review.building_candidates') is null then null::bigint
@@ -524,12 +524,12 @@ select
     b.id,
     b.public_id,
     bk.building_type_id::text as backup_building_type_id
-from core.core_map_buildings as b
-inner join system.backup_core_map_buildings_before_building_type_simplification as bk
+from core.core_buildings as b
+inner join system.backup_core_buildings_before_building_type_simplification as bk
     on bk.id = b.id
 where b.building_type_id is null
   and bk.building_type_id is not null
-  and to_regclass('system.backup_core_map_buildings_before_building_type_simplification') is not null
+  and to_regclass('system.backup_core_buildings_before_building_type_simplification') is not null
 order by b.id
 limit 50;
 

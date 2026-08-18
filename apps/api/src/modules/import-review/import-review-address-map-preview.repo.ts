@@ -32,7 +32,7 @@ export class ImportReviewAddressMapPreviewRepository {
     private async fetchBuildingGeoJson(id: bigint): Promise<ImportReviewGeoJson | null> {
         const rows = await this.prisma.$queryRaw<Array<{ geojson: unknown }>>`
             SELECT ST_AsGeoJSON(b.geom)::json AS geojson
-            FROM core.core_map_buildings AS b
+            FROM core.core_buildings AS b
             WHERE b.id = ${id}
               AND b.deleted_at IS NULL
               AND b.geom IS NOT NULL

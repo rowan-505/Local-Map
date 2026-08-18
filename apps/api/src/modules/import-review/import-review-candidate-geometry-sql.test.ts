@@ -38,7 +38,7 @@ test("detail SELECT without geometry does not produce id CASE syntax error", () 
         "places",
         "roads",
         "admin_areas",
-        "landuse",
+        "land_areas",
         "water_lines",
         "water_polygons",
         "addresses",

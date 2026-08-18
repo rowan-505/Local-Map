@@ -50,7 +50,6 @@ export type BuildingGeometryAnalysisRow = {
 export type BuildingDetailRow = {
     id: string;
     public_id: string;
-    source_staging_id: string | null;
     external_id: string | null;
     name_mm: string | null;
     name_en: string | null;
@@ -90,11 +89,11 @@ export type BuildingDetailRow = {
 /** Resolved column snapshot after dashboard merge (always explicit — supports clearing nullable fields). */
 export type BuildingPersistSnapshot = {
     /**
-     * Deprecated: no longer written to `core_map_buildings.name`.
+     * Deprecated: no longer written to `core_buildings.name`.
      * Kept on snapshot for patch-diff / compat only.
      */
     name: string | null;
-    /** When set, upserts primary official rows in core_map_building_names. */
+    /** When set, upserts primary official rows in core_building_names. */
     name_mm?: string | null | undefined;
     name_en?: string | null | undefined;
     class_code: string;
@@ -132,7 +131,7 @@ function buildingsListOrderBy(
             return Prisma.sql`LOWER(COALESCE(
                 (
                     SELECT n.name
-                    FROM core.core_map_building_names AS n
+                    FROM core.core_building_names AS n
                     WHERE n.building_id = b.id
                       AND nullif(btrim(n.name), '') IS NOT NULL
                       AND (
@@ -153,7 +152,7 @@ function buildingsListOrderBy(
                 ),
                 (
                     SELECT n.name
-                    FROM core.core_map_building_names AS n
+                    FROM core.core_building_names AS n
                     WHERE n.building_id = b.id
                       AND nullif(btrim(n.name), '') IS NOT NULL
                       AND (
@@ -174,7 +173,7 @@ function buildingsListOrderBy(
                 ),
                 (
                     SELECT n.name
-                    FROM core.core_map_building_names AS n
+                    FROM core.core_building_names AS n
                     WHERE n.building_id = b.id
                       AND nullif(btrim(n.name), '') IS NOT NULL
                     ORDER BY n.search_weight DESC NULLS LAST, n.id ASC
@@ -235,7 +234,7 @@ function activeBuildingsWhereClause(
                     COALESCE(b.name, '') ILIKE ${`%${params.q}%`}
                     OR EXISTS (
                         SELECT 1
-                        FROM core.core_map_building_names AS n
+                        FROM core.core_building_names AS n
                         WHERE n.building_id = b.id
                           AND n.name ILIKE ${`%${params.q}%`}
                     )
@@ -285,7 +284,7 @@ export class BuildingsRepository {
 
         const idRows = await db.$queryRaw<{ id: string }[]>(Prisma.sql`
             SELECT b.id::text AS id
-            FROM core.core_map_buildings AS b
+            FROM core.core_buildings AS b
             WHERE b.public_id = CAST(${publicId} AS uuid)
             LIMIT 1
         `);
@@ -391,7 +390,7 @@ export class BuildingsRepository {
     ): Promise<void> {
         try {
             await db.$executeRaw(Prisma.sql`
-                UPDATE core.core_map_buildings AS b
+                UPDATE core.core_buildings AS b
                 SET
                     admin_area_id = (
                         SELECT a.id
@@ -431,7 +430,6 @@ export class BuildingsRepository {
             SELECT
                 b.id::text AS id,
                 b.public_id::text AS public_id,
-                b.source_staging_id::text AS source_staging_id,
                 b.external_id,
                 ${buildingNameLabelSelectSql},
                 ${buildingClassCodeSelectSql},
@@ -461,7 +459,7 @@ export class BuildingsRepository {
                 b.updated_at,
                 b.deleted_at,
                 ST_AsGeoJSON(b.geom)::json AS geometry
-            FROM core.core_map_buildings AS b
+            FROM core.core_buildings AS b
             LEFT JOIN ref.ref_building_types AS bt ON bt.id = b.building_type_id
             LEFT JOIN core.core_admin_areas AS aa ON aa.id = b.admin_area_id
             WHERE ${whereClause}
@@ -477,7 +475,7 @@ export class BuildingsRepository {
         const whereClause = activeBuildingsWhereClause(params);
         const rows = await this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
             SELECT COUNT(*)::bigint AS count
-            FROM core.core_map_buildings AS b
+            FROM core.core_buildings AS b
             LEFT JOIN ref.ref_building_types AS bt ON bt.id = b.building_type_id
             LEFT JOIN core.core_admin_areas AS aa ON aa.id = b.admin_area_id
             WHERE ${whereClause}
@@ -502,7 +500,6 @@ export class BuildingsRepository {
             SELECT
                 b.id::text AS id,
                 b.public_id::text AS public_id,
-                b.source_staging_id::text AS source_staging_id,
                 b.external_id,
                 ${buildingNameLabelSelectSql},
                 ${buildingClassCodeSelectSql},
@@ -532,7 +529,7 @@ export class BuildingsRepository {
                 b.updated_at,
                 b.deleted_at,
                 ST_AsGeoJSON(b.geom)::json AS geometry
-            FROM core.core_map_buildings AS b
+            FROM core.core_buildings AS b
             LEFT JOIN ref.ref_building_types AS bt ON bt.id = b.building_type_id
             LEFT JOIN core.core_admin_areas AS aa ON aa.id = b.admin_area_id
             WHERE b.public_id = CAST(${publicId} AS uuid)
@@ -545,7 +542,7 @@ export class BuildingsRepository {
 
     async restoreBuildingByPublicId(publicId: string): Promise<boolean> {
         const updated = await this.prisma.$executeRaw(Prisma.sql`
-            UPDATE core.core_map_buildings AS b
+            UPDATE core.core_buildings AS b
             SET
                 deleted_at = NULL,
                 is_active = TRUE,
@@ -564,7 +561,6 @@ export class BuildingsRepository {
             SELECT
                 b.id::text AS id,
                 b.public_id::text AS public_id,
-                b.source_staging_id::text AS source_staging_id,
                 b.external_id,
                 ${buildingNameLabelSelectSql},
                 ${buildingClassCodeSelectSql},
@@ -594,7 +590,7 @@ export class BuildingsRepository {
                 b.updated_at,
                 b.deleted_at,
                 ST_AsGeoJSON(b.geom)::json AS geometry
-            FROM core.core_map_buildings AS b
+            FROM core.core_buildings AS b
             LEFT JOIN ref.ref_building_types AS bt ON bt.id = b.building_type_id
             LEFT JOIN core.core_admin_areas AS aa ON aa.id = b.admin_area_id
             WHERE b.public_id = CAST(${publicId} AS uuid)
@@ -658,8 +654,7 @@ export class BuildingsRepository {
                 )::text AS resolved_label
                 FROM ready
             )
-            INSERT INTO core.core_map_buildings (
-                source_staging_id,
+            INSERT INTO core.core_buildings (
                 external_id,
                 name,
                 normalized_data,
@@ -680,7 +675,6 @@ export class BuildingsRepository {
                 deleted_at
             )
             SELECT
-                NULL,
                 NULL,
                 NULL::text,
                 ${normalizedJson}::jsonb,
@@ -776,7 +770,7 @@ export class BuildingsRepository {
                 FROM ready
             ),
             updated AS (
-                UPDATE core.core_map_buildings AS b
+                UPDATE core.core_buildings AS b
                 SET
                     geom = ready.geom,
                     centroid = ready.centroid,
@@ -832,7 +826,7 @@ export class BuildingsRepository {
         const normalizedJson = JSON.stringify(snapshot.normalized_data);
 
         const updatedCount = await this.prisma.$executeRaw(Prisma.sql`
-            UPDATE core.core_map_buildings AS b
+            UPDATE core.core_buildings AS b
             SET
                 building_type_id = ${snapshot.building_type_id},
                 admin_area_id = ${snapshot.admin_area_id},
@@ -866,7 +860,7 @@ export class BuildingsRepository {
      */
     async softDeleteActiveBuildingByPublicId(publicId: string): Promise<BuildingDetailRow | null> {
         const rows = await this.prisma.$queryRaw<BuildingDetailRow[]>(Prisma.sql`
-            UPDATE core.core_map_buildings AS b
+            UPDATE core.core_buildings AS b
             SET
                 is_active = FALSE,
                 deleted_at = NOW(),
@@ -877,7 +871,6 @@ export class BuildingsRepository {
             RETURNING
                 b.id::text AS id,
                 b.public_id::text AS public_id,
-                b.source_staging_id::text AS source_staging_id,
                 b.external_id,
                 ${buildingNameLabelSelectSql},
                 ${buildingClassCodeSelectSql},

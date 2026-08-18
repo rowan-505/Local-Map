@@ -88,7 +88,7 @@ export type SearchEntityType =
   | 'building'
   | 'water_line'
   | 'water_polygon'
-  | 'landuse'
+  | 'land_area'
   | 'plus_code'
   | 'coordinate';
 
@@ -109,7 +109,7 @@ const GEOMETRY_SEARCH_ENTITY_TYPES: ReadonlySet<SearchEntityType> = new Set([
   'building',
   'water_line',
   'water_polygon',
-  'landuse',
+  'land_area',
 ]);
 
 const KNOWN_SEARCH_ENTITY_TYPES: ReadonlySet<SearchEntityType> = new Set([

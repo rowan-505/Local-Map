@@ -74,22 +74,6 @@ export function mapDatabaseWriteError(error: unknown): { message: string; issues
                 issues: [{ path: column, message: "Required" }],
             };
         }
-        if (/failing row contains \(\d+, null, null,/i.test(message)) {
-            return {
-                message:
-                    "Dashboard-created landuse requires nullable source_staging_id and external_id (apply migration 036_core_map_features_nullable_dashboard.sql).",
-                issues: [
-                    {
-                        path: "source_staging_id",
-                        message: "NOT NULL constraint — apply database migration 036",
-                    },
-                    {
-                        path: "external_id",
-                        message: "NOT NULL constraint — apply database migration 036",
-                    },
-                ],
-            };
-        }
     }
 
     if (/null value in column "([^"]+)"/i.test(message)) {

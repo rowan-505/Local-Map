@@ -168,8 +168,8 @@ function applyRequiredFieldPreservation(family, item, fields) {
     const preserved = { ...fields };
 
     if (family === "landuse") {
-        if (item.landuse_class_id !== null && item.landuse_class_id !== undefined) {
-            preserved.landuse_class_id = item.landuse_class_id;
+        if (item.land_area_class_id !== null && item.land_area_class_id !== undefined) {
+            preserved.land_area_class_id = item.land_area_class_id;
         }
         if (typeof item.class_code === "string" && item.class_code.trim() !== "") {
             preserved.class_code = item.class_code;

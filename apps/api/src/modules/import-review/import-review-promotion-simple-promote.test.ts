@@ -29,26 +29,26 @@ describe("import-review-promotion-simple-promote targets", () => {
         assert.equal(getImportReviewPromotionTargetTable("places"), "core.core_places");
     });
 
-    it("buildings → core.core_map_buildings", () => {
-        assert.equal(resolveSimplePromotionTarget("buildings")?.target_qualified, "core.core_map_buildings");
+    it("buildings → core.core_buildings", () => {
+        assert.equal(resolveSimplePromotionTarget("buildings")?.target_qualified, "core.core_buildings");
     });
 
     it("roads → core.core_streets", () => {
         assert.equal(resolveSimplePromotionTarget("roads")?.target_qualified, "core.core_streets");
     });
 
-    it("landuse → core.core_map_landuse", () => {
-        assert.equal(resolveSimplePromotionTarget("landuse")?.target_qualified, "core.core_map_landuse");
+    it("landuse → core.core_land_areas", () => {
+        assert.equal(resolveSimplePromotionTarget("land_areas")?.target_qualified, "core.core_land_areas");
     });
 
-    it("water_lines → core.core_map_water_lines", () => {
-        assert.equal(resolveSimplePromotionTarget("water_lines")?.target_qualified, "core.core_map_water_lines");
+    it("water_lines → core.core_water_lines", () => {
+        assert.equal(resolveSimplePromotionTarget("water_lines")?.target_qualified, "core.core_water_lines");
     });
 
-    it("water_polygons → core.core_map_water_polygons", () => {
+    it("water_polygons → core.core_water_polygons", () => {
         assert.equal(
             resolveSimplePromotionTarget("water_polygons")?.target_qualified,
-            "core.core_map_water_polygons"
+            "core.core_water_polygons"
         );
     });
 

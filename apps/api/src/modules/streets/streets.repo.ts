@@ -667,7 +667,7 @@ export class StreetsRepository {
                 aa.canonical_name AS admin_area_name,
                 s.source_type_id::text AS source_type_id,
                 s.road_class_id::text AS road_class_id,
-                COALESCE(rc.code, s.road_class) AS road_class,
+                rc.code AS road_class,
                 rc.name AS road_class_name,
                 s.surface,
                 s.is_oneway,
@@ -818,7 +818,7 @@ export class StreetsRepository {
                     s.canonical_name,
                     s.admin_area_id::text AS admin_area_id,
                     s.road_class_id::text AS road_class_id,
-                    s.road_class,
+                    rc.code AS road_class,
                     s.surface,
                     s.is_oneway,
                     s.bridge,
@@ -831,6 +831,7 @@ export class StreetsRepository {
                     s.created_at,
                     s.updated_at
                 FROM core.core_streets AS s
+                LEFT JOIN ref.ref_road_classes AS rc ON rc.id = s.road_class_id
                 WHERE s.id IN (${Prisma.join(ids)})
                 ORDER BY ${orderByClause}
             `);
@@ -877,7 +878,7 @@ export class StreetsRepository {
                     s.canonical_name,
                     s.admin_area_id::text AS admin_area_id,
                     s.road_class_id::text AS road_class_id,
-                    s.road_class,
+                    rc.code AS road_class,
                     s.surface,
                     s.is_oneway,
                     s.bridge,
@@ -890,6 +891,7 @@ export class StreetsRepository {
                     s.created_at,
                     s.updated_at
                 FROM core.core_streets AS s
+                LEFT JOIN ref.ref_road_classes AS rc ON rc.id = s.road_class_id
                 ${adminAreaJoinSql}
                 WHERE ${whereClause}
                 ${keysetClause}
@@ -1058,11 +1060,12 @@ export class StreetsRepository {
                 s.id::text AS id,
                 s.public_id,
                 s.canonical_name,
-                s.road_class,
+                rc.code AS road_class,
                 s.is_active,
                 s.deleted_at,
                 ST_AsGeoJSON(s.geom)::json AS geometry
             FROM core.core_streets AS s
+            LEFT JOIN ref.ref_road_classes AS rc ON rc.id = s.road_class_id
             WHERE s.deleted_at IS NULL
               AND s.is_active IS TRUE
               AND s.geom IS NOT NULL
@@ -1162,7 +1165,7 @@ export class StreetsRepository {
                 aa.canonical_name AS admin_area_name,
                 s.source_type_id::text AS source_type_id,
                 s.road_class_id::text AS road_class_id,
-                COALESCE(rc.code, s.road_class) AS road_class,
+                rc.code AS road_class,
                 rc.name AS road_class_name,
                 s.surface,
                 s.is_oneway,

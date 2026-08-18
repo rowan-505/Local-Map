@@ -4,7 +4,7 @@ const ENTITY_ADMIN_AREA_KINDS = new Set<EntityAdminAreaKind>([
     "place",
     "street",
     "building",
-    "landuse",
+    "land_area",
     "bus_stop",
 ]);
 
@@ -23,5 +23,5 @@ export function isRoadEntityAdminAreaKind(kind: EntityAdminAreaKind): boolean {
 
 /** Entity kinds that use recommend/apply infer UX (no auto-write to form). */
 export function isRecommendApplyInferEntityKind(kind: EntityAdminAreaKind): boolean {
-    return kind === "street" || kind === "landuse" || kind === "bus_stop";
+    return kind === "street" || kind === "land_area" || kind === "bus_stop";
 }

@@ -54,7 +54,6 @@ type AdminAreaDetail = CoreReviewAdminAreaRow & {
 };
 
 type MapFeatureDetail = CoreReviewMapFeatureRow & {
-    sourceStagingId?: string | null;
     normalizedData?: unknown;
     sourceRefs?: unknown;
 };
@@ -86,7 +85,7 @@ function mapFeatureFormSchema(entityKey: "water-lines" | "water-polygons", _mode
     return z
         .object({
             name: optionalStringSchema,
-            class_code: z.string().trim().min(1, "Class code is required"),
+            water_class_id: z.string().min(1, "Water class is required"),
             is_active: optionalBooleanSchema,
             verification_status: optionalStringSchema,
             geom: optionalGeometrySchema,
@@ -137,20 +136,21 @@ function createMapFeatureConfig(
         },
         editableFields: [
             { key: "name", label: "Name", type: "text" },
-            { key: "class_code", label: "Class code", type: "text", required: true },
+            {
+                key: "water_class_id",
+                label: "Water class",
+                type: "ref",
+                refSource: "water-classes",
+                required: true,
+            },
             { key: "is_active", label: "Active", type: "boolean" },
             verificationStatusFormField(),
         ],
         readonlyMetadata: [
             ...standardIdReadonlyFields(),
             { key: "external_id", label: "External ID", type: "text", detailPath: "externalId" },
-            {
-                key: "source_staging_id",
-                label: "Source staging ID",
-                type: "text",
-                detailPath: "sourceStagingId",
-            },
             ...standardTimestampReadonlyFields(),
+            { key: "class_code", label: "Legacy class code", type: "text", detailPath: "classCode" },
             { key: "source_refs", label: "Source refs", type: "json-readonly", detailPath: "sourceRefs" },
             {
                 key: "normalized_data",
@@ -161,7 +161,7 @@ function createMapFeatureConfig(
         ],
         defaultFormValues: {
             name: "",
-            class_code: "",
+            water_class_id: "",
             is_active: true,
             verification_status: "unverified",
             geom: null,
@@ -169,7 +169,9 @@ function createMapFeatureConfig(
         formSchema: (mode) => mapFeatureFormSchema(entityKey, mode),
         detailToFormValues: (detail) => ({
             name: str(detail.name),
-            class_code: str(detail.classCode),
+            water_class_id: str(
+                (detail as MapFeatureDetail & { waterClassId?: string | null }).waterClassId
+            ),
             is_active: bool(detail.isActive),
             verification_status: verificationStatusFromDetail(detail),
             geom: toGeom(detail.geometry),

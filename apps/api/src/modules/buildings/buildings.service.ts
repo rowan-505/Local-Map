@@ -294,7 +294,6 @@ export class BuildingsService {
         return {
             id: row.id,
             public_id: row.public_id,
-            source_staging_id: row.source_staging_id,
             external_id: row.external_id,
             names: names.names,
             name_mm: names.name_mm,

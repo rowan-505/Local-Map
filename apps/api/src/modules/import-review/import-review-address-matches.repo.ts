@@ -383,7 +383,7 @@ export class ImportReviewAddressMatchesRepository {
     async getActiveBuildingById(buildingId: bigint): Promise<{ id: bigint } | null> {
         const rows = await this.prisma.$queryRaw<Array<{ id: bigint }>>`
             SELECT id
-            FROM core.core_map_buildings
+            FROM core.core_buildings
             WHERE id = ${buildingId}
               AND deleted_at IS NULL
             LIMIT 1
@@ -452,7 +452,7 @@ export class ImportReviewAddressMatchesRepository {
                     bt.code AS building_type,
                     0::float8 AS distance_m,
                     'point_contains'::text AS match_method
-                FROM core.core_map_buildings AS b
+                FROM core.core_buildings AS b
                 CROSS JOIN candidate
                 LEFT JOIN ref.ref_building_types AS bt ON bt.id = b.building_type_id
                 WHERE b.deleted_at IS NULL
@@ -470,7 +470,7 @@ export class ImportReviewAddressMatchesRepository {
                     bt.code AS building_type,
                     ST_Distance(b.geom::geography, candidate.point_geom::geography)::float8 AS distance_m,
                     'distance_50m'::text AS match_method
-                FROM core.core_map_buildings AS b
+                FROM core.core_buildings AS b
                 CROSS JOIN candidate
                 LEFT JOIN ref.ref_building_types AS bt ON bt.id = b.building_type_id
                 WHERE b.deleted_at IS NULL

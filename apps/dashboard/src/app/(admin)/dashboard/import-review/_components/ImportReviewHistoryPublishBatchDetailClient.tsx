@@ -28,8 +28,10 @@ import ImportReviewSkeletonCards from "@/src/features/import-review/components/I
 import ImportReviewSkeletonTable from "@/src/features/import-review/components/ImportReviewSkeletonTable";
 import { PUBLISH_BATCH_ITEM_FILTER_OPTIONS } from "@/src/features/import-review/promotion/publishBatchItemsQuery";
 import { IMPORT_REVIEW_LOADING } from "@/src/features/import-review/utils/loadingMessages";
+import { useDashboardRoleAccess } from "@/src/hooks/useDashboardRoleAccess";
 
 export default function ImportReviewHistoryPublishBatchDetailClient() {
+    const dashboardAccess = useDashboardRoleAccess();
     const params = useParams();
     const id = typeof params.id === "string" ? params.id : "";
     const [data, setData] = useState<ImportReviewHistoryPublishBatchDetail | null>(null);
@@ -420,7 +422,7 @@ export default function ImportReviewHistoryPublishBatchDetailClient() {
                             </div>
                         </section>
 
-                        {data.source_review_batch_id ? (
+                        {dashboardAccess.canWrite && data.source_review_batch_id ? (
                             <ImportReviewPromotionCleanupPanel
                                 reviewBatchId={data.source_review_batch_id}
                                 publishBatchId={id}

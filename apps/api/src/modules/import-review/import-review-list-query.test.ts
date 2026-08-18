@@ -56,7 +56,7 @@ test("lightweight list FROM is defined for every family", () => {
 });
 
 test("bilingual families lightweight list selects typed name columns", () => {
-    for (const family of ["places", "buildings", "roads", "landuse", "water_lines", "water_polygons", "admin_areas"] as const) {
+    for (const family of ["places", "buildings", "roads", "land_areas", "water_lines", "water_polygons", "admin_areas"] as const) {
         const config = getImportReviewEntityConfig(family);
         const select = sqlText(buildLightweightListSelect(config, 1n));
         assert.match(select, /\bname_mm\b/, `${family} list must select name_mm`);

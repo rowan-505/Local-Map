@@ -19,7 +19,7 @@ export const DEFAULT_PUBLIC_SEARCH_ENTITY_TYPES = [
     "building",
     "water_line",
     "water_polygon",
-    "landuse",
+    "land_area",
 ] as const;
 
 /** Public search top-level category chips. */

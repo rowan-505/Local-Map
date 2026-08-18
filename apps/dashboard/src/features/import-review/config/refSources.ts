@@ -1,6 +1,7 @@
 export type RefSource =
     | "ref_building_types"
-    | "ref_landuse_classes"
+    | "ref_land_area_classes"
+    | "ref_water_classes"
     | "ref_poi_categories"
     | "ref_road_classes"
     | "ref_admin_levels"
@@ -25,12 +26,20 @@ export const REF_BUILDING_TYPE_ID: RefDropdownFieldConfig = {
     labelKey: "name",
 };
 
-export const REF_LANDUSE_CLASS_ID: RefDropdownFieldConfig = {
-    fieldKey: "landuse_class_id",
-    refSource: "ref_landuse_classes",
+export const REF_LAND_AREA_CLASS_ID: RefDropdownFieldConfig = {
+    fieldKey: "land_area_class_id",
+    refSource: "ref_land_area_classes",
     valueKey: "id",
     labelKey: "name",
-    notes: "Uses GET /admin/ref/landuse-classes and import-review form options landuse_classes.",
+    notes: "Uses GET /admin/ref/land-area-classes (alias /landuse-classes) and form options land_area_classes.",
+};
+
+export const REF_WATER_CLASS_ID: RefDropdownFieldConfig = {
+    fieldKey: "water_class_id",
+    refSource: "ref_water_classes",
+    valueKey: "id",
+    labelKey: "name",
+    notes: "Uses GET /admin/ref/water-classes and form options water_classes / waterway_classes.",
 };
 
 export const REF_POI_CATEGORY_ID: RefDropdownFieldConfig = {

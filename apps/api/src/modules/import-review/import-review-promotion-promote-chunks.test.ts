@@ -13,7 +13,7 @@ describe("resolvePromotionChunkSize", () => {
     it("uses 100 for simple polygon/point families", () => {
         assert.equal(resolvePromotionChunkSize("places"), 100);
         assert.equal(resolvePromotionChunkSize("buildings"), 100);
-        assert.equal(resolvePromotionChunkSize("landuse"), 100);
+        assert.equal(resolvePromotionChunkSize("land_areas"), 100);
     });
 
     it("uses 25 for roads, admin_areas, routing_barriers, addresses", () => {

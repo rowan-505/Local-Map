@@ -9,6 +9,44 @@ export type JwtUser = {
     roles: string[];
 };
 
+export const DASHBOARD_ACCESS_ROLES = new Set(["viewer", "editor", "admin", "super_admin"]);
+export const DASHBOARD_WRITE_ROLES = new Set(["editor", "admin", "super_admin"]);
+
+export function hasDashboardAccess(roles: readonly string[] | null | undefined): boolean {
+    return (roles ?? []).some((role) => DASHBOARD_ACCESS_ROLES.has(role));
+}
+
+export function canDashboardWrite(roles: readonly string[] | null | undefined): boolean {
+    return (roles ?? []).some((role) => DASHBOARD_WRITE_ROLES.has(role));
+}
+
+export async function requireDashboardAccess(
+    request: FastifyRequest,
+    reply: FastifyReply
+): Promise<void | FastifyReply> {
+    if (!hasDashboardAccess(request.user?.roles)) {
+        return reply.code(403).send({
+            code: "FORBIDDEN",
+            message: "Dashboard access requires a dashboard role.",
+        });
+    }
+}
+
+export async function requireDashboardWrite(
+    request: FastifyRequest,
+    reply: FastifyReply
+): Promise<void | FastifyReply> {
+    if (!canDashboardWrite(request.user?.roles)) {
+        const readOnly = request.user?.roles?.includes("viewer") ?? false;
+        return reply.code(403).send({
+            code: readOnly ? "READ_ONLY" : "FORBIDDEN",
+            message: readOnly
+                ? "Read-only dashboard access cannot modify data."
+                : "Dashboard write access requires an editor or administrator role.",
+        });
+    }
+}
+
 export const DEV_AUTH_BYPASS_USER: JwtUser = {
     id: "dev-admin",
     sub: "dev-admin",
@@ -53,6 +91,8 @@ declare module "@fastify/jwt" {
 declare module "fastify" {
     interface FastifyInstance {
         authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
+        requireDashboardAccess: typeof requireDashboardAccess;
+        requireDashboardWrite: typeof requireDashboardWrite;
         requireRole: (
             ...allowedRoles: string[]
         ) => (request: FastifyRequest, reply: FastifyReply) => Promise<void | FastifyReply>;
@@ -80,6 +120,9 @@ export default fp(async function authPlugin(app) {
 
         await request.jwtVerify();
     });
+
+    app.decorate("requireDashboardAccess", requireDashboardAccess);
+    app.decorate("requireDashboardWrite", requireDashboardWrite);
 
     /**
      * Role gate factory. Use as a preHandler AFTER `app.authenticate`, e.g.

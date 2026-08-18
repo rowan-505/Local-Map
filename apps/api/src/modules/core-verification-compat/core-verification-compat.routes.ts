@@ -12,7 +12,7 @@ const SUCCESSOR_SUMMARY_PATH = "/core-review/verification-summary";
 const coreVerificationCompatRoutes: FastifyPluginAsync = async (app) => {
     app.get(
         "/summary",
-        { preHandler: app.authenticate },
+        { preHandler: [app.authenticate, app.requireDashboardAccess] },
         async (_request, reply) => {
             reply.header("Deprecation", "true");
             reply.header("Link", `<${SUCCESSOR_SUMMARY_PATH}>; rel="successor-version"`);

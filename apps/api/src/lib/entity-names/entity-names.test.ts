@@ -7,7 +7,7 @@ import {
     deriveCoalescedDisplayName,
     trimName,
 } from "./derive-display-name.js";
-import { BUILDING_NAMES_CONFIG, LANDUSE_NAMES_CONFIG } from "./sync-primary-names.js";
+import { BUILDING_NAMES_CONFIG, LAND_AREA_NAMES_CONFIG } from "./sync-primary-names.js";
 
 describe("language code constants", () => {
     it("uses my for Myanmar and en for English", () => {
@@ -16,8 +16,8 @@ describe("language code constants", () => {
     });
 
     it("entity name configs persist Myanmar rows as language_code=my", () => {
-        assert.equal(BUILDING_NAMES_CONFIG(1n).namesTable, "core.core_map_building_names");
-        assert.equal(LANDUSE_NAMES_CONFIG(2n).namesTable, "core.core_map_landuse_names");
+        assert.equal(BUILDING_NAMES_CONFIG(1n).namesTable, "core.core_building_names");
+        assert.equal(LAND_AREA_NAMES_CONFIG(2n).namesTable, "core.core_land_area_names");
     });
 });
 

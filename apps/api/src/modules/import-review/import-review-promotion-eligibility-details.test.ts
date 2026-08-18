@@ -36,7 +36,7 @@ import { isRoadPromotionBlockingStoredIssue } from "./import-review-road-promoti
 const roadsConfig = getImportReviewPublishFamilyConfig("roads");
 const buildingsConfig = getImportReviewPublishFamilyConfig("buildings");
 const placesConfig = getImportReviewPublishFamilyConfig("places");
-const landuseConfig = getImportReviewPublishFamilyConfig("landuse");
+const landuseConfig = getImportReviewPublishFamilyConfig("land_areas");
 const routingBarriersConfig = getImportReviewPublishFamilyConfig("routing_barriers");
 assert.ok(roadsConfig);
 assert.ok(buildingsConfig);
@@ -219,7 +219,7 @@ describe("import-review promotion eligibility details", () => {
             landuseConfig!,
             "batched"
         );
-        assert.equal(item.target, "core.core_map_landuse");
+        assert.equal(item.target, "core.core_land_areas");
         assert.equal(item.publish_batch_id, 42);
         assert.equal(item.publish_batch_status, "validated");
         assert.ok(item.reason_codes.includes("ACTIVE_PUBLISH_BATCH"));

@@ -97,7 +97,7 @@ SELECT
   END AS rejection_or_skip_reason
 FROM staging.staging_building_candidates s
 JOIN manifest_ctx x ON x.source_snapshot_id = s.source_snapshot_id
-LEFT JOIN supabase_fdw.core_map_buildings c
+LEFT JOIN supabase_fdw.core_buildings c
   ON system.pipeline_osm_identity_key(c.external_id) = system.pipeline_osm_identity_key(s.external_id)
 WHERE s.import_class IN ('safe_new','safe_update');
 

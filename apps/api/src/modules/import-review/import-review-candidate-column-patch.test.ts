@@ -53,7 +53,7 @@ describe("import-review-candidate-column-patch", () => {
     });
 
     it("drops landuse admin_area_id (no column)", () => {
-        const mapped = mapOverridePatchToColumnPatch("landuse", {
+        const mapped = mapOverridePatchToColumnPatch("land_areas", {
             class_code: "residential",
             admin_area_id: 99,
         });
@@ -76,7 +76,7 @@ describe("import-review-candidate-column-patch", () => {
                 err.message.includes("at least one column update")
         );
         assert.throws(
-            () => assertPersistableDirectColumnPatch("landuse", { admin_area_id: 9 }, {}),
+            () => assertPersistableDirectColumnPatch("land_areas", { admin_area_id: 9 }, {}),
             (err: unknown) =>
                 err instanceof ImportReviewDecisionRuleError &&
                 err.message.includes("admin_area_id")
@@ -156,7 +156,7 @@ describe("import-review-candidate-column-patch", () => {
             { column: "category_id", value: "88", expected: "category_id = ?::bigint" },
             { column: "building_type_id", value: 7, expected: "building_type_id = ?::bigint" },
             { column: "road_class_id", value: 3, expected: "road_class_id = ?::bigint" },
-            { column: "landuse_class_id", value: 5, expected: "landuse_class_id = ?::bigint" },
+            { column: "land_area_class_id", value: 5, expected: "land_area_class_id = ?::bigint" },
             { column: "admin_level_id", value: 4, expected: "admin_level_id = ?::bigint" },
             { column: "parent_id", value: 2, expected: "parent_id = ?::bigint" },
             { column: "speed_kph", value: 40, expected: "speed_kph = ?::numeric" },

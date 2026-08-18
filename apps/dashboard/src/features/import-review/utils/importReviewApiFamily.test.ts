@@ -18,7 +18,7 @@ describe("resolveImportReviewApiFamily", () => {
         assert.equal(resolveImportReviewApiFamily("roads"), "roads");
         assert.equal(resolveImportReviewApiFamily("places"), "places");
         assert.equal(resolveImportReviewApiFamily("buildings"), "buildings");
-        assert.equal(resolveImportReviewApiFamily("landuse"), "landuse");
+        assert.equal(resolveImportReviewApiFamily("land_areas"), "land_areas");
         assert.equal(resolveImportReviewApiFamily("addresses"), "addresses");
         assert.equal(resolveImportReviewApiFamily("bus_stops"), "bus_stops");
         assert.equal(resolveImportReviewApiFamily("bus_route_variants"), "bus_route_variants");

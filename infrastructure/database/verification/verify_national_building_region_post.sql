@@ -79,7 +79,7 @@ WITH source AS (
 ),
 region AS (
     SELECT building.*
-    FROM core.core_map_buildings AS building
+    FROM core.core_buildings AS building
     CROSS JOIN source
     WHERE building.region_code = btrim(:'region_code')
       AND building.source_registry_id = source.source_registry_id
@@ -89,7 +89,7 @@ identity_duplicates AS (
         building.source_registry_id,
         building.source_feature_type,
         building.source_feature_id
-    FROM core.core_map_buildings AS building
+    FROM core.core_buildings AS building
     WHERE building.source_registry_id IS NOT NULL
       AND building.source_feature_type IS NOT NULL
       AND building.source_feature_id IS NOT NULL
@@ -104,13 +104,13 @@ relationships AS (
         count(*) FILTER (WHERE building.id IS NULL) AS orphan_buildings,
         count(*) FILTER (WHERE place.id IS NULL) AS orphan_places
     FROM core.core_place_buildings AS place_building
-    LEFT JOIN core.core_map_buildings AS building
+    LEFT JOIN core.core_buildings AS building
       ON building.id = place_building.building_id
     LEFT JOIN core.core_places AS place
       ON place.id = place_building.place_id
 )
 SELECT
-    (SELECT count(*) FROM core.core_map_buildings) AS total_rows,
+    (SELECT count(*) FROM core.core_buildings) AS total_rows,
     (SELECT count(*) FROM region) AS region_rows,
     (
         SELECT coalesce(
@@ -148,7 +148,7 @@ SELECT
     (SELECT count(*) FROM identity_duplicates) AS duplicate_identity_groups,
     (SELECT orphan_buildings FROM relationships) AS orphan_building_links,
     (SELECT orphan_places FROM relationships) AS orphan_place_links,
-    (SELECT count(*) FROM core.core_map_building_names) AS name_rows,
+    (SELECT count(*) FROM core.core_building_names) AS name_rows,
     (SELECT count(*) FROM core.core_place_buildings) AS link_rows,
     (
         SELECT count(*)
@@ -167,7 +167,7 @@ SELECT
         WHERE nullif(btrim(region.name), '') IS NULL
           AND NOT EXISTS (
               SELECT 1
-              FROM core.core_map_building_names AS building_name
+              FROM core.core_building_names AS building_name
               WHERE building_name.building_id = region.id
                 AND nullif(btrim(building_name.name), '') IS NOT NULL
           )

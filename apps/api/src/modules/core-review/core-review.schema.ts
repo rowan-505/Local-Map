@@ -73,7 +73,7 @@ export const coreReviewListQuerySchema = z
         isPublic: optionalBooleanSchema,
         includeDeleted: optionalBooleanSchema,
         routeId: optionalBigintIdSchema,
-        landuseClassId: optionalBigintIdSchema,
+        landAreaClassId: optionalBigintIdSchema,
         detailLevel: z.enum(["zone", "parcel"]).optional(),
         cropCode: optionalSearchSchema,
         boundaryStatus: optionalSearchSchema,

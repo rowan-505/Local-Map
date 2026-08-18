@@ -18,7 +18,7 @@ export const CORE_REVIEW_IMPORT_PROMOTION_TARGET_SLUGS = [
     "buildings",
     "places",
     "streets",
-    "landuse",
+    "land-areas",
     "water-lines",
     "water-polygons",
     "addresses",

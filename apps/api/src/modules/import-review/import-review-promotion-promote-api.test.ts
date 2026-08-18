@@ -28,15 +28,15 @@ function itemRow(id: number, status: string): PublishItemValidationRow {
 }
 
 describe("import-review-promotion-promote-api", () => {
-    it("maps buildings promotion target to core.core_map_buildings", () => {
-        assert.equal(getImportReviewPromotionTargetTable("buildings"), "core.core_map_buildings");
+    it("maps buildings promotion target to core.core_buildings", () => {
+        assert.equal(getImportReviewPromotionTargetTable("buildings"), "core.core_buildings");
         assert.equal(
             IMPORT_REVIEW_SIMPLE_PROMOTION_REGISTRY.buildings.targetSchema,
             "core"
         );
         assert.equal(
             IMPORT_REVIEW_SIMPLE_PROMOTION_REGISTRY.buildings.targetTable,
-            "core_map_buildings"
+            "core_buildings"
         );
     });
 

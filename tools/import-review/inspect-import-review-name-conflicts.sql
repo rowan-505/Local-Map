@@ -81,7 +81,7 @@ where c.table_schema = 'import_review'
         'place_candidates',
         'building_candidates',
         'road_candidates',
-        'landuse_candidates',
+        'land_area_candidates',
         'water_line_candidates',
         'water_polygon_candidates',
         'admin_area_candidates'
@@ -268,14 +268,14 @@ landuse_enriched as (
         exists (
             select 1
             from import_review.review_candidate_edits e
-            where e.candidate_table = 'landuse_candidates'
+            where e.candidate_table = 'land_area_candidates'
               and e.candidate_id = l.id
               and e.edit_type = 'override_update'
               and e.after_data ? 'name_en'
               and coalesce(e.after_data ->> 'name_en', '')
                   is distinct from coalesce(e.before_data ->> 'name_en', '')
         ) as has_audit_name_en_edit
-    from import_review.landuse_candidates l
+    from import_review.land_area_candidates l
 ),
 water_line_enriched as (
     select
@@ -511,7 +511,7 @@ family_metrics as (
     union all
 
     select
-        'landuse_candidates',
+        'land_area_candidates',
         count(*)::bigint,
         count(*) filter (where nullif(btrim(name_mm), '') is not null),
         count(*) filter (where nullif(btrim(name_en), '') is not null),
@@ -801,7 +801,7 @@ all_candidates as (
     union all
 
     select
-        'landuse_candidates',
+        'land_area_candidates',
         l.id,
         l.review_batch_id,
         l.external_id,
@@ -826,14 +826,14 @@ all_candidates as (
         exists (
             select 1
             from import_review.review_candidate_edits e
-            where e.candidate_table = 'landuse_candidates'
+            where e.candidate_table = 'land_area_candidates'
               and e.candidate_id = l.id
               and e.edit_type = 'override_update'
               and e.after_data ? 'name_en'
               and coalesce(e.after_data ->> 'name_en', '')
                   is distinct from coalesce(e.before_data ->> 'name_en', '')
         )
-    from import_review.landuse_candidates l
+    from import_review.land_area_candidates l
 
     union all
 
@@ -1086,8 +1086,8 @@ left join lateral (
     where e.candidate_table = 'road_candidates' and r.id = e.candidate_id
     union all
     select l.name_en, l.canonical_name, l.normalized_data
-    from import_review.landuse_candidates l
-    where e.candidate_table = 'landuse_candidates' and l.id = e.candidate_id
+    from import_review.land_area_candidates l
+    where e.candidate_table = 'land_area_candidates' and l.id = e.candidate_id
     union all
     select wl.name_en, wl.canonical_name, wl.normalized_data
     from import_review.water_line_candidates wl

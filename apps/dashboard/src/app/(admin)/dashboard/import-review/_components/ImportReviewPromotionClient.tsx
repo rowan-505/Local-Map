@@ -56,6 +56,7 @@ import {
 } from "@/src/lib/importReviewSnapshot";
 import ImportReviewPromotionStaleBatchedReleasePanel from "@/src/app/(admin)/dashboard/import-review/_components/ImportReviewPromotionStaleBatchedReleasePanel";
 import { ImportReviewPromotionFamilyChecklist } from "@/src/features/import-review/promotion";
+import { useDashboardRoleAccess } from "@/src/hooks/useDashboardRoleAccess";
 
 function defaultBatchName(reviewBatchId: string, families: string[]): string {
     const stamp = new Date().toISOString().slice(0, 16).replace("T", "-").replace(":", "");
@@ -64,6 +65,7 @@ function defaultBatchName(reviewBatchId: string, families: string[]): string {
 }
 
 export default function ImportReviewPromotionClient() {
+    const dashboardAccess = useDashboardRoleAccess();
     const router = useRouter();
     const searchParams = useSearchParams();
     const urlVersion = snapshotVersionFromImportReviewSearch(searchParams);
@@ -424,6 +426,19 @@ export default function ImportReviewPromotionClient() {
     function handleEligibilityRetry() {
         setEligibilityError("");
         setEligibilityFetchNonce((n) => n + 1);
+    }
+
+    if (dashboardAccess.ready && !dashboardAccess.canWrite) {
+        return (
+            <main className="p-6">
+                <div className="mx-auto max-w-5xl">
+                    <ImportReviewStatusBanner
+                        message="Read-only demo — promotion actions are disabled. Use History to inspect prior publish batches."
+                        tone="warning"
+                    />
+                </div>
+            </main>
+        );
     }
 
     return (

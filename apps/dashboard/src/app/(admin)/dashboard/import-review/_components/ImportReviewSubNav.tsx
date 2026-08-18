@@ -13,13 +13,14 @@ import {
 } from "@/src/lib/importReviewEntityConfig";
 import { reviewBatchIdFromImportReviewSearch } from "@/src/lib/importReviewSnapshot";
 import { isImportReviewRequestDebugEnabled } from "@/src/features/import-review/utils/importReviewRequestDebug";
+import { useDashboardRoleAccess } from "@/src/hooks/useDashboardRoleAccess";
 
 export default function ImportReviewSubNav() {
+    const dashboardAccess = useDashboardRoleAccess();
     const searchParams = useSearchParams();
-    const searchKey = searchParams.toString();
     const reviewBatchId = useMemo(
         () => reviewBatchIdFromImportReviewSearch(searchParams),
-        [searchKey]
+        [searchParams]
     );
 
     const pathname = usePathname() ?? "";
@@ -36,18 +37,22 @@ export default function ImportReviewSubNav() {
                 href: importReviewEntityHref(entity.slug, searchParams, reviewBatchId || null),
                 match: "prefix" as const,
             })),
-            {
-                label: "Apply",
-                href: importReviewPromotionHref(searchParams),
-                match: "prefix" as const,
-            },
+            ...(dashboardAccess.canWrite
+                ? [
+                      {
+                          label: "Apply",
+                          href: importReviewPromotionHref(searchParams),
+                          match: "prefix" as const,
+                      },
+                  ]
+                : []),
             {
                 label: "History",
                 href: importReviewHistoryHref(),
                 match: "prefix" as const,
             },
         ],
-        [searchKey, reviewBatchId]
+        [dashboardAccess.canWrite, reviewBatchId, searchParams]
     );
 
     useEffect(() => {

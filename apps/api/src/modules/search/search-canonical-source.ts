@@ -11,7 +11,7 @@ export const SEARCH_DOCUMENT_ENTITY_TYPES = [
     "transport_route",
     "transport_route_variant",
     "building",
-    "landuse",
+    "land_area",
     "water_line",
     "water_polygon",
 ] as const;
@@ -33,7 +33,7 @@ export const SEARCH_ENTITY_TYPE_SOURCE_VIEWS: Readonly<
     transport_route: "search.v_search_bus_routes_source",
     transport_route_variant: "search.v_search_bus_routes_source",
     building: "search.v_search_buildings_source",
-    landuse: "search.v_search_landuse_source",
+    land_area: "search.v_search_land_area_source",
     water_line: "search.v_search_water_lines_source",
     water_polygon: "search.v_search_water_polygons_source",
 };
@@ -43,6 +43,7 @@ const LEGACY_ENTITY_TYPE_ALIASES: Readonly<Record<string, SearchDocumentEntityTy
     bus_route: "transport_route",
     bus_route_variant: "transport_route_variant",
     street: "street_group",
+    landuse: "land_area",
 };
 
 export function normalizeSearchDocumentEntityType(value: string): SearchDocumentEntityType | null {

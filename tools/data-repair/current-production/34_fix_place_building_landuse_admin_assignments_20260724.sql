@@ -183,7 +183,7 @@ WITH live AS (
     END AS lookup_pt,
     false AS manual_override
   FROM plan_buildings pl
-  JOIN core.core_map_buildings b ON b.id = pl.entity_id
+  JOIN core.core_buildings b ON b.id = pl.entity_id
   WHERE b.deleted_at IS NULL
     AND coalesce(b.is_active, true)
 ),
@@ -209,7 +209,7 @@ recalc AS (
 )
 SELECT
   entity_id,
-  'core.core_map_buildings'::text AS table_name,
+  'core.core_buildings'::text AS table_name,
   live_admin_area_id AS old_admin_area_id,
   recalc_proposed AS proposed_admin_area_id,
   live_updated_at,
@@ -257,7 +257,7 @@ BEGIN
 
   SELECT count(*) INTO n_bad_cover
   FROM buildings_apply a
-  JOIN core.core_map_buildings b ON b.id = a.entity_id
+  JOIN core.core_buildings b ON b.id = a.entity_id
   JOIN ops_township o ON o.id = a.proposed_admin_area_id
   WHERE NOT st_covers(o.geom, st_pointonsurface(b.geom));
   IF n_bad_cover > 0 THEN
@@ -278,7 +278,7 @@ WITH live AS (
     l.geom,
     coalesce(l.manual_override, false) AS manual_override
   FROM plan_landuse pl
-  JOIN core.core_map_landuse l ON l.id = pl.entity_id
+  JOIN core.core_land_areas l ON l.id = pl.entity_id
   WHERE l.deleted_at IS NULL
     AND coalesce(l.is_active, true)
 ),
@@ -317,7 +317,7 @@ best AS (
 )
 SELECT
   b.entity_id,
-  'core.core_map_landuse'::text AS table_name,
+  'core.core_land_areas'::text AS table_name,
   b.live_admin_area_id AS old_admin_area_id,
   best.township_id AS proposed_admin_area_id,
   b.live_updated_at,
@@ -377,7 +377,7 @@ BEGIN
   -- greatest-area ownership check
   SELECT count(*) INTO n_not_greatest
   FROM landuse_apply a
-  JOIN core.core_map_landuse l ON l.id = a.entity_id
+  JOIN core.core_land_areas l ON l.id = a.entity_id
   WHERE EXISTS (
     SELECT 1
     FROM ops_township o
@@ -499,7 +499,7 @@ COMMIT;
 BEGIN;
 SET LOCAL lock_timeout = '30s';
 
-UPDATE core.core_map_buildings b
+UPDATE core.core_buildings b
 SET admin_area_id = a.proposed_admin_area_id,
     updated_at = now()
 FROM buildings_apply a
@@ -511,7 +511,7 @@ DO $$
 DECLARE n_updated int; n_bad int;
 BEGIN
   SELECT count(*) INTO n_updated
-  FROM core.core_map_buildings b
+  FROM core.core_buildings b
   JOIN buildings_apply a ON a.entity_id = b.id
   WHERE b.admin_area_id = a.proposed_admin_area_id;
   IF n_updated <> 1121 THEN
@@ -519,7 +519,7 @@ BEGIN
   END IF;
   SELECT count(*) INTO n_bad
   FROM buildings_apply a
-  JOIN core.core_map_buildings b ON b.id = a.entity_id
+  JOIN core.core_buildings b ON b.id = a.entity_id
   WHERE b.admin_area_id IS DISTINCT FROM a.proposed_admin_area_id;
   IF n_bad > 0 THEN
     RAISE EXCEPTION 'buildings: % rows not updated', n_bad;
@@ -531,7 +531,7 @@ DECLARE n_bad int;
 BEGIN
   SELECT count(*) INTO n_bad
   FROM buildings_apply a
-  JOIN core.core_map_buildings b ON b.id = a.entity_id
+  JOIN core.core_buildings b ON b.id = a.entity_id
   JOIN ops_township o ON o.id = b.admin_area_id
   WHERE NOT st_covers(o.geom, st_pointonsurface(b.geom));
   IF n_bad > 0 THEN
@@ -549,7 +549,7 @@ COMMIT;
 BEGIN;
 SET LOCAL lock_timeout = '30s';
 
-UPDATE core.core_map_landuse l
+UPDATE core.core_land_areas l
 SET admin_area_id = a.proposed_admin_area_id,
     updated_at = now()
 FROM landuse_apply a
@@ -562,7 +562,7 @@ DO $$
 DECLARE n_updated int; n_bad int;
 BEGIN
   SELECT count(*) INTO n_updated
-  FROM core.core_map_landuse l
+  FROM core.core_land_areas l
   JOIN landuse_apply a ON a.entity_id = l.id
   WHERE l.admin_area_id = a.proposed_admin_area_id;
   IF n_updated <> 19 THEN
@@ -570,7 +570,7 @@ BEGIN
   END IF;
   SELECT count(*) INTO n_bad
   FROM landuse_apply a
-  JOIN core.core_map_landuse l ON l.id = a.entity_id
+  JOIN core.core_land_areas l ON l.id = a.entity_id
   WHERE l.admin_area_id IS DISTINCT FROM a.proposed_admin_area_id;
   IF n_bad > 0 THEN
     RAISE EXCEPTION 'landuse: % rows not updated', n_bad;
@@ -619,7 +619,7 @@ WITH base AS (
   SELECT b.id, b.admin_area_id,
     CASE WHEN b.geom IS NULL OR st_isempty(b.geom) OR NOT st_isvalid(b.geom) THEN NULL
          ELSE st_pointonsurface(b.geom)::geometry(Point, 4326) END AS pt
-  FROM core.core_map_buildings b
+  FROM core.core_buildings b
   WHERE b.deleted_at IS NULL AND coalesce(b.is_active, true)
 )
 SELECT
@@ -636,7 +636,7 @@ FROM base b;
 CREATE TEMP TABLE post_landuse AS
 WITH base AS (
   SELECT l.id, l.admin_area_id, l.geom, coalesce(l.manual_override, false) AS manual_override
-  FROM core.core_map_landuse l
+  FROM core.core_land_areas l
   WHERE l.deleted_at IS NULL AND coalesce(l.is_active, true)
 ),
 best AS (
@@ -729,7 +729,7 @@ END $$;
 
 SELECT 'row_counts_unchanged' AS k,
   (SELECT count(*) FROM core.core_places) AS places_total,
-  (SELECT count(*) FROM core.core_map_buildings) AS buildings_total,
-  (SELECT count(*) FROM core.core_map_landuse) AS landuse_total;
+  (SELECT count(*) FROM core.core_buildings) AS buildings_total,
+  (SELECT count(*) FROM core.core_land_areas) AS landuse_total;
 
 \echo '=== APPLY COMPLETE ==='

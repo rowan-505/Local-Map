@@ -23,8 +23,6 @@ import {
     postBuildingsSchema,
 } from "./buildings.openapi.js";
 
-const EDIT_BUILDING_ROLES = new Set(["admin", "editor"]);
-
 const IS_BUILDINGS_DEV_DEBUG = process.env.NODE_ENV !== "production";
 
 function replyBuildingsReadError(request: FastifyRequest, reply: FastifyReply, error: unknown, context: string) {
@@ -77,7 +75,7 @@ const buildingsRoutes: FastifyPluginAsync = async (app) => {
     app.get(
         "/building-types",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardAccess],
             schema: getBuildingTypesSchema,
         },
         async (request, reply) => {
@@ -93,7 +91,7 @@ const buildingsRoutes: FastifyPluginAsync = async (app) => {
     app.get(
         "/buildings",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardAccess],
             schema: getBuildingsListSchema,
         },
         async (request, reply) => {
@@ -118,7 +116,7 @@ const buildingsRoutes: FastifyPluginAsync = async (app) => {
     app.get(
         "/buildings/:id",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardAccess],
             schema: getBuildingByIdSchema,
         },
         async (request, reply) => {
@@ -149,7 +147,7 @@ const buildingsRoutes: FastifyPluginAsync = async (app) => {
     app.post(
         "/buildings",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardWrite],
             schema: postBuildingsSchema,
         },
         async (request, reply) => {
@@ -170,14 +168,6 @@ const buildingsRoutes: FastifyPluginAsync = async (app) => {
                 return reply.code(400).send({
                     message: "Invalid building payload",
                     issues: parsed.error.flatten(),
-                });
-            }
-
-            const canMutate = request.user.roles.some((role) => EDIT_BUILDING_ROLES.has(role));
-
-            if (!canMutate) {
-                return reply.code(403).send({
-                    message: "Admin or editor role required",
                 });
             }
 
@@ -211,7 +201,7 @@ const buildingsRoutes: FastifyPluginAsync = async (app) => {
     app.patch(
         "/buildings/:id",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardWrite],
             schema: patchBuildingSchema,
         },
         async (request, reply) => {
@@ -240,14 +230,6 @@ const buildingsRoutes: FastifyPluginAsync = async (app) => {
                 return reply.code(400).send({
                     message: "Invalid building payload",
                     issues: bodyParsed.error.flatten(),
-                });
-            }
-
-            const canMutate = request.user.roles.some((role) => EDIT_BUILDING_ROLES.has(role));
-
-            if (!canMutate) {
-                return reply.code(403).send({
-                    message: "Admin or editor role required",
                 });
             }
 
@@ -291,7 +273,7 @@ const buildingsRoutes: FastifyPluginAsync = async (app) => {
     app.delete(
         "/buildings/:id",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardWrite],
             schema: deleteBuildingSchema,
         },
         async (request, reply) => {
@@ -301,14 +283,6 @@ const buildingsRoutes: FastifyPluginAsync = async (app) => {
                 return reply.code(400).send({
                     message: "Invalid building id",
                     issues: parsed.error.flatten(),
-                });
-            }
-
-            const canMutate = request.user.roles.some((role) => EDIT_BUILDING_ROLES.has(role));
-
-            if (!canMutate) {
-                return reply.code(403).send({
-                    message: "Admin or editor role required",
                 });
             }
 

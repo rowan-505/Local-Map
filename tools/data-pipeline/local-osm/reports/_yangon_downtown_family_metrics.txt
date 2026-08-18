@@ -36,7 +36,7 @@ DO
 [22:11:30] === 00b_preflight_prod_mirror ===
 [22:11:30] === 07_compare_with_prod_mirror ===  [pipeline 60%]
 [22:11:30] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/local-osm/07_compare_with_prod_mirror.sql:2348: NOTICE:  stage07_compare_begin snapshot_version=osm_myanmar_2026_07_21_yangon_downtown_sample_v1 only_entity_family=<all> at=2026-07-22 22:11:30.924722+00
-[22:11:30] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/local-osm/07_compare_with_prod_mirror.sql:2348: NOTICE:  stage07_start family=buildings staging_table=staging.staging_building_candidates prod_table=prod_mirror.core_map_buildings at=2026-07-22 22:11:30.927143+00
+[22:11:30] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/local-osm/07_compare_with_prod_mirror.sql:2348: NOTICE:  stage07_start family=buildings staging_table=staging.staging_building_candidates prod_table=prod_mirror.core_buildings at=2026-07-22 22:11:30.927143+00
 [22:11:30] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/local-osm/07_compare_with_prod_mirror.sql:2348: NOTICE:  stage07_counts family=buildings staging_rows=50 prod_rows=1083
 [22:11:30] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/local-osm/07_compare_with_prod_mirror.sql:2348: NOTICE:  stage07_insert_start family=buildings diff_run_id=118 at=2026-07-22 22:11:30.958019+00
 [22:11:43] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/local-osm/07_compare_with_prod_mirror.sql:2348: NOTICE:  stage07_insert_done family=buildings inserted=50 elapsed_ms=12109.72 at=2026-07-22 22:11:43.069045+00
@@ -93,7 +93,7 @@ DO
 [22:12:22] === 00b_preflight_prod_mirror ===
 [22:12:22] === 07_compare_with_prod_mirror ===  [pipeline 60%]
 [22:12:23] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/local-osm/07_compare_with_prod_mirror.sql:2348: NOTICE:  stage07_compare_begin snapshot_version=osm_myanmar_2026_07_21_yangon_downtown_sample_v1 only_entity_family=<all> at=2026-07-22 22:12:23.005913+00
-[22:12:23] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/local-osm/07_compare_with_prod_mirror.sql:2348: NOTICE:  stage07_start family=landuse staging_table=staging.staging_landuse_candidates prod_table=prod_mirror.core_map_landuse at=2026-07-22 22:12:23.008934+00
+[22:12:23] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/local-osm/07_compare_with_prod_mirror.sql:2348: NOTICE:  stage07_start family=landuse staging_table=staging.staging_landuse_candidates prod_table=prod_mirror.core_land_areas at=2026-07-22 22:12:23.008934+00
 [22:12:23] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/local-osm/07_compare_with_prod_mirror.sql:2348: NOTICE:  stage07_counts family=landuse staging_rows=26 prod_rows=39
 [22:12:23] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/local-osm/07_compare_with_prod_mirror.sql:2348: NOTICE:  stage07_insert_start family=landuse diff_run_id=120 at=2026-07-22 22:12:23.052956+00
 [22:12:24] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/local-osm/07_compare_with_prod_mirror.sql:2348: NOTICE:  stage07_insert_done family=landuse inserted=26 elapsed_ms=1097.44 at=2026-07-22 22:12:24.151449+00
@@ -151,7 +151,7 @@ DO
 [22:12:39] === 00b_preflight_prod_mirror ===
 [22:12:39] === 07_compare_with_prod_mirror ===  [pipeline 60%]
 [22:12:40] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/local-osm/07_compare_with_prod_mirror.sql:2348: NOTICE:  stage07_compare_begin snapshot_version=osm_myanmar_2026_07_21_yangon_downtown_sample_v1 only_entity_family=<all> at=2026-07-22 22:12:40.04145+00
-[22:12:40] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/local-osm/07_compare_with_prod_mirror.sql:2348: NOTICE:  stage07_start family=water_lines staging_table=staging.staging_water_line_candidates prod_table=prod_mirror.core_map_water_lines at=2026-07-22 22:12:40.044106+00
+[22:12:40] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/local-osm/07_compare_with_prod_mirror.sql:2348: NOTICE:  stage07_start family=water_lines staging_table=staging.staging_water_line_candidates prod_table=prod_mirror.core_water_lines at=2026-07-22 22:12:40.044106+00
 [22:12:40] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/local-osm/07_compare_with_prod_mirror.sql:2348: NOTICE:  stage07_counts family=water_lines staging_rows=1 prod_rows=1
 [22:12:40] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/local-osm/07_compare_with_prod_mirror.sql:2348: NOTICE:  stage07_insert_start family=water_lines diff_run_id=122 at=2026-07-22 22:12:40.070449+00
 [22:12:40] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/local-osm/07_compare_with_prod_mirror.sql:2348: NOTICE:  stage07_insert_done family=water_lines inserted=1 elapsed_ms=21.15 at=2026-07-22 22:12:40.092205+00
@@ -208,7 +208,7 @@ DO
 [22:12:54] === 00b_preflight_prod_mirror ===
 [22:12:54] === 07_compare_with_prod_mirror ===  [pipeline 60%]
 [22:12:55] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/local-osm/07_compare_with_prod_mirror.sql:2348: NOTICE:  stage07_compare_begin snapshot_version=osm_myanmar_2026_07_21_yangon_downtown_sample_v1 only_entity_family=<all> at=2026-07-22 22:12:55.01677+00
-[22:12:55] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/local-osm/07_compare_with_prod_mirror.sql:2348: NOTICE:  stage07_start family=water_polygons staging_table=staging.staging_water_polygon_candidates prod_table=prod_mirror.core_map_water_polygons at=2026-07-22 22:12:55.019499+00
+[22:12:55] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/local-osm/07_compare_with_prod_mirror.sql:2348: NOTICE:  stage07_start family=water_polygons staging_table=staging.staging_water_polygon_candidates prod_table=prod_mirror.core_water_polygons at=2026-07-22 22:12:55.019499+00
 [22:12:55] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/local-osm/07_compare_with_prod_mirror.sql:2348: NOTICE:  stage07_counts family=water_polygons staging_rows=0 prod_rows=9
 [22:12:55] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/local-osm/07_compare_with_prod_mirror.sql:2348: NOTICE:  stage07_compare_end at=2026-07-22 22:12:55.024609+00
 [22:12:55]  stage07_debug_log | 2026-07-22 22:12:55.024656+00 |                | compare_end   | Stage F2 entity comparisons finished                                                                                      |            | {"only_entity_family": null}

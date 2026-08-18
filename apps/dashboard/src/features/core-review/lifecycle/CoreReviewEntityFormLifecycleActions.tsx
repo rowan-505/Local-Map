@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 
 import type { CoreReviewEntitySlug } from "@/src/lib/api";
 import type { CoreEntityKey } from "@/src/lib/core-review/entityConfigs";
+import { useDashboardRoleAccess } from "@/src/hooks/useDashboardRoleAccess";
 
 import CoreReviewRestoreButton from "./CoreReviewRestoreButton";
 import CoreReviewSoftDeleteButton from "./CoreReviewSoftDeleteButton";
@@ -13,7 +14,7 @@ const ENTITY_KEY_TO_SLUG: Record<CoreEntityKey, CoreReviewEntitySlug> = {
     buildings: "buildings",
     places: "places",
     streets: "streets",
-    landuse: "landuse",
+    "land-areas": "land-areas",
     "water-lines": "water-lines",
     "water-polygons": "water-polygons",
     addresses: "addresses",
@@ -37,9 +38,14 @@ export default function CoreReviewEntityFormLifecycleActions({
     onSuccess?: (message: string) => void;
     onError?: (message: string) => void;
 }) {
+    const dashboardAccess = useDashboardRoleAccess();
     const router = useRouter();
     const apiSlug = ENTITY_KEY_TO_SLUG[entityKey];
     const deleted = detail ? isCoreReviewRowDeleted(detail) : false;
+
+    if (!dashboardAccess.canWrite) {
+        return null;
+    }
 
     if (deleted) {
         return (

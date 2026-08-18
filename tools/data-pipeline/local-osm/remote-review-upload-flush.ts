@@ -635,14 +635,14 @@ function landuseSpec(): UpsertSpec {
       name, admin_area_id, geom, centroid, updated_at
     )
     SELECT $1::bigint, gp.source_snapshot_version, gp.source_snapshot_id_local::bigint,
-      gp.local_staging_id::bigint, 'landuse'::text, gp.external_id, gp.canonical_name,
+      gp.local_staging_id::bigint, 'land_areas'::text, gp.external_id, gp.canonical_name,
       gp.class_code, gp.confidence_score, gp.match_status, gp.auto_action,
       gp.review_status, gp.review_decision,
       coalesce(gp.normalized_data,'{}'::jsonb), coalesce(gp.source_refs,'{}'::jsonb), '{}'::jsonb,
       gp.matched_core_id, gp.matched_core_table, gp.matched_core_data::jsonb, gp.f2_comparison::jsonb,
       coalesce(gp.name_hint, gp.canonical_name), gp.admin_area_id::bigint, gp.geom_b, gp.centroid_b, now()
     FROM geom_prep gp
-    ${insertSkipExistingBySnapshotSql(table, 'landuse')}
+    ${insertSkipExistingBySnapshotSql(table, 'land_areas')}
     RETURNING id, local_staging_id`,
     updateSql: `
     WITH data AS (
@@ -668,6 +668,7 @@ function landuseSpec(): UpsertSpec {
       review_batch_id = $1::bigint,
       source_snapshot_version = gp.source_snapshot_version,
       source_snapshot_id_local = gp.source_snapshot_id_local::bigint,
+      entity_family = 'land_areas',
       external_id = gp.external_id, canonical_name = gp.canonical_name, class_code = gp.class_code,
       confidence_score = gp.confidence_score, match_status = gp.match_status, auto_action = gp.auto_action,
       normalized_data = coalesce(gp.normalized_data,'{}'::jsonb),
@@ -678,7 +679,7 @@ function landuseSpec(): UpsertSpec {
       admin_area_id = gp.admin_area_id::bigint,
       geom = gp.geom_b, centroid = gp.centroid_b, updated_at = now()
     FROM geom_prep gp
-    WHERE ${updateMatchBySnapshotSql('landuse')}
+    WHERE ${updateMatchBySnapshotSql('land_areas')}
       AND ${PRESERVED_REMOTE_WHERE_SQL}
     RETURNING t.id, t.local_staging_id`,
   };

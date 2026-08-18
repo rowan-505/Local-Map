@@ -1,6 +1,6 @@
 -- =============================================================================
 -- One-time prep: register national buildings snapshot on Supabase for direct-Core
--- Idempotent. Does not touch core.core_map_buildings data rows.
+-- Idempotent. Does not touch core.core_buildings data rows.
 -- =============================================================================
 \set ON_ERROR_STOP on
 \pset pager off

@@ -78,7 +78,7 @@ Database prerequisites, in order:
 1. Existing live migrations through `146`.
 2. `147_import_review_landuse_admin_area_id.sql`.
 3. `148_cleanup_core_water_legacy_names_classes.sql`.
-4. `149_core_map_buildings_source_identity.sql` (required by the building
+4. `149_core_buildings_source_identity.sql` (required by the building
    loader's typed `(source_registry_id, source_feature_type,
    source_feature_id)` identity and manual-edit protection).
 5. `150_kyauktan_building_pilot_views.sql`.

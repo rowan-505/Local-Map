@@ -22,7 +22,7 @@ export type ImportReviewFormOptionsResponse = {
     road_classes: ImportReviewFormOption[];
     poi_categories: ImportReviewFormOption[];
     building_types: ImportReviewFormOption[];
-    landuse_classes: ImportReviewFormOption[];
+    land_area_classes: ImportReviewFormOption[];
     waterway_classes: ImportReviewFormOption[];
     water_classes: ImportReviewFormOption[];
     barrier_types: ImportReviewFormOption[];

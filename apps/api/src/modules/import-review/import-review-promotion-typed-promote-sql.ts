@@ -27,15 +27,15 @@ export function promotionTypedPointGeom(alias: string, geomColumn = "point_geom"
 }
 
 /**
- * Legacy `core.core_map_buildings.name` is unused.
- * Canonical building names are written to `core.core_map_building_names` after promote.
+ * Legacy `core.core_buildings.name` is unused.
+ * Canonical building names are written to `core.core_building_names` after promote.
  */
 export function promotionTypedBuildingNameExpr(_alias: string): Prisma.Sql {
     return Prisma.sql`NULL::text`;
 }
 
 /**
- * Upsert approved building names into core.core_map_building_names.
+ * Upsert approved building names into core.core_building_names.
  * Source: normalized_data.names when present, else typed name_mm / name_en / name as imported.
  * ON CONFLICT identity → DO NOTHING (never overwrite official/local/alternate/old rows).
  * is_primary for imported only when no primary exists for that language.
@@ -151,7 +151,7 @@ export function promotionBuildingNamesUpsertSql(args: {
                 ) AS rn
             FROM dedup AS d
         )
-        INSERT INTO core.core_map_building_names (
+        INSERT INTO core.core_building_names (
             building_id,
             name,
             language_code,
@@ -171,7 +171,7 @@ export function promotionBuildingNamesUpsertSql(args: {
                 AND r.rn = 1
                 AND NOT EXISTS (
                     SELECT 1
-                    FROM core.core_map_building_names AS existing
+                    FROM core.core_building_names AS existing
                     WHERE existing.building_id = ${args.buildingId}
                       AND existing.language_code = r.language_code
                       AND existing.is_primary IS TRUE
@@ -300,14 +300,14 @@ export function promotionTypedPlaceDisplayNameExpr(alias: string): Prisma.Sql {
     `;
 }
 
-/** Validated landuse_class_id from typed column only. */
-export function promotionTypedLanduseClassIdExpr(alias: string): Prisma.Sql {
-    const raw = columnRef(alias, "landuse_class_id");
+/** Validated land_area_class_id from typed column only. */
+export function promotionTypedLandAreaClassIdExpr(alias: string): Prisma.Sql {
+    const raw = columnRef(alias, "land_area_class_id");
     return Prisma.sql`
         CASE
             WHEN ${raw} IS NULL THEN NULL::bigint
             WHEN EXISTS (
-                SELECT 1 FROM ref.ref_landuse_classes AS lc
+                SELECT 1 FROM ref.ref_land_area_classes AS lc
                 WHERE lc.id = ${raw}
                   AND coalesce(lc.is_active, true)
             ) THEN ${raw}
@@ -316,8 +316,46 @@ export function promotionTypedLanduseClassIdExpr(alias: string): Prisma.Sql {
     `;
 }
 
-export function promotionTypedLanduseClassCodeExpr(alias: string): Prisma.Sql {
+export function promotionTypedLandAreaClassCodeExpr(alias: string): Prisma.Sql {
     return promotionTypedClassCodeExpr(alias);
+}
+
+/**
+ * Water class id: typed water_class_id when valid, else lookup by typed class_code
+ * against ref.ref_water_classes (active).
+ */
+export function promotionTypedWaterClassIdExpr(alias: string): Prisma.Sql {
+    const a = aliasRef(alias);
+    const raw = columnRef(alias, "water_class_id");
+    const classCode = Prisma.sql`nullif(trim(coalesce(${a}.class_code, '')), '')`;
+    return Prisma.sql`
+        CASE
+            WHEN ${raw} IS NOT NULL AND EXISTS (
+                SELECT 1 FROM ref.ref_water_classes AS wc
+                WHERE wc.id = ${raw}
+                  AND coalesce(wc.is_active, true)
+            ) THEN ${raw}
+            WHEN ${classCode} IS NOT NULL THEN (
+                SELECT wc.id
+                FROM ref.ref_water_classes AS wc
+                WHERE wc.code = lower(${classCode})
+                  AND coalesce(wc.is_active, true)
+                LIMIT 1
+            )
+            ELSE NULL::bigint
+        END
+    `;
+}
+
+/** Legacy class_code synced from resolved water_class_id. */
+export function promotionTypedWaterClassCodeExpr(alias: string): Prisma.Sql {
+    const classId = promotionTypedWaterClassIdExpr(alias);
+    return Prisma.sql`
+        nullif(trim(coalesce(
+            (SELECT wc.code FROM ref.ref_water_classes AS wc WHERE wc.id = ${classId}),
+            ''
+        )), '')
+    `;
 }
 
 /** road_class_id from typed column only. */

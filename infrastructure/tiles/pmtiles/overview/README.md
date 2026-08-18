@@ -38,6 +38,9 @@ Downloaded manually into `infrastructure/tiles/data/natural-earth/unzipped/`, th
 | `land` | `ne_10m_land` |
 | `ocean` | `ne_10m_ocean` |
 | `coastline` | `ne_10m_coastline` |
+
+> **Core coastline (not yet in overview tiles):** `core.core_coastlines` + `tiles.tiles_coastlines_v` exist for a future Core-backed coastline. Do not switch overview PMTiles off Natural Earth until an import + rebuild is scheduled. See [`infrastructure/database/docs/core_coastlines.md`](../../../database/docs/core_coastlines.md).
+
 | `countries` | `ne_10m_admin_0_countries` |
 | `country_boundaries` | `ne_10m_admin_0_boundary_lines_land` |
 | `mmr_admin0_z0_2` / `z3_4` / `z5_6` | NE `ne_10m_land` ∩ Myanmar mask, zoom-tier simplify (see `prepare-mmr-admin0-boundaries.py`) |

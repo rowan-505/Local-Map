@@ -39,7 +39,7 @@ DECLARE
         {"table":"water_polygon_candidates","columns":["name_mm","name_en"]},
         {"table":"bus_stop_candidates","columns":["name_mm","name_en"]},
         {"table":"bus_route_candidates","columns":["name_mm","name_en"]},
-        {"table":"landuse_candidates","columns":["name_mm","name_en"]}
+        {"table":"land_area_candidates","columns":["name_mm","name_en"]}
     ]'::jsonb;
     rec record;
     missing text[] := array[]::text[];

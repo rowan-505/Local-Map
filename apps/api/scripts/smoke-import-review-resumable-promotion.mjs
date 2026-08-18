@@ -104,7 +104,7 @@ const FAMILY_CONFIG = {
         apiPath: "buildings",
         candidateTable: "building_candidates",
         targetSchema: "core",
-        targetTable: "core_map_buildings",
+        targetTable: "core_buildings",
         highRisk: false,
         selectCandidatesSql: `
             SELECT id, external_id, local_staging_id, name_en, name_mm, building_type_id,

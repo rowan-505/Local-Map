@@ -72,14 +72,14 @@ describe("promotionTypedBuildingNameExpr", () => {
 });
 
 describe("promotionBuildingNamesUpsertSql", () => {
-    it("upserts into core_map_building_names with identity ON CONFLICT DO NOTHING", () => {
+    it("upserts into core_building_names with identity ON CONFLICT DO NOTHING", () => {
         const sql = sqlText(
             promotionBuildingNamesUpsertSql({
                 buildingId: 42n,
                 publishItemId: 7n,
             }) as never
         );
-        assert.match(sql, /INSERT INTO core\.core_map_building_names/);
+        assert.match(sql, /INSERT INTO core\.core_building_names/);
         assert.match(sql, /normalized_data->'names'/);
         assert.match(sql, /'imported'/);
         assert.match(

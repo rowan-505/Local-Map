@@ -10,6 +10,9 @@ import {
     type DashboardSidebarItem,
     type DashboardSidebarModuleKey,
 } from "@/src/lib/dashboardNavigation";
+import { useDashboardRoleAccess } from "@/src/hooks/useDashboardRoleAccess";
+
+const VIEWER_MODULES = new Set(["core-review", "import-review", "references", "stats"]);
 
 function NavItem({
     item,
@@ -40,6 +43,12 @@ function NavItem({
 export default function DashboardSidebar() {
     const pathname = usePathname() ?? "";
     const activeModule = sidebarModuleFromPathname(pathname);
+    const access = useDashboardRoleAccess();
+    const moduleItems = !access.ready
+        ? []
+        : access.isViewer
+          ? dashboardSidebarItems.filter((item) => VIEWER_MODULES.has(item.moduleKey))
+          : dashboardSidebarItems;
 
     return (
         <aside className="flex w-52 shrink-0 flex-col border-r border-gray-200 bg-white">
@@ -52,18 +61,27 @@ export default function DashboardSidebar() {
                     Local Map
                 </Link>
                 <p className="mt-1 text-xs text-gray-500">Admin</p>
+                {access.isViewer ? (
+                    <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs leading-4 text-amber-900">
+                        Read-only demo — changes are disabled.
+                    </p>
+                ) : null}
             </div>
             <nav className="flex flex-col gap-0.5 p-2">
-                {dashboardSidebarItems.map((item) => (
+                {moduleItems.map((item) => (
                     <NavItem key={item.moduleKey} item={item} activeModule={activeModule} />
                 ))}
 
-                <p className="mt-4 px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-gray-400">
-                    User Management
-                </p>
-                {userManagementSidebarItems.map((item) => (
-                    <NavItem key={item.moduleKey} item={item} activeModule={activeModule} />
-                ))}
+                {access.ready && !access.isViewer ? (
+                    <>
+                        <p className="mt-4 px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                            User Management
+                        </p>
+                        {userManagementSidebarItems.map((item) => (
+                            <NavItem key={item.moduleKey} item={item} activeModule={activeModule} />
+                        ))}
+                    </>
+                ) : null}
             </nav>
         </aside>
     );

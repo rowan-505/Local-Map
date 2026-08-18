@@ -1,4 +1,4 @@
--- Read-only Supabase export: one row per core.core_map_buildings
+-- Read-only Supabase export: one row per core.core_buildings
 -- Used by export_core_buildings_for_basemap.sh (temp view + COPY).
 -- No writes.
 
@@ -39,7 +39,7 @@ SELECT
         )
         ORDER BY n.is_primary DESC, n.language_code, n.name
       )
-      FROM core.core_map_building_names n
+      FROM core.core_building_names n
       WHERE n.building_id = b.id
     ),
     '[]'::jsonb
@@ -49,6 +49,6 @@ SELECT
     FROM core.core_place_buildings pb
     WHERE pb.building_id = b.id
   ) AS place_link_count
-FROM core.core_map_buildings b
+FROM core.core_buildings b
 LEFT JOIN ref.ref_building_types bt ON bt.id = b.building_type_id
 ORDER BY b.id;

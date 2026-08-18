@@ -29,8 +29,6 @@ import {
     postStreetsValidateGeometrySchema,
 } from "./streets.openapi.js";
 
-const EDIT_STREET_ROLES = new Set(["admin", "editor"]);
-
 function sanitizeStreetPatchBody(body: unknown) {
     if (!body || typeof body !== "object" || Array.isArray(body)) {
         return body;
@@ -56,7 +54,7 @@ const streetsRoutes: FastifyPluginAsync = async (app) => {
     app.get(
         "/road-classes",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardAccess],
             schema: getRoadClassesSchema,
         },
         async (_request, reply) => {
@@ -68,7 +66,7 @@ const streetsRoutes: FastifyPluginAsync = async (app) => {
     app.get(
         "/streets",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardAccess],
             schema: getStreetsListSchema,
         },
         async (request, reply) => {
@@ -89,7 +87,7 @@ const streetsRoutes: FastifyPluginAsync = async (app) => {
     app.get(
         "/streets/nearby",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardAccess],
             schema: getStreetsNearbySchema,
         },
         async (request, reply) => {
@@ -110,7 +108,7 @@ const streetsRoutes: FastifyPluginAsync = async (app) => {
     app.get(
         "/streets/nearest-point",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardAccess],
             schema: getStreetsNearestPointSchema,
         },
         async (request, reply) => {
@@ -131,7 +129,7 @@ const streetsRoutes: FastifyPluginAsync = async (app) => {
     app.post(
         "/streets/validate-geometry",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardAccess],
             schema: postStreetsValidateGeometrySchema,
         },
         async (request, reply) => {
@@ -141,14 +139,6 @@ const streetsRoutes: FastifyPluginAsync = async (app) => {
                 return reply.code(400).send({
                     message: "Invalid validate-geometry payload",
                     issues: parsed.error.flatten(),
-                });
-            }
-
-            const canValidate = request.user.roles.some((role) => EDIT_STREET_ROLES.has(role));
-
-            if (!canValidate) {
-                return reply.code(403).send({
-                    message: "Admin or editor role required",
                 });
             }
 
@@ -163,7 +153,7 @@ const streetsRoutes: FastifyPluginAsync = async (app) => {
     app.get(
         "/streets/:id",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardAccess],
             schema: getStreetByIdSchema,
         },
         async (request, reply) => {
@@ -194,7 +184,7 @@ const streetsRoutes: FastifyPluginAsync = async (app) => {
     app.post(
         "/streets",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardWrite],
             schema: postStreetsSchema,
         },
         async (request, reply) => {
@@ -204,14 +194,6 @@ const streetsRoutes: FastifyPluginAsync = async (app) => {
                 return reply.code(400).send({
                     message: "Invalid street payload",
                     issues: parsed.error.flatten(),
-                });
-            }
-
-            const canCreateStreet = request.user.roles.some((role) => EDIT_STREET_ROLES.has(role));
-
-            if (!canCreateStreet) {
-                return reply.code(403).send({
-                    message: "Admin or editor role required",
                 });
             }
 
@@ -233,7 +215,7 @@ const streetsRoutes: FastifyPluginAsync = async (app) => {
     app.patch(
         "/streets/:id",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardWrite],
             schema: patchStreetSchema,
         },
         async (request, reply) => {
@@ -252,14 +234,6 @@ const streetsRoutes: FastifyPluginAsync = async (app) => {
                 return reply.code(400).send({
                     message: "Invalid street payload",
                     issues: bodyParsed.error.flatten(),
-                });
-            }
-
-            const canEditStreet = request.user.roles.some((role) => EDIT_STREET_ROLES.has(role));
-
-            if (!canEditStreet) {
-                return reply.code(403).send({
-                    message: "Admin or editor role required",
                 });
             }
 
@@ -291,7 +265,7 @@ const streetsRoutes: FastifyPluginAsync = async (app) => {
     app.post(
         "/streets/:id/split",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardWrite],
             schema: postStreetSplitSchema,
         },
         async (request, reply) => {
@@ -309,14 +283,6 @@ const streetsRoutes: FastifyPluginAsync = async (app) => {
                 return reply.code(400).send({
                     message: "Invalid street split payload",
                     issues: bodyParsed.error.flatten(),
-                });
-            }
-
-            const canEditStreet = request.user.roles.some((role) => EDIT_STREET_ROLES.has(role));
-
-            if (!canEditStreet) {
-                return reply.code(403).send({
-                    message: "Admin or editor role required",
                 });
             }
 
@@ -348,7 +314,7 @@ const streetsRoutes: FastifyPluginAsync = async (app) => {
     app.delete(
         "/streets/:id",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardWrite],
             schema: deleteStreetSchema,
         },
         async (request, reply) => {
@@ -371,14 +337,6 @@ const streetsRoutes: FastifyPluginAsync = async (app) => {
                 return reply.code(400).send({
                     message: "Invalid delete payload",
                     issues: bodyParsed.error.flatten(),
-                });
-            }
-
-            const canDeleteStreet = request.user.roles.some((role) => EDIT_STREET_ROLES.has(role));
-
-            if (!canDeleteStreet) {
-                return reply.code(403).send({
-                    message: "Admin or editor role required",
                 });
             }
 

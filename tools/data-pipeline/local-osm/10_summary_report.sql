@@ -148,7 +148,7 @@ VALUES
     ('places', 'staging_place_candidates', 'v_no_conflict_place_candidates', 'v_review_place_conflicts', 'v_manual_protected_place_candidates'),
     ('roads', 'staging_road_candidates', 'v_no_conflict_road_candidates', 'v_review_road_conflicts', 'v_manual_protected_road_candidates'),
     ('buildings', 'staging_building_candidates', 'v_no_conflict_building_candidates', 'v_review_building_conflicts', 'v_manual_protected_building_candidates'),
-    ('landuse', 'staging_landuse_candidates', 'v_no_conflict_landuse_candidates', 'v_review_landuse_conflicts', 'v_manual_protected_landuse_candidates'),
+    ('landuse', 'staging_landuse_candidates', 'v_no_conflict_land_area_candidates', 'v_review_landuse_conflicts', 'v_manual_protected_land_area_candidates'),
     ('water_lines', 'staging_water_line_candidates', 'v_no_conflict_water_line_candidates', 'v_review_water_line_conflicts', NULL),
     ('water_polygons', 'staging_water_polygon_candidates', 'v_no_conflict_water_polygon_candidates', 'v_review_water_polygon_conflicts', NULL),
     ('admin_areas', 'staging_admin_area_candidates', 'v_no_conflict_admin_area_candidates', 'v_review_admin_area_conflicts', NULL),

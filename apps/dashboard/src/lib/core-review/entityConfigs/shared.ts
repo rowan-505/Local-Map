@@ -130,13 +130,11 @@ export function requirePolygonGeometry(values: CoreEntityFormValues, fieldKey: s
 }
 
 export function mapClassifiedFeaturePayload(values: CoreEntityFormValues, geomField = "geom") {
-    const classCode = nullableFormString(values.class_code);
-    if (!classCode) {
-        throw new Error("Class code is required.");
-    }
+    const waterClassId = parseRequiredFormRefId(values.water_class_id, "Water class");
     return {
         name: nullableFormString(values.name),
-        class_code: classCode,
+        water_class_id: waterClassId,
+        waterClassId,
         is_active: bool(values.is_active),
         ...verificationStatusWritePayload(values),
         geom: requirePolygonGeometry(values, geomField),
@@ -144,13 +142,11 @@ export function mapClassifiedFeaturePayload(values: CoreEntityFormValues, geomFi
 }
 
 export function mapWaterLinePayload(values: CoreEntityFormValues, geomField = "geom") {
-    const classCode = nullableFormString(values.class_code);
-    if (!classCode) {
-        throw new Error("Class code is required.");
-    }
+    const waterClassId = parseRequiredFormRefId(values.water_class_id, "Water class");
     return {
         name: nullableFormString(values.name),
-        class_code: classCode,
+        water_class_id: waterClassId,
+        waterClassId,
         is_active: bool(values.is_active),
         ...verificationStatusWritePayload(values),
         geom: requireLineGeometry(values, geomField),

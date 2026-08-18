@@ -30,7 +30,7 @@ describe("isCompleteCoreReviewUpdateDetail", () => {
 
     it("accepts landuse PATCH detail when public id is present", () => {
         assert.equal(
-            isCompleteCoreReviewUpdateDetail("landuse", {
+            isCompleteCoreReviewUpdateDetail("land-areas", {
                 publicId: "abc",
                 geometry: { type: "Polygon", coordinates: [] },
             }),

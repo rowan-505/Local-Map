@@ -13,7 +13,7 @@ import {
     type RoadTownshipRecommendationResult,
 } from "./entity-admin-area.road-township-recommend.js";
 
-export type EntityAdminAreaKind = "place" | "street" | "building" | "landuse" | "bus_stop";
+export type EntityAdminAreaKind = "place" | "street" | "building" | "land_area" | "bus_stop";
 
 export type EntityAdminAreaSummaryRow = {
     id: bigint;
@@ -779,7 +779,7 @@ export class EntityAdminAreaRepository {
             return rows[0]?.ok === true;
         }
 
-        if ((kind === "building" || kind === "landuse") && "geojsonText" in args) {
+        if ((kind === "building" || kind === "land_area") && "geojsonText" in args) {
             const rows = await this.prisma.$queryRaw<{ ok: boolean }[]>`
                 WITH raw AS (
                     SELECT ST_SetSRID(ST_GeomFromGeoJSON(${args.geojsonText})::geometry, 4326) AS g

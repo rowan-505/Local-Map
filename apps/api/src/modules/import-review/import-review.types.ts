@@ -89,12 +89,14 @@ export type ImportReviewBuildingListItem = {
     /** From ref.ref_building_types join (effective building_type_id). */
     building_type_code?: string | null;
     building_type_name?: string | null;
-    /** Landuse list/patch only — effective ref.ref_landuse_classes id. */
-    landuse_class_id?: string | null;
-    /** From ref.ref_landuse_classes join (effective landuse_class_id). */
-    landuse_class_code?: string | null;
-    landuse_class_name?: string | null;
-    landuse_class_name_mm?: string | null;
+    /** Land areas list/patch only — effective ref.ref_land_area_classes id. */
+    land_area_class_id?: string | null;
+    /** From ref.ref_land_area_classes join (effective land_area_class_id). */
+    land_area_class_code?: string | null;
+    land_area_class_name?: string | null;
+    land_area_class_name_mm?: string | null;
+    /** Water list/patch — ref.ref_water_classes id. */
+    water_class_id?: string | null;
     admin_area_id: string | null;
     levels: number | null;
     height_m: number | null;
@@ -157,7 +159,8 @@ export type ImportReviewBuildingListItem = {
     effective_stop_code?: string | null;
     effective_canonical_name?: string | null;
     effective_class_code?: string | null;
-    effective_landuse_class_id?: string | null;
+    effective_land_area_class_id?: string | null;
+    effective_water_class_id?: string | null;
     effective_admin_area_id?: string | null;
     effective_admin_area_name?: string | null;
     /** Roads list: resolved admin area display name */

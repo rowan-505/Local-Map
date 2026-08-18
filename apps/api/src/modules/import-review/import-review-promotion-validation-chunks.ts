@@ -4,7 +4,7 @@ import type { PublishItemValidationTarget } from "./import-review-promotion-simp
 export const PROMOTION_VALIDATION_FAMILY_ORDER = [
     "buildings",
     "places",
-    "landuse",
+    "land_areas",
     "water_lines",
     "water_polygons",
     "roads",

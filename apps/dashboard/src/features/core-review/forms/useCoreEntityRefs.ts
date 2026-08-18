@@ -5,7 +5,8 @@ import { useCallback, useEffect, useState } from "react";
 import type {
     PlaceFormOption,
     RefBuildingType,
-    RefLanduseClass,
+    RefLandAreaClass,
+    RefWaterClass,
     RoadClassOption,
     Street,
     ImportReviewReferenceOptionDto,
@@ -20,9 +21,10 @@ import {
 import type { CoreRefSourceKind } from "@/src/lib/core-review/entityConfigs/types";
 import {
     useCoreReviewRefBuildingTypes,
-    useCoreReviewRefLanduseClasses,
+    useCoreReviewRefLandAreaClasses,
     useCoreReviewRefRoadClasses,
     useCoreReviewRefStreets,
+    useCoreReviewRefWaterClasses,
 } from "../hooks/coreReviewRefQueries";
 
 export type CoreRefOption = {
@@ -90,13 +92,26 @@ function mapAdminLevelOptions(items: ImportReviewReferenceOptionDto[]): CoreRefO
     });
 }
 
-function mapLanduseClasses(items: RefLanduseClass[]): CoreRefOption[] {
+function mapLandAreaClasses(items: RefLandAreaClass[]): CoreRefOption[] {
     return items
         .filter((item) => item.is_active)
         .map((item) => ({
             value: item.id,
             label: item.name_mm ? `${item.name_en} — ${item.name_mm}` : item.name_en,
             code: item.code,
+        }));
+}
+
+function mapWaterClasses(items: RefWaterClass[]): CoreRefOption[] {
+    return items
+        .filter((item) => item.is_active)
+        .map((item) => ({
+            value: item.id,
+            label: item.name_mm
+                ? `${item.name_en} (${item.code}) — ${item.name_mm}`
+                : `${item.name_en} (${item.code})`,
+            code: item.code,
+            parent_id: item.parent_id,
         }));
 }
 
@@ -148,22 +163,28 @@ export function useCoreEntityRefs(sources: CoreRefSourceKind[]): Record<CoreRefS
     const [streetsLoading, setStreetsLoading] = useState(false);
     const [streetsError, setStreetsError] = useState<string | null>(null);
 
-    const [landuseClasses, setLanduseClasses] = useState<CoreRefOption[]>([]);
-    const [landuseClassesLoading, setLanduseClassesLoading] = useState(false);
-    const [landuseClassesError, setLanduseClassesError] = useState<string | null>(null);
+    const [landAreaClasses, setLandAreaClasses] = useState<CoreRefOption[]>([]);
+    const [landAreaClassesLoading, setLandAreaClassesLoading] = useState(false);
+    const [landAreaClassesError, setLandAreaClassesError] = useState<string | null>(null);
+
+    const [waterClasses, setWaterClasses] = useState<CoreRefOption[]>([]);
+    const [waterClassesLoading, setWaterClassesLoading] = useState(false);
+    const [waterClassesError, setWaterClassesError] = useState<string | null>(null);
 
     const needsBuildingTypes = sources.includes("building-types");
     const needsRoadClasses = sources.includes("road-classes");
     const needsPlaceForm = sources.some((s) => s.startsWith("place-form-options:"));
     const needsReferenceOptions = sources.some((s) => s.startsWith("reference-options:"));
     const needsStreets = sources.includes("streets");
-    const needsLanduseClasses = sources.includes("landuse-classes");
+    const needsLandAreaClasses = sources.includes("land-area-classes");
+    const needsWaterClasses = sources.includes("water-classes");
 
     // Global cached reference data (React Query).
     const buildingTypesQuery = useCoreReviewRefBuildingTypes(needsBuildingTypes);
     const roadClassesQuery = useCoreReviewRefRoadClasses(needsRoadClasses);
     const streetsQuery = useCoreReviewRefStreets(100, needsStreets);
-    const landuseClassesQuery = useCoreReviewRefLanduseClasses(needsLanduseClasses);
+    const landAreaClassesQuery = useCoreReviewRefLandAreaClasses(needsLandAreaClasses);
+    const waterClassesQuery = useCoreReviewRefWaterClasses(needsWaterClasses);
 
     const loadPlaceFormOptions = useCallback(async () => {
         if (!needsPlaceForm) return;
@@ -258,22 +279,40 @@ export function useCoreEntityRefs(sources: CoreRefSourceKind[]): Record<CoreRefS
     }, [needsStreets, streetsQuery.data, streetsQuery.error, streetsQuery.isFetching]);
 
     useEffect(() => {
-        if (!needsLanduseClasses) {
-            setLanduseClasses([]);
-            setLanduseClassesLoading(false);
-            setLanduseClassesError(null);
+        if (!needsLandAreaClasses) {
+            setLandAreaClasses([]);
+            setLandAreaClassesLoading(false);
+            setLandAreaClassesError(null);
             return;
         }
-        setLanduseClasses(mapLanduseClasses(landuseClassesQuery.data ?? []));
-        setLanduseClassesLoading(landuseClassesQuery.isFetching && !(landuseClassesQuery.data?.length));
-        setLanduseClassesError(
-            landuseClassesQuery.error instanceof Error
-                ? landuseClassesQuery.error.message
-                : landuseClassesQuery.error
-                  ? String(landuseClassesQuery.error)
+        setLandAreaClasses(mapLandAreaClasses(landAreaClassesQuery.data ?? []));
+        setLandAreaClassesLoading(landAreaClassesQuery.isFetching && !(landAreaClassesQuery.data?.length));
+        setLandAreaClassesError(
+            landAreaClassesQuery.error instanceof Error
+                ? landAreaClassesQuery.error.message
+                : landAreaClassesQuery.error
+                  ? String(landAreaClassesQuery.error)
                   : null
         );
-    }, [needsLanduseClasses, landuseClassesQuery.data, landuseClassesQuery.error, landuseClassesQuery.isFetching]);
+    }, [needsLandAreaClasses, landAreaClassesQuery.data, landAreaClassesQuery.error, landAreaClassesQuery.isFetching]);
+
+    useEffect(() => {
+        if (!needsWaterClasses) {
+            setWaterClasses([]);
+            setWaterClassesLoading(false);
+            setWaterClassesError(null);
+            return;
+        }
+        setWaterClasses(mapWaterClasses(waterClassesQuery.data ?? []));
+        setWaterClassesLoading(waterClassesQuery.isFetching && !(waterClassesQuery.data?.length));
+        setWaterClassesError(
+            waterClassesQuery.error instanceof Error
+                ? waterClassesQuery.error.message
+                : waterClassesQuery.error
+                  ? String(waterClassesQuery.error)
+                  : null
+        );
+    }, [needsWaterClasses, waterClassesQuery.data, waterClassesQuery.error, waterClassesQuery.isFetching]);
 
     const adminAreasState = emptyRefState();
 
@@ -332,11 +371,17 @@ export function useCoreEntityRefs(sources: CoreRefSourceKind[]): Record<CoreRefS
             reload: () => void streetsQuery.refetch(),
             // Note: first 100 streets only; dedicated search combobox TODO when street count grows.
         },
-        "landuse-classes": {
-            options: landuseClasses,
-            isLoading: landuseClassesLoading,
-            error: landuseClassesError,
-            reload: () => void landuseClassesQuery.refetch(),
+        "land-area-classes": {
+            options: landAreaClasses,
+            isLoading: landAreaClassesLoading,
+            error: landAreaClassesError,
+            reload: () => void landAreaClassesQuery.refetch(),
+        },
+        "water-classes": {
+            options: waterClasses,
+            isLoading: waterClassesLoading,
+            error: waterClassesError,
+            reload: () => void waterClassesQuery.refetch(),
         },
     };
 }

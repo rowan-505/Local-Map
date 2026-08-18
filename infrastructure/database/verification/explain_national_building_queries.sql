@@ -35,7 +35,7 @@ SELECT
     ST_Y(ST_PointOnSurface(building.geom)) + 0.01 AS bbox_ymax,
     (
         SELECT building_name.building_id
-        FROM core.core_map_building_names AS building_name
+        FROM core.core_building_names AS building_name
         ORDER BY building_name.id
         LIMIT 1
     ) AS name_building_id,
@@ -45,7 +45,7 @@ SELECT
         ORDER BY place_building.building_id, place_building.place_id
         LIMIT 1
     ) AS link_building_id
-FROM core.core_map_buildings AS building
+FROM core.core_buildings AS building
 WHERE building.region_code = btrim(:'region_code')
   AND building.admin_area_id IS NOT NULL
   AND building.source_registry_id IS NOT NULL
@@ -69,7 +69,7 @@ SELECT
     building.public_id,
     building.region_code,
     building.geom
-FROM core.core_map_buildings AS building
+FROM core.core_buildings AS building
 WHERE building.is_active IS TRUE
   AND building.deleted_at IS NULL
   AND building.geom && ST_MakeEnvelope(
@@ -83,7 +83,7 @@ WHERE building.is_active IS TRUE
 \echo '2. reverse point-in-building lookup'
 EXPLAIN (ANALYZE, BUFFERS, SETTINGS, WAL, VERBOSE)
 SELECT building.id, building.public_id
-FROM core.core_map_buildings AS building
+FROM core.core_buildings AS building
 WHERE building.geom && ST_SetSRID(
         ST_MakePoint(:sample_point_x, :sample_point_y),
         4326
@@ -97,13 +97,13 @@ LIMIT 1;
 \echo '3. public ID detail lookup'
 EXPLAIN (ANALYZE, BUFFERS, SETTINGS, WAL, VERBOSE)
 SELECT building.*
-FROM core.core_map_buildings AS building
+FROM core.core_buildings AS building
 WHERE building.public_id = :'sample_public_id'::uuid;
 
 \echo '4. admin-area lookup'
 EXPLAIN (ANALYZE, BUFFERS, SETTINGS, WAL, VERBOSE)
 SELECT building.id, building.public_id, building.updated_at
-FROM core.core_map_buildings AS building
+FROM core.core_buildings AS building
 WHERE building.admin_area_id = :sample_admin_area_id
 ORDER BY building.updated_at DESC
 LIMIT 100;
@@ -111,14 +111,14 @@ LIMIT 100;
 \echo '5. localized-name lookup'
 EXPLAIN (ANALYZE, BUFFERS, SETTINGS, WAL, VERBOSE)
 SELECT building_name.*
-FROM core.core_map_building_names AS building_name
+FROM core.core_building_names AS building_name
 WHERE building_name.building_id = :sample_name_building_id
 ORDER BY building_name.is_primary DESC, building_name.id;
 
 \echo '6. typed OSM identity lookup'
 EXPLAIN (ANALYZE, BUFFERS, SETTINGS, WAL, VERBOSE)
 SELECT building.id, building.public_id
-FROM core.core_map_buildings AS building
+FROM core.core_buildings AS building
 WHERE building.source_registry_id = :sample_source_registry_id
   AND building.source_feature_type = :'sample_source_feature_type'
   AND building.source_feature_id = :sample_source_feature_id;

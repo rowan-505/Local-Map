@@ -65,7 +65,6 @@ function makeBuildingDetail(adminAreaId: bigint | null): BuildingDetailRow {
     return {
         id: "1",
         public_id: "building-1",
-        source_staging_id: null,
         external_id: "ext-1",
         admin_area_id: adminAreaId?.toString() ?? null,
         admin_area_row_id: adminAreaId?.toString() ?? null,

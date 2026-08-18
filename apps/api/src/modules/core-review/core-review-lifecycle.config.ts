@@ -21,7 +21,7 @@ const LIFECYCLE_BY_SLUG: Record<CoreReviewEntitySlug, CoreReviewLifecycleConfig>
         softDeleteExtraSets: [Prisma.sql`is_public = false`],
     },
     buildings: {
-        table: "core.core_map_buildings",
+        table: "core.core_buildings",
         idKind: "public_id",
         hasDeletedAt: true,
         hasIsActive: true,
@@ -40,22 +40,22 @@ const LIFECYCLE_BY_SLUG: Record<CoreReviewEntitySlug, CoreReviewLifecycleConfig>
         ],
         restoreExtraSets: [Prisma.sql`routing_status = 'needs_rebuild'`],
     },
-    landuse: {
-        table: "core.core_map_landuse",
+    "land-areas": {
+        table: "core.core_land_areas",
         idKind: "public_id",
         hasDeletedAt: true,
         hasIsActive: true,
         supportsSoftDelete: true,
     },
     "water-lines": {
-        table: "core.core_map_water_lines",
+        table: "core.core_water_lines",
         idKind: "numeric_id",
         hasDeletedAt: true,
         hasIsActive: true,
         supportsSoftDelete: true,
     },
     "water-polygons": {
-        table: "core.core_map_water_polygons",
+        table: "core.core_water_polygons",
         idKind: "numeric_id",
         hasDeletedAt: true,
         hasIsActive: true,

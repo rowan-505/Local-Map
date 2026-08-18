@@ -38,7 +38,7 @@ export type ImportReviewSimplePromotionFamily =
     | "places"
     | "buildings"
     | "roads"
-    | "landuse"
+    | "land_areas"
     | "water_lines"
     | "water_polygons"
     | "admin_areas"
@@ -49,7 +49,7 @@ export const IMPORT_REVIEW_SIMPLE_PROMOTION_FAMILIES = [
     "places",
     "buildings",
     "roads",
-    "landuse",
+    "land_areas",
     "water_lines",
     "water_polygons",
     "admin_areas",
@@ -163,7 +163,7 @@ export const IMPORT_REVIEW_SIMPLE_PROMOTION_REGISTRY: Record<
     }),
 
     buildings: cfg("buildings", {
-        ...targetParts("core", "core_map_buildings"),
+        ...targetParts("core", "core_buildings"),
         requiredFields: [...GLOBAL_REVIEW_FIELDS, "geom", "building_type_id", ...LINEAGE_FIELDS],
         warningFields: ["name_en", "name_mm", "class_code"],
         fkChecks: [
@@ -241,16 +241,16 @@ export const IMPORT_REVIEW_SIMPLE_PROMOTION_REGISTRY: Record<
         ],
     }),
 
-    landuse: cfg("landuse", {
-        ...targetParts("core", "core_map_landuse"),
+    land_areas: cfg("land_areas", {
+        ...targetParts("core", "core_land_areas"),
         requiredFields: [
             ...GLOBAL_REVIEW_FIELDS,
             "geom",
-            "landuse_class_id",
+            "land_area_class_id",
             ...LINEAGE_FIELDS,
         ],
         warningFields: ["name_en", "name_mm", "class_code"],
-        fkChecks: [{ column: "landuse_class_id", refSchema: "ref", refTable: "ref_landuse_classes" }],
+        fkChecks: [{ column: "land_area_class_id", refSchema: "ref", refTable: "ref_land_area_classes" }],
         geometry: {
             column: "geom",
             requiredType: ["Polygon", "MultiPolygon"],
@@ -262,7 +262,7 @@ export const IMPORT_REVIEW_SIMPLE_PROMOTION_REGISTRY: Record<
         promotionColumns: [
             "geom",
             "centroid",
-            "landuse_class_id",
+            "land_area_class_id",
             "class_code",
             "name_mm",
             "name_en",
@@ -274,10 +274,10 @@ export const IMPORT_REVIEW_SIMPLE_PROMOTION_REGISTRY: Record<
     }),
 
     water_lines: cfg("water_lines", {
-        ...targetParts("core", "core_map_water_lines"),
-        requiredFields: [...GLOBAL_REVIEW_FIELDS, "geom", "class_code", ...LINEAGE_FIELDS],
-        warningFields: ["name_en", "name_mm"],
-        fkChecks: [],
+        ...targetParts("core", "core_water_lines"),
+        requiredFields: [...GLOBAL_REVIEW_FIELDS, "geom", "water_class_id", ...LINEAGE_FIELDS],
+        warningFields: ["name_en", "name_mm", "class_code"],
+        fkChecks: [{ column: "water_class_id", refSchema: "ref", refTable: "ref_water_classes" }],
         geometry: {
             column: "geom",
             requiredType: ["LineString", "MultiLineString"],
@@ -288,6 +288,7 @@ export const IMPORT_REVIEW_SIMPLE_PROMOTION_REGISTRY: Record<
         allowSourceNameFallback: true,
         promotionColumns: [
             "geom",
+            "water_class_id",
             "class_code",
             "name_mm",
             "name_en",
@@ -299,10 +300,10 @@ export const IMPORT_REVIEW_SIMPLE_PROMOTION_REGISTRY: Record<
     }),
 
     water_polygons: cfg("water_polygons", {
-        ...targetParts("core", "core_map_water_polygons"),
-        requiredFields: [...GLOBAL_REVIEW_FIELDS, "geom", "class_code", ...LINEAGE_FIELDS],
-        warningFields: ["name_en", "name_mm"],
-        fkChecks: [],
+        ...targetParts("core", "core_water_polygons"),
+        requiredFields: [...GLOBAL_REVIEW_FIELDS, "geom", "water_class_id", ...LINEAGE_FIELDS],
+        warningFields: ["name_en", "name_mm", "class_code"],
+        fkChecks: [{ column: "water_class_id", refSchema: "ref", refTable: "ref_water_classes" }],
         geometry: {
             column: "geom",
             requiredType: ["Polygon", "MultiPolygon"],
@@ -314,6 +315,7 @@ export const IMPORT_REVIEW_SIMPLE_PROMOTION_REGISTRY: Record<
         promotionColumns: [
             "geom",
             "centroid",
+            "water_class_id",
             "class_code",
             "name_mm",
             "name_en",

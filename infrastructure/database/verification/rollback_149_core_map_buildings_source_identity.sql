@@ -12,14 +12,14 @@ BEGIN;
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '10min';
 
-DROP INDEX IF EXISTS core.core_map_buildings_source_identity_uidx;
+DROP INDEX IF EXISTS core.core_buildings_source_identity_uidx;
 
-ALTER TABLE core.core_map_buildings
-  DROP CONSTRAINT IF EXISTS core_map_buildings_source_feature_type_chk,
-  DROP CONSTRAINT IF EXISTS core_map_buildings_source_snapshot_id_fkey,
-  DROP CONSTRAINT IF EXISTS core_map_buildings_source_registry_id_fkey;
+ALTER TABLE core.core_buildings
+  DROP CONSTRAINT IF EXISTS core_buildings_source_feature_type_chk,
+  DROP CONSTRAINT IF EXISTS core_buildings_source_snapshot_id_fkey,
+  DROP CONSTRAINT IF EXISTS core_buildings_source_registry_id_fkey;
 
-ALTER TABLE core.core_map_buildings
+ALTER TABLE core.core_buildings
   DROP COLUMN IF EXISTS is_attributes_manually_edited,
   DROP COLUMN IF EXISTS is_geometry_manually_edited,
   DROP COLUMN IF EXISTS region_code,

@@ -1,5 +1,33 @@
 erDiagram
-  %% Inspected schemas (25): admin_qa, app, app_auth, auth, contrib, core, extensions, feedback, graphql, graphql_public, import_review, pgbouncer, public, realtime, ref, routing, search, share, storage, supabase_migrations, system, tiles, transit_export, transport, vault
+  %% Inspected schemas (26): admin_qa, app, app_auth, auth, community, contrib, core, extensions, feedback, graphql, graphql_public, import_review, pgbouncer, public, realtime, ref, routing, search, share, storage, supabase_migrations, system, tiles, transit_export, transport, vault
+  admin_qa_collect_data_gap_1 {
+    integer id PK
+    geometry geom
+    bigint fid
+    bigint core_id
+    bigint gap_id
+    character_varying name
+    character_varying fix_type
+    bigint parent_id
+    character_varying source
+    character_varying ref_note
+    character_varying note
+    geometry geom_fixed
+  }
+  admin_qa_collect_data_gap_3 {
+    integer id PK
+    geometry geom
+    bigint fid
+    bigint core_id
+    bigint gap_id
+    character_varying fix_type
+    character_varying name
+    bigint parent_id
+    character_varying source
+    character_varying ref_note
+    character_varying note
+    geometry geom_fixed
+  }
   admin_qa_corrected_township_gap5_invalid_points {
     bigint fid
     bigint core_id
@@ -23,6 +51,13 @@ erDiagram
     character_varying ref_note
     character_varying note
     geometry geom_fixed
+  }
+  admin_qa_inserted_admin_area_ids_gap1 {
+    integer staging_id PK
+    bigint staging_fid
+    text name
+    bigint new_core_id
+    timestamp_with_time_zone created_at
   }
   admin_qa_inserted_admin_area_ids_gap5 {
     bigint staging_fid PK
@@ -141,6 +176,7 @@ erDiagram
     text jwks_uri
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
+    text[] custom_claims_allowlist
   }
   auth_flow_state {
     uuid id PK
@@ -394,6 +430,39 @@ erDiagram
     timestamp_with_time_zone updated_at
     timestamp_with_time_zone last_used_at
   }
+  community_community_posts {
+    bigint id PK
+    uuid public_id
+    bigint author_id FK
+    text title
+    text description
+    text topic
+    post_status status
+    integer trust_score
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  community_notifications {
+    bigint id PK
+    uuid public_id
+    bigint user_id FK
+    notification_type type
+    text title
+    text message
+    bigint related_post_id FK
+    boolean is_read
+    timestamp_with_time_zone created_at
+    bigint actor_user_id FK
+    reaction_type reaction_type
+  }
+  community_post_reactions {
+    bigint id PK
+    bigint post_id FK
+    bigint user_id FK
+    reaction_type reaction_type
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
   contrib_point_ledger {
     bigint id PK
     bigint user_id FK
@@ -510,7 +579,7 @@ erDiagram
     boolean is_public_usable
     integer address_confidence_score
   }
-  core_core_map_building_names {
+  core_core_building_names {
     bigint id PK
     bigint building_id FK
     text name
@@ -522,7 +591,7 @@ erDiagram
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
   }
-  core_core_map_buildings {
+  core_core_buildings {
     bigint id PK
     bigint source_staging_id
     text external_id
@@ -549,8 +618,39 @@ erDiagram
     timestamp_with_time_zone verified_at
     bigint verified_by
     text verification_note
+    bigint source_registry_id FK
+    bigint source_snapshot_id FK
+    text source_feature_type
+    bigint source_feature_id
+    text region_code
+    boolean is_geometry_manually_edited
+    boolean is_attributes_manually_edited
   }
-  core_core_map_landuse {
+  core_core_coastlines {
+    bigint id PK
+    uuid public_id
+    geometry geom
+    text region_code
+    bigint source_registry_id FK
+    bigint source_snapshot_id FK
+    jsonb source_refs
+    boolean is_active
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  core_core_land_area_names {
+    bigint id PK
+    bigint land_area_id FK
+    text name
+    text language_code
+    text script_code
+    text name_type
+    boolean is_primary
+    integer search_weight
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  core_core_land_areas {
     bigint id PK
     bigint source_staging_id
     text external_id
@@ -569,7 +669,7 @@ erDiagram
     text verification_note
     timestamp_with_time_zone deleted_at
     uuid public_id
-    bigint landuse_class_id FK
+    bigint land_area_class_id FK
     bigint admin_area_id FK
     geometry centroid
     numeric area_m2
@@ -582,80 +682,11 @@ erDiagram
     boolean irrigated
     text seasonality
     text detail_level
-  }
-  core_core_map_landuse_names {
-    bigint id PK
-    bigint landuse_id FK
-    text name
-    text language_code
-    text script_code
-    text name_type
-    boolean is_primary
-    integer search_weight
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-  }
-  core_core_map_water_line_names {
-    bigint id PK
-    bigint water_line_id FK
-    text name
-    text language_code
-    text script_code
-    text name_type
-    boolean is_primary
-    integer search_weight
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-  }
-  core_core_map_water_lines {
-    bigint id PK
-    bigint source_staging_id
-    text external_id
-    text name
-    text class_code
-    jsonb normalized_data
-    jsonb source_refs
-    geometry geom
-    boolean is_active
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-    boolean is_verified
-    text verification_status
-    timestamp_with_time_zone verified_at
-    bigint verified_by
-    text verification_note
-    timestamp_with_time_zone deleted_at
-  }
-  core_core_map_water_polygon_names {
-    bigint id PK
-    bigint water_polygon_id FK
-    text name
-    text language_code
-    text script_code
-    text name_type
-    boolean is_primary
-    integer search_weight
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-  }
-  core_core_map_water_polygons {
-    bigint id PK
-    bigint source_staging_id
-    text external_id
-    text name
-    text class_code
-    jsonb normalized_data
-    jsonb source_refs
-    geometry geom
-    boolean is_active
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-    boolean is_verified
-    text verification_status
-    timestamp_with_time_zone verified_at
-    bigint verified_by
-    text verification_note
-    timestamp_with_time_zone deleted_at
+    bigint source_registry_id FK
+    bigint source_snapshot_id FK
+    text source_feature_type
+    bigint source_feature_id
+    text region_code
   }
   core_core_place_addresses {
     bigint place_id PK, FK
@@ -744,6 +775,49 @@ erDiagram
     bigint verified_by
     text verification_note
   }
+  core_core_protected_area_names {
+    bigint id PK
+    bigint protected_area_id FK
+    text name
+    text language_code
+    text script_code
+    text name_type
+    boolean is_primary
+    integer search_weight
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  core_core_protected_areas {
+    bigint id PK
+    uuid public_id
+    bigint protected_area_class_id FK
+    bigint admin_area_id FK
+    geometry geom
+    geometry centroid
+    numeric area_m2
+    text external_id
+    bigint source_registry_id FK
+    bigint source_snapshot_id FK
+    text source_feature_type
+    bigint source_feature_id
+    text region_code
+    jsonb source_tags
+    jsonb source_refs
+    jsonb normalized_data
+    numeric confidence_score
+    boolean is_verified
+    text verification_status
+    timestamp_with_time_zone verified_at
+    bigint verified_by
+    text verification_note
+    boolean manual_override
+    boolean is_active
+    timestamp_with_time_zone deleted_at
+    bigint created_by
+    bigint updated_by
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
   core_core_street_names {
     bigint id PK
     bigint street_id FK
@@ -795,6 +869,82 @@ erDiagram
     timestamp_with_time_zone verified_at
     bigint verified_by
     text verification_note
+    text travel_direction
+    jsonb access_rules
+  }
+  core_core_water_line_names {
+    bigint id PK
+    bigint water_line_id FK
+    text name
+    text language_code
+    text script_code
+    text name_type
+    boolean is_primary
+    integer search_weight
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  core_core_water_lines {
+    bigint id PK
+    bigint source_staging_id
+    text external_id
+    text name
+    text class_code
+    jsonb normalized_data
+    jsonb source_refs
+    geometry geom
+    boolean is_active
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    boolean is_verified
+    text verification_status
+    timestamp_with_time_zone verified_at
+    bigint verified_by
+    text verification_note
+    timestamp_with_time_zone deleted_at
+    bigint water_class_id FK
+    bigint source_registry_id FK
+    bigint source_snapshot_id FK
+    text source_feature_type
+    bigint source_feature_id
+    text region_code
+  }
+  core_core_water_polygon_names {
+    bigint id PK
+    bigint water_polygon_id FK
+    text name
+    text language_code
+    text script_code
+    text name_type
+    boolean is_primary
+    integer search_weight
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  core_core_water_polygons {
+    bigint id PK
+    bigint source_staging_id
+    text external_id
+    text name
+    text class_code
+    jsonb normalized_data
+    jsonb source_refs
+    geometry geom
+    boolean is_active
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    boolean is_verified
+    text verification_status
+    timestamp_with_time_zone verified_at
+    bigint verified_by
+    text verification_note
+    timestamp_with_time_zone deleted_at
+    bigint water_class_id FK
+    bigint source_registry_id FK
+    bigint source_snapshot_id FK
+    text source_feature_type
+    bigint source_feature_id
+    text region_code
   }
   feedback_report_followups {
     bigint id PK
@@ -1045,7 +1195,7 @@ erDiagram
     text name_mm
     text name_en
   }
-  import_review_landuse_candidates {
+  import_review_land_area_candidates {
     bigint id PK
     uuid public_id
     bigint review_batch_id FK
@@ -1086,10 +1236,11 @@ erDiagram
     text name
     geometry geom
     geometry centroid
-    bigint landuse_class_id FK
+    bigint land_area_class_id FK
     text name_mm
     text name_en
     jsonb review_overrides_archive
+    bigint admin_area_id FK
   }
   import_review_place_address_links {
     bigint id PK
@@ -1175,6 +1326,53 @@ erDiagram
     jsonb review_overrides_archive
     text name_mm
     text name_en
+  }
+  import_review_protected_area_candidates {
+    bigint id PK
+    uuid public_id
+    bigint review_batch_id FK
+    text source_snapshot_version
+    bigint source_snapshot_id_local
+    bigint local_staging_id
+    text entity_family
+    text external_id
+    text canonical_name
+    text class_code
+    bigint protected_area_class_id FK
+    bigint admin_area_id FK
+    numeric confidence_score
+    text match_status
+    text auto_action
+    text review_status
+    text review_decision
+    text review_note
+    bigint reviewed_by FK
+    timestamp_with_time_zone reviewed_at
+    bigint assigned_to FK
+    bigint locked_by FK
+    timestamp_with_time_zone locked_at
+    timestamp_with_time_zone lock_expires_at
+    jsonb normalized_data
+    jsonb source_refs
+    jsonb review_overrides_archive
+    bigint matched_core_id
+    text matched_core_table
+    jsonb matched_core_data
+    jsonb f1_comparison
+    jsonb f2_comparison
+    jsonb validation_warnings
+    jsonb validation_errors
+    text promotion_status
+    bigint promoted_core_id
+    timestamp_with_time_zone promoted_at
+    bigint promoted_by FK
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text name
+    text name_mm
+    text name_en
+    geometry geom
+    geometry centroid
   }
   import_review_review_batches {
     bigint id PK
@@ -1420,6 +1618,7 @@ erDiagram
     jsonb review_overrides_archive
     text name_mm
     text name_en
+    bigint water_class_id FK
   }
   import_review_water_polygon_candidates {
     bigint id PK
@@ -1465,6 +1664,17 @@ erDiagram
     jsonb review_overrides_archive
     text name_mm
     text name_en
+    bigint water_class_id FK
+  }
+  public__prisma_migrations {
+    character_varying id PK
+    character_varying checksum
+    timestamp_with_time_zone finished_at
+    character_varying migration_name
+    text logs
+    timestamp_with_time_zone rolled_back_at
+    timestamp_with_time_zone started_at
+    integer applied_steps_count
   }
   public_spatial_ref_sys {
     integer srid PK
@@ -1485,7 +1695,7 @@ erDiagram
     bytea binary_payload
   }
   realtime_schema_migrations {
-    bigint version PK
+    bigint version
     timestamp_without_time_zone inserted_at
   }
   realtime_subscription {
@@ -1575,7 +1785,7 @@ erDiagram
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
   }
-  ref_ref_landuse_classes {
+  ref_ref_land_area_classes {
     bigint id PK
     text code
     text name_en
@@ -1604,6 +1814,17 @@ erDiagram
     boolean is_public
     timestamp_with_time_zone created_at
     text name_mm
+  }
+  ref_ref_protected_area_classes {
+    bigint id PK
+    text code
+    text name_en
+    text name_mm
+    integer sort_order
+    boolean is_public
+    boolean is_active
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
   }
   ref_ref_publish_statuses {
     bigint id PK
@@ -1650,6 +1871,19 @@ erDiagram
     text name
     timestamp_with_time_zone created_at
   }
+  ref_ref_water_classes {
+    bigint id PK
+    text code
+    text name_en
+    text name_mm
+    bigint parent_id FK
+    integer sort_order
+    numeric min_zoom
+    boolean is_public
+    boolean is_active
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
   routing_routing_barriers {
     bigint id PK
     uuid public_id
@@ -1666,6 +1900,12 @@ erDiagram
     text verification_note
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
+    jsonb access_rules
+    bigint source_registry_id FK
+    bigint source_snapshot_id FK
+    text source_feature_type
+    bigint source_feature_id
+    text external_id
   }
   routing_routing_build_artifacts {
     bigint id PK
@@ -1833,6 +2073,33 @@ erDiagram
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
   }
+  routing_routing_turn_restrictions {
+    bigint id PK
+    uuid public_id
+    text restriction_type
+    bigint from_street_id FK
+    bigint to_street_id FK
+    text via_node_external_id
+    bigint via_street_id FK
+    geometry via_geom
+    text[] except_modes
+    text condition
+    bigint source_registry_id FK
+    bigint source_snapshot_id FK
+    text source_feature_type
+    bigint source_feature_id
+    text external_id
+    jsonb source_refs
+    jsonb normalized_data
+    boolean is_active
+    boolean is_verified
+    text verification_status
+    timestamp_with_time_zone verified_at
+    bigint verified_by
+    text verification_note
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
   routing_routing_validation_reports {
     bigint id PK
     bigint build_job_id FK
@@ -1874,6 +2141,18 @@ erDiagram
     text[] types
     integer result_count
     timestamp_with_time_zone created_at
+    timestamp_with_time_zone first_seen_at
+    timestamp_with_time_zone last_seen_at
+    integer occurrence_count
+    text category
+    text transport_type
+    text transport_mode
+    text entity_types_key
+    text area_context_key
+    text dedupe_key
+    timestamp_with_time_zone resolved_at
+    text resolution_type
+    bigint linked_alias_id FK
   }
   search_search_addresses {
     bigint id PK
@@ -1883,6 +2162,20 @@ erDiagram
     text language_code
     jsonb tokens
     geometry point_geom
+    timestamp_with_time_zone updated_at
+  }
+  search_search_aliases {
+    bigint id PK
+    text entity_type
+    bigint entity_id
+    text alias_text
+    text normalized_alias
+    text language_code
+    text alias_type
+    text source
+    boolean is_active
+    bigint created_by
+    timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
   }
   search_search_document_names {
@@ -1959,6 +2252,28 @@ erDiagram
     bigint admin_area_id
     jsonb source_refs
     timestamp_with_time_zone updated_at
+  }
+  search_search_request_events {
+    bigint id PK
+    uuid correlation_id
+    text normalized_query
+    text lang
+    text category
+    text transport_type
+    text transport_mode
+    integer result_count
+    integer latency_ms
+    text session_key
+    timestamp_with_time_zone created_at
+  }
+  search_search_result_click_events {
+    bigint id PK
+    uuid search_correlation_id
+    text entity_type
+    bigint entity_id
+    integer clicked_rank
+    integer time_to_click_ms
+    timestamp_with_time_zone created_at
   }
   share_share_links {
     bigint id PK
@@ -2095,6 +2410,257 @@ erDiagram
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
   }
+  system_migration_156_water_class_anomalies {
+    text entity_table PK
+    bigint entity_id PK
+    text legacy_class_code
+    text tag_waterway
+    text tag_water
+    text tag_natural
+    text resolved_code
+    text reason
+    timestamp_with_time_zone created_at
+  }
+  system_repair_admin_areas_before_202607 {
+    bigint id PK
+    bigint parent_id
+    bigint admin_level_id
+    bigint admin_area_type_id
+    timestamp_with_time_zone updated_at
+    text verification_status
+    boolean is_verified
+    timestamp_with_time_zone repaired_at
+  }
+  system_repair_admin_assign_pbl_20260724 {
+    text entity_family PK
+    bigint entity_id PK
+    bigint old_admin_area_id
+    bigint new_admin_area_id
+    timestamp_with_time_zone old_updated_at
+    timestamp_with_time_zone backed_up_at
+  }
+  system_repair_admin_assign_streets_20260724 {
+    bigint entity_id PK
+    bigint old_admin_area_id
+    bigint new_admin_area_id
+    double_precision overlap_m
+    double_precision second_m
+    text action
+    text reason
+    timestamp_with_time_zone old_updated_at
+    timestamp_with_time_zone backed_up_at
+  }
+  system_repair_admin_links_before_202607 {
+    text entity_family PK
+    bigint entity_id PK
+    bigint admin_area_id
+    timestamp_with_time_zone updated_at
+    timestamp_with_time_zone repaired_at
+  }
+  system_repair_dup_admin_areas_20260724 {
+    bigint id PK
+    text canonical_name
+    bigint parent_id
+    bigint admin_level_id
+    bigint admin_area_type_id
+    boolean is_active
+    timestamp_with_time_zone deleted_at
+    timestamp_with_time_zone updated_at
+    boolean is_verified
+    text verification_status
+    text geom_hash
+    text role
+    timestamp_with_time_zone repaired_at
+  }
+  system_repair_dup_fk_backup_20260724 {
+    bigint id PK
+    text source_table
+    bigint source_pk
+    text column_name
+    bigint old_admin_area_id
+    bigint new_admin_area_id
+    jsonb snapshot
+    timestamp_with_time_zone repaired_at
+  }
+  system_repair_final_fk_backup_20260724 {
+    bigint admin_area_id PK
+    text ref_table PK
+    bigint ref_count
+    int8[] sample_ids
+    timestamp_with_time_zone backed_up_at
+  }
+  system_repair_major_overlap_admin_areas_20260724 {
+    bigint id PK
+    text pair_id
+    text role
+    text canonical_name
+    bigint parent_id
+    bigint admin_level_id
+    bigint admin_area_type_id
+    boolean is_active
+    timestamp_with_time_zone deleted_at
+    boolean is_verified
+    text verification_status
+    geometry geom
+    text geom_hash
+    double_precision area_m2
+    timestamp_with_time_zone updated_at
+    timestamp_with_time_zone repaired_at
+  }
+  system_repair_major_overlap_apply_log_20260724 {
+    bigint id PK
+    text pair_id
+    bigint loser_id
+    bigint keeper_id
+    double_precision area_before_m2
+    double_precision area_after_m2
+    double_precision area_removed_m2
+    double_precision union_old_minus_new_m2
+    double_precision union_new_minus_old_m2
+    double_precision remaining_overlap_m2
+    double_precision third_party_overlap_increase_m2
+    timestamp_with_time_zone applied_at
+  }
+  system_repair_remaining_admin_backup_20260722 {
+    text entity_family PK
+    bigint entity_id PK
+    bigint admin_area_id
+    timestamp_with_time_zone updated_at
+    timestamp_with_time_zone repaired_at
+  }
+  system_repair_remaining_admin_queue_20260722 {
+    text entity_family PK
+    bigint entity_id PK
+    text status
+    bigint old_admin_area_id
+    bigint new_admin_area_id
+    text reason
+    timestamp_with_time_zone processed_at
+    timestamp_with_time_zone created_at
+  }
+  system_repair_remaining_road_backup_20260722 {
+    bigint street_id PK
+    boolean bridge
+    timestamp_with_time_zone updated_at
+    timestamp_with_time_zone repaired_at
+  }
+  system_repair_review_backlog_before_202607 {
+    text entity_family PK
+    bigint entity_id PK
+    text field_name PK
+    text old_value
+    text new_value
+    timestamp_with_time_zone repaired_at
+  }
+  system_repair_shan_cluster_admin_areas_20260724 {
+    bigint id PK
+    text role
+    text canonical_name
+    bigint parent_id
+    bigint admin_level_id
+    bigint admin_area_type_id
+    boolean is_active
+    timestamp_with_time_zone deleted_at
+    boolean is_verified
+    text verification_status
+    geometry geom
+    text geom_hash
+    double_precision area_m2
+    timestamp_with_time_zone updated_at
+    timestamp_with_time_zone repaired_at
+  }
+  system_repair_shan_cluster_apply_log_20260724 {
+    bigint id PK
+    bigint loser_id
+    double_precision area_before_m2
+    double_precision area_after_m2
+    double_precision area_removed_m2
+    double_precision five_union_old_minus_new_m2
+    double_precision five_union_new_minus_old_m2
+    timestamp_with_time_zone applied_at
+  }
+  system_repair_small_core_before_202607 {
+    text entity_family PK
+    bigint entity_id PK
+    text field_name PK
+    text old_value
+    text new_value
+    timestamp_with_time_zone repaired_at
+  }
+  system_repair_street_names_before_202607 {
+    bigint id PK
+    bigint street_id
+    text name_type
+    boolean is_primary
+    timestamp_with_time_zone repaired_at
+  }
+  system_repair_streets_attrs_before_202607 {
+    bigint id PK
+    boolean is_oneway
+    boolean bridge
+    boolean tunnel
+    integer layer
+    text surface
+    boolean manual_override
+    boolean is_verified
+    timestamp_with_time_zone updated_at
+    timestamp_with_time_zone repaired_at
+  }
+  system_repair_streets_road_class_before_202607 {
+    bigint id PK
+    text road_class
+    bigint road_class_id
+    boolean manual_override
+    boolean is_verified
+    text verification_status
+    timestamp_with_time_zone updated_at
+    timestamp_with_time_zone repaired_at
+  }
+  system_repair_township_catalogue_reclass_20260724 {
+    bigint id PK
+    text canonical_name
+    bigint parent_id
+    bigint admin_level_id
+    bigint admin_area_type_id
+    timestamp_with_time_zone updated_at
+    boolean is_active
+    timestamp_with_time_zone deleted_at
+    text geom_hash
+    text classification_label
+    text proposed_level
+    text proposed_type
+    timestamp_with_time_zone repaired_at
+  }
+  system_repair_township_overlap_final_admin_areas_20260724 {
+    bigint id PK
+    text role
+    text canonical_name
+    bigint parent_id
+    bigint admin_level_id
+    bigint admin_area_type_id
+    boolean is_active
+    timestamp_with_time_zone deleted_at
+    geometry geom
+    text geom_hash
+    double_precision area_m2
+    timestamp_with_time_zone updated_at
+    timestamp_with_time_zone repaired_at
+  }
+  system_repair_township_overlap_final_apply_log_20260724 {
+    bigint id PK
+    text pair_id
+    text action_type
+    int8[] loser_ids
+    int8[] keeper_ids
+    double_precision area_removed_m2
+    double_precision remaining_overlap_m2
+    double_precision union_old_minus_new_m2
+    double_precision union_new_minus_old_m2
+    double_precision third_party_increase_m2
+    text status
+    text detail
+    timestamp_with_time_zone applied_at
+  }
   system_system_conflict_queue {
     bigint id PK
     bigint diff_item_id FK
@@ -2186,6 +2752,9 @@ erDiagram
     jsonb validation_result
     text error_message
     timestamp_with_time_zone published_at
+    text review_decision
+    bigint applied_by
+    text source_snapshot_version
   }
   system_system_publish_stage_logs {
     bigint id PK
@@ -2345,6 +2914,10 @@ erDiagram
     boolean is_active
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
+    bigint origin_stop_id FK
+    bigint destination_stop_id FK
+    text fare_class
+    text raw_fare_text
   }
   transport_import_batches {
     bigint id PK
@@ -2457,6 +3030,12 @@ erDiagram
     jsonb normalized_data
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
+    geometry review_geom
+    jsonb review_geometry_data
+    integer travel_time_from_previous_seconds
+    text source_time_text
+    text source_time_type
+    integer waiting_time_seconds
   }
   transport_route_unification_plan {
     bigint id PK
@@ -3030,7 +3609,79 @@ erDiagram
     timestamp_with_time_zone source_updated_at
     jsonb names
   }
+  search_v_search_protected_areas_source {
+    text entity_type
+    bigint entity_id
+    text public_id
+    text display_name
+    text subtitle
+    text primary_name_my
+    text primary_name_en
+    text primary_name_und
+    text code
+    text external_id
+    text category_code
+    text category_name_my
+    text category_name_en
+    bigint admin_area_id
+    text admin_area_name_my
+    text admin_area_name_en
+    jsonb admin_hierarchy
+    text address_text
+    jsonb address_parts
+    text geometry_type
+    geometry centroid
+    geometry bbox
+    boolean has_geometry
+    boolean supports_plus_code
+    text searchable_text
+    numeric importance_score
+    numeric popularity_score
+    numeric confidence_score
+    numeric boundary_confidence_score
+    boolean is_verified
+    boolean is_public
+    boolean is_active
+    timestamp_with_time_zone source_updated_at
+    jsonb names
+  }
   search_v_search_street_groups_source {
+    text entity_type
+    bigint entity_id
+    text public_id
+    text display_name
+    text subtitle
+    text primary_name_my
+    text primary_name_en
+    text primary_name_und
+    text code
+    text external_id
+    text category_code
+    text category_name_my
+    text category_name_en
+    bigint admin_area_id
+    text admin_area_name_my
+    text admin_area_name_en
+    jsonb admin_hierarchy
+    text address_text
+    jsonb address_parts
+    text geometry_type
+    geometry centroid
+    geometry bbox
+    boolean has_geometry
+    boolean supports_plus_code
+    text searchable_text
+    numeric importance_score
+    numeric popularity_score
+    numeric confidence_score
+    numeric boundary_confidence_score
+    boolean is_verified
+    boolean is_public
+    boolean is_active
+    timestamp_with_time_zone source_updated_at
+    jsonb names
+  }
+  search_v_search_transport_terminals_source {
     text entity_type
     bigint entity_id
     text public_id
@@ -3179,6 +3830,8 @@ erDiagram
     uuid public_id
     text name_mm
     text name_en
+    text name_und
+    text name_my
     text name
     bigint building_type_id
     text building_type
@@ -3194,10 +3847,20 @@ erDiagram
     bigint admin_area_id
     text admin_area_name
   }
+  tiles_tiles_coastlines_v {
+    bigint id
+    uuid public_id
+    text region_code
+    bigint source_snapshot_id
+    geometry geom
+  }
   tiles_tiles_landuse_v {
     bigint id
     text name
     text landuse_class
+    text land_area_class_code
+    text land_area_class_name_en
+    text land_area_class_name_mm
     geometry geom
   }
   tiles_tiles_places_v {
@@ -3211,6 +3874,14 @@ erDiagram
     boolean is_public
     boolean is_verified
     timestamp_with_time_zone updated_at
+    geometry geom
+  }
+  tiles_tiles_protected_areas_v {
+    bigint id
+    uuid public_id
+    text protected_area_class
+    text protected_area_class_code
+    text name
     geometry geom
   }
   tiles_tiles_road_labels_v {
@@ -3265,12 +3936,18 @@ erDiagram
     bigint id
     text name
     text waterway_class
+    text water_class_code
+    text water_class_name_en
+    text water_class_name_mm
     geometry geom
   }
   tiles_tiles_water_polygons_v {
     bigint id
     text name
     text water_class
+    text water_class_code
+    text water_class_name_en
+    text water_class_name_mm
     geometry geom
   }
   tiles_transport_infrastructure_lines_v {
@@ -3331,6 +4008,111 @@ erDiagram
     text review_status
     geometry geom
   }
+  transport_train_fares_simple_v {
+    bigint fare_id
+    bigint route_id
+    text route_code
+    text public_name
+    bigint route_variant_id
+    text variant_code
+    text fare_type
+    text fare_class
+    numeric exact_amount
+    numeric amount_min
+    numeric amount_max
+    text display_amount
+    text currency_code
+    text raw_fare_text
+    text note
+    bigint origin_stop_id
+    text origin_stop_name
+    text origin_stop_name_mm
+    bigint destination_stop_id
+    text destination_stop_name
+    text destination_stop_name_mm
+    text review_status
+    boolean is_active
+    numeric confidence_score
+    jsonb source_refs
+    jsonb normalized_data
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  transport_train_legacy_data_v {
+    text entity_type
+    bigint entity_id
+    text code
+    text name
+    text review_status
+    boolean is_active
+    jsonb source_refs
+    jsonb normalized_data
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    timestamp_with_time_zone deleted_at
+  }
+  transport_train_legacy_paths_v {
+    bigint legacy_route_path_id
+    bigint legacy_route_id
+    text legacy_route_code
+    text legacy_route_name
+    bigint legacy_route_variant_id
+    text legacy_variant_code
+    text path_kind
+    geometry geom
+    numeric distance_m
+    numeric confidence_score
+    text review_status
+    jsonb source_refs
+    jsonb normalized_data
+  }
+  transport_train_route_stop_sequence_v {
+    bigint route_id
+    text route_code
+    text public_name
+    bigint route_variant_id
+    text variant_code
+    text direction_name
+    text origin_name
+    text destination_name
+    bigint route_stop_id
+    integer stop_sequence
+    bigint stop_id
+    text stop_code
+    text name
+    text name_mm
+    text name_en
+    text stop_type
+    geometry geom
+    integer travel_time_from_previous_seconds
+    integer arrival_offset_seconds
+    integer departure_offset_seconds
+    text source_time_text
+    text source_time_type
+    numeric distance_from_start_m
+    boolean is_timing_point
+    jsonb source_refs
+    jsonb normalized_data
+  }
+  transport_train_station_geometry_pool_v {
+    bigint stop_id
+    uuid public_id
+    text stop_code
+    text name
+    text name_mm
+    text name_en
+    text stop_type
+    geometry geom
+    bigint admin_area_id
+    numeric confidence_score
+    text review_status
+    boolean is_active
+    jsonb source_refs
+    jsonb normalized_data
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    timestamp_with_time_zone deleted_at
+  }
   vault_decrypted_secrets {
     uuid id
     text name
@@ -3350,6 +4132,12 @@ erDiagram
   app_auth_auth_users ||--o{ app_auth_email_verification_otps : "user_id"
   core_core_admin_areas ||--o{ app_user_saved_places : "admin_area_id"
   app_auth_auth_users ||--o{ app_user_saved_places : "user_id"
+  app_auth_auth_users ||--o{ community_community_posts : "author_id"
+  app_auth_auth_users ||--o{ community_notifications : "actor_user_id"
+  community_community_posts ||--o{ community_notifications : "related_post_id"
+  app_auth_auth_users ||--o{ community_notifications : "user_id"
+  community_community_posts ||--o{ community_post_reactions : "post_id"
+  app_auth_auth_users ||--o{ community_post_reactions : "user_id"
   app_auth_auth_users ||--o{ contrib_point_ledger : "created_by"
   app_auth_auth_users ||--o{ contrib_point_ledger : "user_id"
   app_auth_auth_users ||--o{ contrib_user_point_summary : "user_id"
@@ -3363,17 +4151,21 @@ erDiagram
   ref_ref_admin_levels ||--o{ core_core_admin_areas : "admin_level_id"
   core_core_admin_areas ||--o{ core_core_admin_areas : "parent_id"
   ref_ref_source_types ||--o{ core_core_admin_areas : "source_type_id"
-  core_core_map_buildings ||--o{ core_core_map_building_names : "building_id"
-  core_core_admin_areas ||--o{ core_core_map_buildings : "admin_area_id"
-  ref_ref_building_types ||--o{ core_core_map_buildings : "building_type_id"
-  core_core_admin_areas ||--o{ core_core_map_landuse : "admin_area_id"
-  ref_ref_landuse_classes ||--o{ core_core_map_landuse : "landuse_class_id"
-  core_core_map_landuse ||--o{ core_core_map_landuse_names : "landuse_id"
-  core_core_map_water_lines ||--o{ core_core_map_water_line_names : "water_line_id"
-  core_core_map_water_polygons ||--o{ core_core_map_water_polygon_names : "water_polygon_id"
+  core_core_buildings ||--o{ core_core_building_names : "building_id"
+  core_core_admin_areas ||--o{ core_core_buildings : "admin_area_id"
+  ref_ref_building_types ||--o{ core_core_buildings : "building_type_id"
+  system_system_source_registry ||--o{ core_core_buildings : "source_registry_id"
+  system_system_source_snapshots ||--o{ core_core_buildings : "source_snapshot_id"
+  system_system_source_registry ||--o{ core_core_coastlines : "source_registry_id"
+  system_system_source_snapshots ||--o{ core_core_coastlines : "source_snapshot_id"
+  core_core_land_areas ||--o{ core_core_land_area_names : "land_area_id"
+  core_core_admin_areas ||--o{ core_core_land_areas : "admin_area_id"
+  ref_ref_land_area_classes ||--o{ core_core_land_areas : "land_area_class_id"
+  system_system_source_registry ||--o{ core_core_land_areas : "source_registry_id"
+  system_system_source_snapshots ||--o{ core_core_land_areas : "source_snapshot_id"
   core_core_addresses ||--o{ core_core_place_addresses : "address_id"
   core_core_places ||--o{ core_core_place_addresses : "place_id"
-  core_core_map_buildings ||--o{ core_core_place_buildings : "building_id"
+  core_core_buildings ||--o{ core_core_place_buildings : "building_id"
   core_core_places ||--o{ core_core_place_buildings : "place_id"
   core_core_places ||--o{ core_core_place_contacts : "place_id"
   core_core_places ||--o{ core_core_place_names : "place_id"
@@ -3386,12 +4178,24 @@ erDiagram
   core_core_place_versions ||--o{ core_core_places : "current_version_id"
   ref_ref_publish_statuses ||--o{ core_core_places : "publish_status_id"
   ref_ref_source_types ||--o{ core_core_places : "source_type_id"
+  core_core_protected_areas ||--o{ core_core_protected_area_names : "protected_area_id"
+  core_core_admin_areas ||--o{ core_core_protected_areas : "admin_area_id"
+  ref_ref_protected_area_classes ||--o{ core_core_protected_areas : "protected_area_class_id"
+  system_system_source_registry ||--o{ core_core_protected_areas : "source_registry_id"
+  system_system_source_snapshots ||--o{ core_core_protected_areas : "source_snapshot_id"
   core_core_streets ||--o{ core_core_street_names : "street_id"
   core_core_streets ||--o{ core_core_street_versions : "street_id"
   core_core_admin_areas ||--o{ core_core_streets : "admin_area_id"
   ref_ref_road_classes ||--o{ core_core_streets : "road_class_id"
   ref_ref_source_types ||--o{ core_core_streets : "source_type_id"
-  core_core_admin_areas ||--o{ core_core_map_buildings : "admin_area_id"
+  core_core_water_lines ||--o{ core_core_water_line_names : "water_line_id"
+  system_system_source_registry ||--o{ core_core_water_lines : "source_registry_id"
+  system_system_source_snapshots ||--o{ core_core_water_lines : "source_snapshot_id"
+  ref_ref_water_classes ||--o{ core_core_water_lines : "water_class_id"
+  core_core_water_polygons ||--o{ core_core_water_polygon_names : "water_polygon_id"
+  system_system_source_registry ||--o{ core_core_water_polygons : "source_registry_id"
+  system_system_source_snapshots ||--o{ core_core_water_polygons : "source_snapshot_id"
+  ref_ref_water_classes ||--o{ core_core_water_polygons : "water_class_id"
   app_auth_auth_users ||--o{ feedback_report_followups : "actor_user_id"
   feedback_user_reports ||--o{ feedback_report_followups : "report_id"
   app_auth_auth_users ||--o{ feedback_report_status_events : "actor_user_id"
@@ -3413,7 +4217,7 @@ erDiagram
   app_auth_auth_users ||--o{ import_review_address_candidates : "assigned_to"
   app_auth_auth_users ||--o{ import_review_address_candidates : "locked_by"
   core_core_admin_areas ||--o{ import_review_address_candidates : "matched_admin_area_id"
-  core_core_map_buildings ||--o{ import_review_address_candidates : "matched_building_id"
+  core_core_buildings ||--o{ import_review_address_candidates : "matched_building_id"
   core_core_places ||--o{ import_review_address_candidates : "matched_place_id"
   core_core_streets ||--o{ import_review_address_candidates : "matched_street_id"
   app_auth_auth_users ||--o{ import_review_address_candidates : "promoted_by"
@@ -3432,11 +4236,16 @@ erDiagram
   app_auth_auth_users ||--o{ import_review_building_candidates : "locked_by"
   app_auth_auth_users ||--o{ import_review_building_candidates : "promoted_by"
   app_auth_auth_users ||--o{ import_review_building_candidates : "reviewed_by"
-  app_auth_auth_users ||--o{ import_review_landuse_candidates : "assigned_to"
-  ref_ref_landuse_classes ||--o{ import_review_landuse_candidates : "landuse_class_id"
-  app_auth_auth_users ||--o{ import_review_landuse_candidates : "locked_by"
-  app_auth_auth_users ||--o{ import_review_landuse_candidates : "promoted_by"
-  app_auth_auth_users ||--o{ import_review_landuse_candidates : "reviewed_by"
+  core_core_admin_areas ||--o{ import_review_land_area_candidates : "admin_area_id"
+  ref_ref_land_area_classes ||--o{ import_review_land_area_candidates : "land_area_class_id"
+  app_auth_auth_users ||--o{ import_review_land_area_candidates : "assigned_to"
+  app_auth_auth_users ||--o{ import_review_land_area_candidates : "locked_by"
+  app_auth_auth_users ||--o{ import_review_land_area_candidates : "promoted_by"
+  app_auth_auth_users ||--o{ import_review_land_area_candidates : "reviewed_by"
+  app_auth_auth_users ||--o{ import_review_protected_area_candidates : "assigned_to"
+  app_auth_auth_users ||--o{ import_review_protected_area_candidates : "locked_by"
+  app_auth_auth_users ||--o{ import_review_protected_area_candidates : "promoted_by"
+  app_auth_auth_users ||--o{ import_review_protected_area_candidates : "reviewed_by"
   import_review_address_candidates ||--o{ import_review_place_address_links : "address_candidate_id"
   import_review_place_candidates ||--o{ import_review_place_address_links : "place_candidate_id"
   import_review_review_batches ||--o{ import_review_place_address_links : "review_batch_id"
@@ -3469,12 +4278,17 @@ erDiagram
   app_auth_auth_users ||--o{ import_review_water_line_candidates : "locked_by"
   app_auth_auth_users ||--o{ import_review_water_line_candidates : "promoted_by"
   app_auth_auth_users ||--o{ import_review_water_line_candidates : "reviewed_by"
+  ref_ref_water_classes ||--o{ import_review_water_line_candidates : "water_class_id"
   app_auth_auth_users ||--o{ import_review_water_polygon_candidates : "assigned_to"
   app_auth_auth_users ||--o{ import_review_water_polygon_candidates : "locked_by"
   app_auth_auth_users ||--o{ import_review_water_polygon_candidates : "promoted_by"
   app_auth_auth_users ||--o{ import_review_water_polygon_candidates : "reviewed_by"
-  import_review_review_batches ||--o{ import_review_landuse_candidates : "review_batch_id"
+  ref_ref_water_classes ||--o{ import_review_water_polygon_candidates : "water_class_id"
+  import_review_review_batches ||--o{ import_review_land_area_candidates : "review_batch_id"
   import_review_review_batches ||--o{ import_review_place_candidates : "review_batch_id"
+  core_core_admin_areas ||--o{ import_review_protected_area_candidates : "admin_area_id"
+  ref_ref_protected_area_classes ||--o{ import_review_protected_area_candidates : "protected_area_class_id"
+  import_review_review_batches ||--o{ import_review_protected_area_candidates : "review_batch_id"
   app_auth_auth_users ||--o{ import_review_review_batches : "uploaded_by"
   import_review_review_batches ||--o{ import_review_review_candidate_edits : "review_batch_id"
   import_review_review_batches ||--o{ import_review_review_comments : "review_batch_id"
@@ -3486,9 +4300,12 @@ erDiagram
   import_review_review_batches ||--o{ import_review_water_polygon_candidates : "review_batch_id"
   ref_ref_address_usage_types ||--o{ ref_ref_boundary_statuses : "default_address_usage_code"
   ref_ref_building_types ||--o{ ref_ref_building_types : "parent_id"
-  ref_ref_landuse_classes ||--o{ ref_ref_landuse_classes : "parent_id"
+  ref_ref_land_area_classes ||--o{ ref_ref_land_area_classes : "parent_id"
   ref_ref_poi_categories ||--o{ ref_ref_poi_categories : "parent_id"
+  ref_ref_water_classes ||--o{ ref_ref_water_classes : "parent_id"
   core_core_streets ||--o{ routing_routing_barriers : "core_street_id"
+  system_system_source_registry ||--o{ routing_routing_barriers : "source_registry_id"
+  system_system_source_snapshots ||--o{ routing_routing_barriers : "source_snapshot_id"
   routing_routing_builds ||--o{ routing_routing_build_artifacts : "routing_build_id"
   routing_routing_profiles ||--o{ routing_routing_build_jobs : "profile_code"
   system_system_publish_batches ||--o{ routing_routing_build_jobs : "source_publish_batch_id"
@@ -3502,12 +4319,18 @@ erDiagram
   routing_routing_profiles ||--o{ routing_routing_requests : "profile_code"
   routing_routing_builds ||--o{ routing_routing_requests : "routing_build_id"
   routing_routing_engine_configs ||--o{ routing_routing_service_health : "engine_code"
+  core_core_streets ||--o{ routing_routing_turn_restrictions : "from_street_id"
+  system_system_source_registry ||--o{ routing_routing_turn_restrictions : "source_registry_id"
+  system_system_source_snapshots ||--o{ routing_routing_turn_restrictions : "source_snapshot_id"
+  core_core_streets ||--o{ routing_routing_turn_restrictions : "to_street_id"
+  core_core_streets ||--o{ routing_routing_turn_restrictions : "via_street_id"
   routing_routing_build_jobs ||--o{ routing_routing_validation_reports : "build_job_id"
   core_core_streets ||--o{ routing_routing_validation_reports : "core_street_id"
   routing_routing_builds ||--o{ routing_routing_validation_reports : "routing_build_id"
   core_core_addresses ||--o{ search_address_index : "address_id"
   core_core_admin_areas ||--o{ search_address_index : "admin_area_id"
   core_core_streets ||--o{ search_address_index : "street_id"
+  search_search_aliases ||--o{ search_failed_search_logs : "linked_alias_id"
   core_core_addresses ||--o{ search_search_addresses : "address_id"
   search_search_documents ||--o{ search_search_document_names : "search_document_id"
   app_auth_auth_users ||--o{ system_audit_logs : "actor_user_id"
@@ -3530,7 +4353,9 @@ erDiagram
   transit_export_gtfs_validation_reports ||--o{ transit_export_gtfs_validation_issues : "validation_report_id"
   transit_export_gtfs_builds ||--o{ transit_export_gtfs_validation_reports : "gtfs_build_id"
   transit_export_gtfs_builds ||--o{ transit_export_otp_graph_builds : "gtfs_build_id"
+  transport_stops ||--o{ transport_fares : "destination_stop_id"
   transport_operators ||--o{ transport_fares : "operator_id"
+  transport_stops ||--o{ transport_fares : "origin_stop_id"
   transport_routes ||--o{ transport_fares : "route_id"
   transport_route_variants ||--o{ transport_fares : "route_variant_id"
   transport_import_batches ||--o{ transport_import_errors : "import_batch_id"
@@ -3564,6 +4389,9 @@ erDiagram
   %% auth.oauth_registration_type { dynamic, manual }
   %% auth.oauth_response_type { code }
   %% auth.one_time_token_type { confirmation_token, reauthentication_token, recovery_token, email_change_token_new, email_change_token_current, phone_change_token }
+  %% community.notification_type { community_confirmed, admin_verified, rejected, resolved, expired, post_reaction, post_community_confirmed, post_admin_verified, post_admin_unverified, post_rejected, post_resolved, post_expired }
+  %% community.post_status { free_board, community_confirmed, admin_verified, rejected, resolved, expired }
+  %% community.reaction_type { confirm, useful, fake, resolved }
   %% realtime.action { INSERT, UPDATE, DELETE, TRUNCATE, ERROR }
   %% realtime.equality_op { eq, neq, lt, lte, gt, gte, in, like, ilike, is, match, imatch, isdistinct }
   %% storage.buckettype { STANDARD, ANALYTICS, VECTOR }
@@ -3575,12 +4403,18 @@ erDiagram
   %% function: uid() -> uuid
   %% [core]
   %% function: admin_area_hierarchy_is_protected(p_is_verified boolean) -> boolean
+  %% function: admin_area_is_non_operational_township_id(p_id bigint) -> boolean
+  %% function: admin_area_is_operational_township(p_id bigint, p_level_code text) -> boolean
   %% function: admin_area_level_code_is_ward_like(p_code text) -> boolean
   %% function: admin_area_matches_assignment_target(p_admin_level_id bigint, p_level_code text, p_level_name text, p_target_admin_level_code text) -> boolean
+  %% function: admin_area_name_looks_like_fine_ward(p_name text) -> boolean
+  %% function: admin_area_qualifies_as_township_target(p_level_code text, p_canonical_name text) -> boolean
   %% function: admin_area_rep_point(p_geom geometry, p_centroid geometry) -> geometry
   %% function: admin_area_row_matches_target(p_admin_level_id bigint, p_level_code text, p_level_name text, p_target_admin_level_code text) -> boolean
+  %% function: admin_area_township_match_priority(p_level_code text) -> integer
   %% function: admin_level_matches_target(p_level_code text, p_level_name text, p_target_admin_level_code text) -> boolean
   %% function: build_admin_area_repair_metadata(p_previous_admin_area_id bigint, p_calculated_admin_area_id bigint, p_repair_method text) -> jsonb
+  %% function: classify_township_assignment_for_point(p_geom geometry) -> record
   %% function: entity_admin_assignment_is_protected(p_manual_override boolean, p_is_verified boolean) -> boolean
   %% function: entity_admin_assignment_is_protected(p_manual_override boolean, p_is_verified boolean, p_verification_status text) -> boolean
   %% function: entity_rep_point_for_admin_lookup(p_geom geometry) -> geometry
@@ -3608,6 +4442,7 @@ erDiagram
   %% function: promote_admin_area_candidate(p_candidate_id bigint) -> bigint
   %% function: promote_place_candidate(p_candidate_id bigint) -> bigint
   %% function: promote_road_candidate(p_candidate_id bigint) -> bigint
+  %% function: replace_active_coastline(p_geom geometry, p_region_code text, p_source_registry_id bigint, p_source_snapshot_id bigint, p_source_refs jsonb) -> record
   %% function: reverse_address_minimal(p_lat double precision, p_lng double precision) -> record
   %% function: sync_is_verified_from_verification_status() -> trigger
   %% function: trg_fn_core_streets_save_version_before_update() -> trigger
@@ -4457,6 +5292,7 @@ erDiagram
   %% function: build_prepared_statement_sql(prepared_statement_name text, entity regclass, columns realtime.wal_column[]) -> text
   %% function: cast(val text, type_ regtype) -> jsonb
   %% function: check_equality_op(op realtime.equality_op, type_ regtype, val_1 text, val_2 text) -> boolean
+  %% function: check_equality_op(op realtime.equality_op, type_ regtype, val_1 text, val_2 text, negate boolean) -> boolean
   %% function: is_visible_through_filters(columns realtime.wal_column[], filters realtime.user_defined_filter[]) -> boolean
   %% function: list_changes(publication name, slot_name name, max_changes integer, max_record_bytes integer) -> record
   %% function: quote_wal2json(entity regclass) -> text
@@ -4470,7 +5306,9 @@ erDiagram
   %% function: address_component_type_rank(p_code text) -> integer
   %% function: admin_area_hierarchy(p_admin_area_id bigint) -> jsonb
   %% function: admin_area_name(p_admin_area_id bigint, p_lang text) -> text
+  %% function: apply_search_aliases_for_documents(p_entity_type text, p_entity_ids bigint[]) -> jsonb
   %% function: build_address_search_line(p_address_id bigint, p_language_code text) -> text
+  %% function: fetch_source_searchable_text(p_entity_type text, p_entity_id bigint) -> text
   %% function: hierarchy_text(p jsonb) -> text
   %% function: is_admin_address_component(p_code text) -> boolean
   %% function: is_neutral_address_component(p_code text) -> boolean
@@ -4480,9 +5318,20 @@ erDiagram
   %% function: pick_address_field_text(p_address_id bigint, p_language_code text, p_kind text) -> text
   %% function: rebuild_search_documents(p_views text[]) -> jsonb
   %% function: refresh_address_index(p_address_ids bigint[]) -> bigint
+  %% function: refresh_search_aliases(p_entity_type text, p_entity_ids bigint[]) -> jsonb
   %% function: safe_bbox(p_geom geometry) -> geometry
   %% function: safe_centroid(p_geom geometry) -> geometry
+  %% function: search_alias_types() -> text[]
+  %% function: search_alias_weight(p_alias_type text) -> numeric
+  %% function: search_aliases_normalize_trg() -> trigger
+  %% function: sync_search_documents(p_entity_type text, p_entity_ids bigint[]) -> jsonb
+  %% function: sync_street_group_for_street(p_street_id bigint) -> jsonb
   %% function: tokenize_search_text(p_text text) -> text[]
+  %% function: transport_route_variant_has_public_identity(p_headsign text, p_direction_name text, p_variant_code text, p_variant_origin text, p_variant_destination text, p_route_public_name text, p_route_code text, p_route_origin text, p_route_destination text) -> boolean
+  %% function: transport_search_document_metadata(p_mode text, p_stop_type text, p_terminal_role text, p_review_status text, p_confidence_score numeric) -> jsonb
+  %% function: transport_search_label_norm(p text) -> text
+  %% function: transport_search_quality_metadata(p_review_status text, p_confidence_score numeric) -> jsonb
+  %% function: transport_search_review_status_searchable(p_review_status text) -> boolean
   %% [storage]
   %% function: allow_any_operation(expected_operations text[]) -> boolean
   %% function: allow_only_operation(expected_operation text) -> boolean
@@ -4501,6 +5350,12 @@ erDiagram
   %% function: search_by_timestamp(p_prefix text, p_bucket_id text, p_limit integer, p_level integer, p_start_after text, p_sort_order text, p_sort_column text, p_sort_column_after text) -> record
   %% function: search_v2(prefix text, bucket_name text, limits integer, levels integer, start_after text, sort_order text, sort_column text, sort_column_after text) -> record
   %% function: update_updated_at_column() -> trigger
+  %% [system]
+  %% function: apply_overlap_full_to_keeper_20260724(p_pair_id text, p_loser_id bigint, p_keeper_id bigint, p_loser_hash text, p_keeper_hash text) -> void
+  %% function: pipeline_extract_building_names(p_tags jsonb) -> jsonb
+  %% function: pipeline_osm_feature_type_canonical(p_feature_type text) -> text
+  %% function: pipeline_osm_identity_key(p_external_id text) -> text
+  %% function: pipeline_osm_identity_matches(p_a text, p_b text) -> boolean
   %% [tiles]
   %% function: get_admin_areas_tile(z integer, x integer, y integer) -> bytea
   %% function: get_places_tile(z integer, x integer, y integer) -> bytea

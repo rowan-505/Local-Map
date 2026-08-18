@@ -100,8 +100,31 @@ export class CoreReviewEntitiesWriteRepository {
         }
     }
 
+    private async resolveActiveWaterClassId(body: Record<string, unknown>): Promise<bigint> {
+        const raw =
+            pickAlias<bigint | string | number | null>(body, "waterClassId", "water_class_id") ??
+            null;
+        if (raw === null || raw === undefined || raw === "") {
+            throw new CoreReviewValidationError("water_class_id is required", [
+                { path: "waterClassId", message: "Required" },
+            ]);
+        }
+        const waterClassId = typeof raw === "bigint" ? raw : BigInt(String(raw));
+        const rows = await this.prisma.$queryRaw<{ id: bigint; code: string }[]>`
+            SELECT id, code FROM ref.ref_water_classes
+            WHERE id = ${waterClassId} AND is_active IS TRUE
+            LIMIT 1
+        `;
+        if (!rows[0]) {
+            throw new CoreReviewValidationError("water_class_id is invalid", [
+                { path: "waterClassId", message: "Must reference an active ref.ref_water_classes row" },
+            ]);
+        }
+        return rows[0].id;
+    }
+
     async createMapPolygon(
-        table: "core.core_map_landuse" | "core.core_map_water_polygons",
+        table: "core.core_land_areas" | "core.core_water_polygons",
         body: Record<string, unknown>,
     ) {
         const geom = pickGeometry(body);
@@ -110,25 +133,23 @@ export class CoreReviewEntitiesWriteRepository {
                 { path: "geometry", message: "Required" },
             ]);
         }
-        const classCode =
-            pickTrimmedAlias(body, "classCode", "class_code") ??
-            pickTrimmedAlias(body, "class_code", "class_code");
-        if (!classCode) {
-            throw new CoreReviewValidationError("class_code is required", [
-                { path: "classCode", message: "Required" },
+        if (table !== "core.core_water_polygons") {
+            throw new CoreReviewValidationError("unsupported map polygon table", [
+                { path: "table", message: "Use land-areas write path for land areas" },
             ]);
         }
+        const waterClassId = await this.resolveActiveWaterClassId(body);
         const normalizedGeom = await this.validatePolygon(this.prisma, geom);
         const geojson = geojsonSqlParam(normalizedGeom);
         const { isVerified, verificationStatus } = resolveCoreReviewVerificationWrite(body);
         const rows = await this.prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
-            INSERT INTO ${Prisma.raw(table)} (
-                source_staging_id, external_id,
-                name, class_code, geom, is_active, is_verified, verification_status, source_refs, normalized_data
+            INSERT INTO core.core_water_polygons (
+                external_id,
+                name, water_class_id, geom, is_active, is_verified, verification_status, source_refs, normalized_data
             ) VALUES (
-                NULL, NULL,
+                NULL,
                 ${pickAlias(body, "name", "name") ?? null},
-                ${classCode},
+                ${waterClassId},
                 ${polygonGeomExpr(geojson)},
                 ${boolOr(pickAlias(body, "isActive", "is_active"), true)},
                 ${isVerified},
@@ -142,16 +163,25 @@ export class CoreReviewEntitiesWriteRepository {
     }
 
     async updateMapPolygon(
-        table: "core.core_map_landuse" | "core.core_map_water_polygons",
+        table: "core.core_land_areas" | "core.core_water_polygons",
         id: string,
         body: Record<string, unknown>,
     ) {
+        if (table !== "core.core_water_polygons") {
+            throw new CoreReviewValidationError("unsupported map polygon table", [
+                { path: "table", message: "Use land-areas write path for land areas" },
+            ]);
+        }
         const sets: Prisma.Sql[] = [];
         if (pickAlias(body, "name", "name") !== undefined) {
             sets.push(Prisma.sql`name = ${pickAlias(body, "name", "name") ?? null}`);
         }
-        if (pickAlias(body, "classCode", "class_code") !== undefined) {
-            sets.push(Prisma.sql`class_code = ${pickAlias(body, "classCode", "class_code") ?? null}`);
+        if (
+            pickAlias(body, "waterClassId", "water_class_id") !== undefined ||
+            pickAlias(body, "water_class_id", "water_class_id") !== undefined
+        ) {
+            const waterClassId = await this.resolveActiveWaterClassId(body);
+            sets.push(Prisma.sql`water_class_id = ${waterClassId}`);
         }
         if (pickAlias(body, "isActive", "is_active") !== undefined) {
             sets.push(Prisma.sql`is_active = ${boolOr(pickAlias(body, "isActive", "is_active"), true)}`);
@@ -165,7 +195,7 @@ export class CoreReviewEntitiesWriteRepository {
         if (sets.length === 0) return false;
         sets.push(Prisma.sql`updated_at = NOW()`);
         const result = await this.prisma.$executeRaw(Prisma.sql`
-            UPDATE ${Prisma.raw(table)} SET ${Prisma.join(sets, ", ")}
+            UPDATE core.core_water_polygons SET ${Prisma.join(sets, ", ")}
             WHERE id = ${BigInt(id)}
         `);
         return result > 0;
@@ -178,25 +208,18 @@ export class CoreReviewEntitiesWriteRepository {
                 { path: "geometry", message: "Required" },
             ]);
         }
-        const classCode =
-            pickTrimmedAlias(body, "classCode", "class_code") ??
-            pickTrimmedAlias(body, "class_code", "class_code");
-        if (!classCode) {
-            throw new CoreReviewValidationError("class_code is required", [
-                { path: "classCode", message: "Required" },
-            ]);
-        }
+        const waterClassId = await this.resolveActiveWaterClassId(body);
         await this.validateLineString(this.prisma, geom, true);
         const geojson = geojsonSqlParam(geom);
         const { isVerified, verificationStatus } = resolveCoreReviewVerificationWrite(body);
         const rows = await this.prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
-            INSERT INTO core.core_map_water_lines (
-                source_staging_id, external_id,
-                name, class_code, geom, is_active, is_verified, verification_status, source_refs, normalized_data
+            INSERT INTO core.core_water_lines (
+                external_id,
+                name, water_class_id, geom, is_active, is_verified, verification_status, source_refs, normalized_data
             ) VALUES (
-                NULL, NULL,
+                NULL,
                 ${pickAlias(body, "name", "name") ?? null},
-                ${classCode},
+                ${waterClassId},
                 ${multiLineStringGeomExpr(geojson)},
                 ${boolOr(pickAlias(body, "isActive", "is_active"), true)},
                 ${isVerified},
@@ -214,8 +237,12 @@ export class CoreReviewEntitiesWriteRepository {
         if (pickAlias(body, "name", "name") !== undefined) {
             sets.push(Prisma.sql`name = ${pickAlias(body, "name", "name") ?? null}`);
         }
-        if (pickAlias(body, "classCode", "class_code") !== undefined) {
-            sets.push(Prisma.sql`class_code = ${pickAlias(body, "classCode", "class_code") ?? null}`);
+        if (
+            pickAlias(body, "waterClassId", "water_class_id") !== undefined ||
+            pickAlias(body, "water_class_id", "water_class_id") !== undefined
+        ) {
+            const waterClassId = await this.resolveActiveWaterClassId(body);
+            sets.push(Prisma.sql`water_class_id = ${waterClassId}`);
         }
         if (pickAlias(body, "isActive", "is_active") !== undefined) {
             sets.push(Prisma.sql`is_active = ${boolOr(pickAlias(body, "isActive", "is_active"), true)}`);
@@ -229,7 +256,7 @@ export class CoreReviewEntitiesWriteRepository {
         if (sets.length === 0) return false;
         sets.push(Prisma.sql`updated_at = NOW()`);
         const result = await this.prisma.$executeRaw(Prisma.sql`
-            UPDATE core.core_map_water_lines SET ${Prisma.join(sets, ", ")}
+            UPDATE core.core_water_lines SET ${Prisma.join(sets, ", ")}
             WHERE id = ${BigInt(id)}
         `);
         return result > 0;

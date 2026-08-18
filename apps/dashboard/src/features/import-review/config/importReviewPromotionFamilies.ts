@@ -17,7 +17,7 @@ export const IMPORT_REVIEW_PROMOTION_FAMILY_META: readonly ImportReviewPromotion
         family: "buildings",
         label: "Buildings",
         riskLevel: "normal",
-        targetLabel: "core.core_map_buildings",
+        targetLabel: "core.core_buildings",
     },
     {
         family: "places",
@@ -26,22 +26,22 @@ export const IMPORT_REVIEW_PROMOTION_FAMILY_META: readonly ImportReviewPromotion
         targetLabel: "core.core_places",
     },
     {
-        family: "landuse",
-        label: "Landuse",
+        family: "land_areas",
+        label: "Land area",
         riskLevel: "normal",
-        targetLabel: "core.core_map_landuse",
+        targetLabel: "core.core_land_areas",
     },
     {
         family: "water_lines",
         label: "Water lines",
         riskLevel: "normal",
-        targetLabel: "core.core_map_water_lines",
+        targetLabel: "core.core_water_lines",
     },
     {
         family: "water_polygons",
         label: "Water polygons",
         riskLevel: "normal",
-        targetLabel: "core.core_map_water_polygons",
+        targetLabel: "core.core_water_polygons",
     },
     {
         family: "roads",

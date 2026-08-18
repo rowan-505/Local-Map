@@ -13,7 +13,7 @@ export const IMPORT_REVIEW_ENTITY_FAMILY_SEARCH_VIEWS: Readonly<Record<string, r
     roads: ["street_groups"],
     admin_areas: ["admin_areas"],
     buildings: ["buildings"],
-    landuse: ["landuse"],
+    land_area: ["land_area"],
     water_lines: ["water_lines"],
     water_polygons: ["water_polygons"],
     // addresses use legacy search.refresh_address_index (handled separately).

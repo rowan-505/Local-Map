@@ -95,7 +95,7 @@ function lineOrPolygonGeometry(geometry: Geometry | null | undefined) {
 
 const RECOMMEND_APPLY_INFER_DEBOUNCE_MS = 500;
 const ROAD_GEOMETRY_MISSING_MESSAGE = "Road geometry missing; township cannot be inferred.";
-const LANDUSE_GEOMETRY_MISSING_MESSAGE = "Landuse polygon missing; township cannot be inferred.";
+const LANDUSE_GEOMETRY_MISSING_MESSAGE = "Land area polygon missing; township cannot be inferred.";
 const BUS_STOP_GEOMETRY_MISSING_MESSAGE = "Bus stop location missing; township cannot be inferred.";
 const PLACE_GEOMETRY_MISSING_MESSAGE = "Place location missing; township cannot be inferred.";
 const BUILDING_GEOMETRY_MISSING_MESSAGE = "Building footprint missing; township cannot be inferred.";
@@ -103,7 +103,7 @@ const BUILDING_GEOMETRY_MISSING_MESSAGE = "Building footprint missing; township 
 function usesRecommendApplyInferKind(entityKind: EntityAdminAreaKind): boolean {
     return (
         entityKind === "street" ||
-        entityKind === "landuse" ||
+        entityKind === "land_area" ||
         entityKind === "bus_stop" ||
         entityKind === "place" ||
         entityKind === "building"
@@ -679,7 +679,7 @@ export default function EntityTownshipAdminField({
         );
 
         const geometryMissingMessage =
-            config.entityKind === "landuse"
+            config.entityKind === "land_area"
                 ? LANDUSE_GEOMETRY_MISSING_MESSAGE
                 : config.entityKind === "bus_stop"
                   ? BUS_STOP_GEOMETRY_MISSING_MESSAGE
@@ -698,7 +698,7 @@ export default function EntityTownshipAdminField({
                 ? placePoint !== null
                 : config.entityKind === "bus_stop"
                   ? busStopPoint !== null
-                  : config.entityKind === "landuse" || config.entityKind === "building"
+                  : config.entityKind === "land_area" || config.entityKind === "building"
                     ? isNonEmptyLandusePolygonGeometry(geomValue)
                     : isNonEmptyRoadLineGeometry(geomValue);
 
@@ -986,8 +986,8 @@ export default function EntityTownshipAdminField({
     ]);
 
     const inferGeometryLabel =
-        config.entityKind === "landuse"
-            ? "landuse footprint"
+        config.entityKind === "land_area"
+            ? "land area footprint"
             : config.entityKind === "bus_stop"
               ? "bus stop location"
               : config.entityKind === "place"
@@ -996,8 +996,8 @@ export default function EntityTownshipAdminField({
                   ? "building footprint"
                   : "road centerline";
     const entitySaveNoun =
-        config.entityKind === "landuse"
-            ? "landuse"
+        config.entityKind === "land_area"
+            ? "land-areas"
             : config.entityKind === "bus_stop"
               ? "bus stop"
               : config.entityKind === "place"

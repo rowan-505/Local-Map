@@ -7,8 +7,8 @@
 --
 -- Scope:
 --   core.core_places          — REASSIGN_SAFE only (1713)
---   core.core_map_buildings   — REASSIGN_SAFE only (1121)
---   core.core_map_landuse     — REASSIGN_SAFE only (19)
+--   core.core_buildings   — REASSIGN_SAFE only (1121)
+--   core.core_land_areas     — REASSIGN_SAFE only (19)
 --
 -- Rules:
 --   Places:    unique ST_Covers(point_geom) among 364 operational townships
@@ -130,7 +130,7 @@ WITH match AS (
     b.admin_area_id AS old_admin_area_id,
     b.updated_at AS old_updated_at,
     st_pointonsurface(b.geom)::geometry(Point, 4326) AS pt
-  FROM core.core_map_buildings b
+  FROM core.core_buildings b
   WHERE b.deleted_at IS NULL
     AND coalesce(b.is_active, true)
     AND b.geom IS NOT NULL
@@ -172,7 +172,7 @@ SELECT 'buildings', id, old_admin_area_id, new_admin_area_id, old_updated_at
 FROM buildings_reassign
 ON CONFLICT DO NOTHING;
 
-UPDATE core.core_map_buildings b
+UPDATE core.core_buildings b
 SET admin_area_id = r.new_admin_area_id,
     updated_at = now()
 FROM buildings_reassign r
@@ -190,7 +190,7 @@ WITH base AS (
     l.updated_at AS old_updated_at,
     l.geom,
     coalesce(l.manual_override, false) AS is_manual_protected
-  FROM core.core_map_landuse l
+  FROM core.core_land_areas l
   WHERE l.deleted_at IS NULL
     AND coalesce(l.is_active, true)
     AND l.geom IS NOT NULL
@@ -246,7 +246,7 @@ SELECT 'landuse', id, old_admin_area_id, new_admin_area_id, old_updated_at
 FROM landuse_reassign
 ON CONFLICT DO NOTHING;
 
-UPDATE core.core_map_landuse l
+UPDATE core.core_land_areas l
 SET admin_area_id = r.new_admin_area_id,
     updated_at = now()
 FROM landuse_reassign r

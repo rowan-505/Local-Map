@@ -9,7 +9,7 @@ export { chunkArray, resolvePromotionValidationChunkSize as resolvePromotionChun
 export const SIMPLE_POLYGON_PROMOTION_FAMILIES = new Set<string>([
     "buildings",
     "places",
-    "landuse",
+    "land_areas",
     "water_lines",
     "water_polygons",
 ]);

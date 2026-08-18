@@ -35,10 +35,10 @@ WITH families AS (
             ('transport_terminals', 'transport_terminal', 'search.v_search_transport_terminals_source', 'transport.terminals'),
             ('transport_routes', 'transport_route', 'search.v_search_bus_routes_source', 'transport.routes'),
             ('transport_route_variants', 'transport_route_variant', 'search.v_search_bus_routes_source', 'transport.route_variants'),
-            ('buildings', 'building', 'search.v_search_buildings_source', 'core.core_map_buildings'),
-            ('landuse', 'landuse', 'search.v_search_landuse_source', 'core.core_map_landuse'),
-            ('water_lines', 'water_line', 'search.v_search_water_lines_source', 'core.core_map_water_lines'),
-            ('water_polygons', 'water_polygon', 'search.v_search_water_polygons_source', 'core.core_map_water_polygons')
+            ('buildings', 'building', 'search.v_search_buildings_source', 'core.core_buildings'),
+            ('land_area', 'land_area', 'search.v_search_land_area_source', 'core.core_land_areas'),
+            ('water_lines', 'water_line', 'search.v_search_water_lines_source', 'core.core_water_lines'),
+            ('water_polygons', 'water_polygon', 'search.v_search_water_polygons_source', 'core.core_water_polygons')
     ) AS t(entity_family, search_entity_type, source_view, canonical_table)
 ),
 canonical AS (
@@ -67,7 +67,7 @@ canonical AS (
     FROM search.v_search_buildings_source
     UNION ALL
     SELECT entity_type, entity_id::bigint, source_updated_at
-    FROM search.v_search_landuse_source
+    FROM search.v_search_land_area_source
     UNION ALL
     SELECT entity_type, entity_id::bigint, source_updated_at
     FROM search.v_search_water_lines_source

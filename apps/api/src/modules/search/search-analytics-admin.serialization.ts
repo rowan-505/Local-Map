@@ -8,7 +8,7 @@ const ENTITY_TYPE_LABELS: Readonly<Record<string, string>> = {
     transport_route: "Transport route",
     transport_route_variant: "Route variant",
     building: "Building",
-    landuse: "Landuse",
+    land_area: "Land area",
     water_line: "Water line",
     water_polygon: "Water polygon",
     bus_stop: "Transport stop",

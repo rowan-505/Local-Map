@@ -35,8 +35,8 @@
 -- Building F2 comparison expects these local-only indexes to exist for good
 -- performance. They are created by the local staging/prod-mirror workflows:
 --   - staging.staging_building_candidates geom GIST
---   - prod_mirror.core_map_buildings geom GIST
---   - prod_mirror.core_map_buildings centroid GIST
+--   - prod_mirror.core_buildings geom GIST
+--   - prod_mirror.core_buildings centroid GIST
 --   - staging.staging_road_candidates geom GIST
 --   - prod_mirror.core_streets geom GIST
 -- =============================================================================
@@ -171,11 +171,12 @@ INSERT INTO stage07_family_config (
 VALUES
     ('places', 'staging_place_candidates', 'core_places', true, false, false, 'point_geom', 'footprint_geom', NULL, 'point_geom', 'geom', 30),
     ('roads', 'staging_road_candidates', 'core_streets', true, false, false, NULL, 'geom', NULL, NULL, 'geom', 10),
-    ('buildings', 'staging_building_candidates', 'core_map_buildings', true, false, false, NULL, 'geom', NULL, 'centroid', 'geom', 10),
+    ('buildings', 'staging_building_candidates', 'core_buildings', true, false, false, NULL, 'geom', NULL, 'centroid', 'geom', 10),
     ('admin_areas', 'staging_admin_area_candidates', 'core_admin_areas', false, true, true, NULL, 'geom', NULL, 'centroid', 'geom', 10),
-    ('landuse', 'staging_landuse_candidates', 'core_map_landuse', false, false, false, NULL, 'geom', NULL, NULL, 'geom', 5),
-    ('water_lines', 'staging_water_line_candidates', 'core_map_water_lines', false, false, false, NULL, 'geom', NULL, NULL, 'geom', 10),
-    ('water_polygons', 'staging_water_polygon_candidates', 'core_map_water_polygons', false, false, false, NULL, 'geom', NULL, NULL, 'geom', 5),
+    ('landuse', 'staging_landuse_candidates', 'core_land_areas', false, false, false, NULL, 'geom', NULL, NULL, 'geom', 5),
+    ('protected_areas', 'staging_protected_area_candidates', 'core_protected_areas', false, false, false, NULL, 'geom', NULL, NULL, 'geom', 5),
+    ('water_lines', 'staging_water_line_candidates', 'core_water_lines', false, false, false, NULL, 'geom', NULL, NULL, 'geom', 10),
+    ('water_polygons', 'staging_water_polygon_candidates', 'core_water_polygons', false, false, false, NULL, 'geom', NULL, NULL, 'geom', 5),
     ('addresses', 'staging_address_candidates', 'core_addresses', false, false, false, 'point_geom', 'geom', NULL, 'point_geom', 'geom', 30),
     ('routing_roads', 'staging_routing_road_candidates', 'core_streets', false, false, true, NULL, 'geom', 'geom_multi', NULL, 'geom', 10),
     ('routing_barriers', 'staging_routing_barrier_candidates', 'core_routing_barriers', false, false, true, 'point_geom', 'geom', NULL, 'point_geom', 'geom', 10);
@@ -2215,6 +2216,454 @@ BEGIN
             );
 
             RAISE NOTICE 'progress: %/% (100.00%%) stage07 family=buildings done',
+                v_done, v_done;
+            CONTINUE;
+        END IF;
+
+        -- Landuse / land areas: national extracts are large (~100k+ polys) while
+        -- prod_mirror.core_land_areas is tiny. Drive identity + spatial FROM prod
+        -- into staging GIST (same shape as buildings_fast_path).
+        IF cfg.entity_family = 'landuse' THEN
+            RAISE NOTICE 'stage07_insert_start family=% diff_run_id=% at=%',
+                cfg.entity_family,
+                v_diff_run_id,
+                clock_timestamp();
+            PERFORM pg_temp.stage07_log(
+                cfg.entity_family,
+                'insert_start',
+                format('diff_run_id=%s landuse_fast_path', v_diff_run_id),
+                NULL,
+                jsonb_build_object('diff_run_id', v_diff_run_id, 'mode', 'landuse_fast_path')
+            );
+
+            BEGIN
+                v_insert_start_ts := clock_timestamp();
+                BEGIN
+                    v_chunk_size := nullif(current_setting('coremap.stage06_chunk_size', true), '')::bigint;
+                EXCEPTION WHEN OTHERS THEN
+                    v_chunk_size := NULL;
+                END;
+                IF v_chunk_size IS NULL OR v_chunk_size < 1000 THEN
+                    v_chunk_size := 50000;
+                END IF;
+
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = v_staging_schema
+                      AND table_name = cfg.staging_table
+                      AND column_name = 'confidence_score'
+                ) INTO v_has_staging_confidence;
+
+                RAISE NOTICE 'progress: 0/% (0.00%%) stage07 family=landuse build_prod_temp',
+                    v_staging_count;
+
+                DROP TABLE IF EXISTS stage07_land_prod;
+                EXECUTE format(
+                    $q$
+                    CREATE TEMP TABLE stage07_land_prod ON COMMIT DROP AS
+                    SELECT
+                        p.id AS prod_id,
+                        nullif(btrim(p.external_id), '') AS external_id,
+                        system.pipeline_osm_identity_key(nullif(btrim(p.external_id), '')) AS identity_key,
+                        p.name,
+                        p.class_code,
+                        p.admin_area_id,
+                        p.geom,
+                        coalesce(p.centroid, ST_PointOnSurface(p.geom)) AS centroid,
+                        coalesce(p.is_verified, false) AS is_verified,
+                        coalesce(p.manual_override, false) AS manual_override,
+                        system.pipeline_staging_diff_payload(to_jsonb(p)) AS prod_data
+                    FROM %I.%I AS p
+                    WHERE p.deleted_at IS NULL
+                      AND p.geom IS NOT NULL
+                    $q$,
+                    v_prod_mirror_schema,
+                    cfg.prod_table
+                );
+                CREATE INDEX stage07_land_prod_identity_idx ON stage07_land_prod (identity_key);
+                CREATE INDEX stage07_land_prod_geom_gix ON stage07_land_prod USING gist (geom);
+                CREATE INDEX stage07_land_prod_centroid_gix ON stage07_land_prod USING gist (centroid);
+                ANALYZE stage07_land_prod;
+
+                RAISE NOTICE 'progress: 0/% (0.00%%) stage07 family=landuse identity_match',
+                    v_staging_count;
+
+                DROP TABLE IF EXISTS stage07_land_matched;
+                EXECUTE format(
+                    $q$
+                    CREATE TEMP TABLE stage07_land_matched ON COMMIT DROP AS
+                    SELECT DISTINCT ON (s.id)
+                        s.id AS staging_id,
+                        p.prod_id,
+                        true AS source_matched,
+                        false AS spatial_matched,
+                        1 AS match_rank,
+                        p.prod_data,
+                        p.name AS prod_name,
+                        p.class_code AS prod_class_code,
+                        p.admin_area_id AS prod_admin_area_id,
+                        p.geom AS prod_geom,
+                        p.is_verified,
+                        p.manual_override
+                    FROM %1$I.%2$I AS s
+                    JOIN stage07_land_prod AS p
+                      ON p.identity_key IS NOT NULL
+                     AND p.identity_key = system.pipeline_osm_identity_key(s.external_id)
+                    WHERE s.source_snapshot_id = $1
+                      AND system.pipeline_osm_identity_key(s.external_id) IS NOT NULL
+                    ORDER BY s.id, p.prod_id
+                    $q$,
+                    v_staging_schema,
+                    cfg.staging_table
+                ) USING ctx.current_snapshot_id;
+                CREATE UNIQUE INDEX stage07_land_matched_staging_id_idx ON stage07_land_matched (staging_id);
+                ANALYZE stage07_land_matched;
+
+                SELECT count(*)::bigint INTO v_building_source_match_count FROM stage07_land_matched;
+                RAISE NOTICE 'progress: 0/% (0.00%%) stage07 family=landuse spatial_match source_matched=%',
+                    v_staging_count, v_building_source_match_count;
+
+                EXECUTE format(
+                    $q$
+                    INSERT INTO stage07_land_matched (
+                        staging_id, prod_id, source_matched, spatial_matched, match_rank,
+                        prod_data, prod_name, prod_class_code, prod_admin_area_id,
+                        prod_geom, is_verified, manual_override
+                    )
+                    SELECT DISTINCT ON (s.id)
+                        s.id,
+                        p.prod_id,
+                        false,
+                        true,
+                        2,
+                        p.prod_data,
+                        p.name,
+                        p.class_code,
+                        p.admin_area_id,
+                        p.geom,
+                        p.is_verified,
+                        p.manual_override
+                    FROM stage07_land_prod AS p
+                    JOIN %1$I.%2$I AS s
+                      ON s.source_snapshot_id = $1
+                     AND s.geom IS NOT NULL
+                     AND s.geom && ST_Expand(p.geom, 0.0002)
+                     AND (
+                            ST_Intersects(s.geom, p.geom)
+                         OR ST_DWithin(
+                                ST_PointOnSurface(s.geom)::geography,
+                                coalesce(p.centroid, ST_PointOnSurface(p.geom))::geography,
+                                %3$s
+                            )
+                     )
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM stage07_land_matched AS m WHERE m.staging_id = s.id
+                    )
+                    ORDER BY s.id, p.prod_id
+                    $q$,
+                    v_staging_schema,
+                    cfg.staging_table,
+                    coalesce(cfg.spatial_threshold_m, 5)
+                ) USING ctx.current_snapshot_id;
+
+                SELECT count(*)::bigint INTO v_building_spatial_match_count
+                FROM stage07_land_matched WHERE source_matched = false AND spatial_matched = true;
+                v_building_no_match_count := v_staging_count
+                    - v_building_source_match_count
+                    - v_building_spatial_match_count;
+                ANALYZE stage07_land_matched;
+
+                RAISE NOTICE 'stage07_landuse_match_counts source=% spatial=% no_match=%',
+                    v_building_source_match_count,
+                    v_building_spatial_match_count,
+                    v_building_no_match_count;
+
+                q := format(
+                    'SELECT coalesce(min(id),0), coalesce(max(id),-1) FROM %I.%I WHERE source_snapshot_id = $1',
+                    v_staging_schema, cfg.staging_table
+                );
+                EXECUTE q INTO v_min_id, v_max_id USING ctx.current_snapshot_id;
+
+                v_done := 0;
+                v_t0 := clock_timestamp();
+                v_lo := v_min_id;
+                WHILE v_lo <= v_max_id LOOP
+                    v_hi := v_lo + v_chunk_size - 1;
+
+                    q := format(
+                        $q$
+                        INSERT INTO system.system_diff_items (
+                            diff_run_id,
+                            entity_family,
+                            diff_type,
+                            external_id,
+                            local_entity_id,
+                            before_data,
+                            after_data,
+                            confidence_score,
+                            auto_action,
+                            review_status,
+                            created_at
+                        )
+                        SELECT
+                            $1,
+                            'landuse',
+                            CASE
+                                WHEN m.staging_id IS NULL THEN 'new'
+                                WHEN m.is_verified OR m.manual_override THEN 'changed'
+                                WHEN NOT m.source_matched AND m.spatial_matched THEN 'changed'
+                                WHEN (
+                                    system.pipeline_meaningful_name(coalesce(s.canonical_name, s.normalized_data->>'name'))
+                                        IS DISTINCT FROM
+                                    system.pipeline_meaningful_name(m.prod_name)
+                                    OR system.pipeline_norm_text(s.class_code)
+                                        IS DISTINCT FROM system.pipeline_norm_text(m.prod_class_code)
+                                    OR (
+                                        nullif(to_jsonb(s)->>'admin_area_id', '') IS NOT NULL
+                                        AND nullif(to_jsonb(s)->>'admin_area_id', '')::bigint
+                                            IS DISTINCT FROM m.prod_admin_area_id
+                                    )
+                                    OR system.pipeline_geometry_meaningfully_changed(s.geom, m.prod_geom)
+                                ) THEN 'changed'
+                                ELSE 'unchanged'
+                            END,
+                            s.external_id,
+                            s.id,
+                            m.prod_data,
+                            system.pipeline_staging_diff_payload(to_jsonb(s)) || jsonb_build_object(
+                                'f2_comparison',
+                                jsonb_build_object(
+                                    'f2_result',
+                                    CASE
+                                        WHEN m.staging_id IS NULL THEN 'prod_no_match'
+                                        WHEN m.is_verified OR m.manual_override THEN 'manual_protected'
+                                        WHEN NOT m.source_matched AND m.spatial_matched THEN 'possible_duplicate'
+                                        WHEN (
+                                            system.pipeline_meaningful_name(coalesce(s.canonical_name, s.normalized_data->>'name'))
+                                                IS DISTINCT FROM
+                                            system.pipeline_meaningful_name(m.prod_name)
+                                            OR system.pipeline_norm_text(s.class_code)
+                                                IS DISTINCT FROM system.pipeline_norm_text(m.prod_class_code)
+                                            OR (
+                                                nullif(to_jsonb(s)->>'admin_area_id', '') IS NOT NULL
+                                                AND nullif(to_jsonb(s)->>'admin_area_id', '')::bigint
+                                                    IS DISTINCT FROM m.prod_admin_area_id
+                                            )
+                                            OR system.pipeline_geometry_meaningfully_changed(s.geom, m.prod_geom)
+                                        ) THEN 'prod_conflict'
+                                        ELSE 'prod_match'
+                                    END,
+                                    'prod_match_rank', m.match_rank,
+                                    'source_matched', coalesce(m.source_matched, false),
+                                    'spatial_matched', coalesce(m.spatial_matched, false),
+                                    'name_matched', false,
+                                    'manual_protected', coalesce(m.is_verified OR m.manual_override, false)
+                                )
+                            ),
+                            %s,
+                            CASE
+                                WHEN m.staging_id IS NULL THEN 'insert_candidate'
+                                WHEN m.is_verified OR m.manual_override THEN 'protect_manual'
+                                WHEN NOT m.source_matched AND m.spatial_matched THEN 'possible_duplicate'
+                                WHEN (
+                                    system.pipeline_meaningful_name(coalesce(s.canonical_name, s.normalized_data->>'name'))
+                                        IS DISTINCT FROM
+                                    system.pipeline_meaningful_name(m.prod_name)
+                                    OR system.pipeline_norm_text(s.class_code)
+                                        IS DISTINCT FROM system.pipeline_norm_text(m.prod_class_code)
+                                    OR (
+                                        nullif(to_jsonb(s)->>'admin_area_id', '') IS NOT NULL
+                                        AND nullif(to_jsonb(s)->>'admin_area_id', '')::bigint
+                                            IS DISTINCT FROM m.prod_admin_area_id
+                                    )
+                                    OR system.pipeline_geometry_meaningfully_changed(s.geom, m.prod_geom)
+                                ) THEN 'update_candidate'
+                                ELSE 'ignore_unchanged'
+                            END,
+                            CASE
+                                WHEN m.staging_id IS NULL THEN 'pending'
+                                WHEN m.is_verified OR m.manual_override THEN 'ignored'
+                                WHEN NOT m.source_matched AND m.spatial_matched THEN 'pending'
+                                WHEN (
+                                    system.pipeline_meaningful_name(coalesce(s.canonical_name, s.normalized_data->>'name'))
+                                        IS DISTINCT FROM
+                                    system.pipeline_meaningful_name(m.prod_name)
+                                    OR system.pipeline_norm_text(s.class_code)
+                                        IS DISTINCT FROM system.pipeline_norm_text(m.prod_class_code)
+                                    OR (
+                                        nullif(to_jsonb(s)->>'admin_area_id', '') IS NOT NULL
+                                        AND nullif(to_jsonb(s)->>'admin_area_id', '')::bigint
+                                            IS DISTINCT FROM m.prod_admin_area_id
+                                    )
+                                    OR system.pipeline_geometry_meaningfully_changed(s.geom, m.prod_geom)
+                                ) THEN 'pending'
+                                ELSE 'ignored'
+                            END,
+                            now()
+                        FROM %I.%I AS s
+                        LEFT JOIN stage07_land_matched AS m
+                          ON m.staging_id = s.id
+                        WHERE s.source_snapshot_id = $2
+                          AND s.id BETWEEN $3 AND $4
+                        $q$,
+                        CASE WHEN v_has_staging_confidence THEN 'coalesce(s.confidence_score, 50.0000)' ELSE '50.0000' END,
+                        v_staging_schema,
+                        cfg.staging_table
+                    );
+                    EXECUTE q USING v_diff_run_id, ctx.current_snapshot_id, v_lo, v_hi;
+                    GET DIAGNOSTICS v_batch = ROW_COUNT;
+                    v_done := v_done + v_batch;
+
+                    v_elapsed_s := EXTRACT(EPOCH FROM (clock_timestamp() - v_t0));
+                    IF v_staging_count > 0 THEN
+                        v_pct := round(100.0 * v_done / v_staging_count, 2);
+                    ELSE
+                        v_pct := 100;
+                    END IF;
+                    IF v_done > 0 AND v_elapsed_s > 0 AND v_done < v_staging_count THEN
+                        v_eta_s := (v_elapsed_s * (v_staging_count - v_done)) / v_done;
+                    ELSE
+                        v_eta_s := 0;
+                    END IF;
+
+                    RAISE NOTICE 'progress: %/% (%)%% stage07 family=landuse insert_f2 chunk=%-% batch=% eta_s=%',
+                        v_done, v_staging_count, v_pct, v_lo, v_hi, v_batch, round(v_eta_s)::bigint;
+
+                    v_lo := v_hi + 1;
+                END LOOP;
+
+                v_inserted_count := v_done;
+                v_elapsed_ms := round((extract(epoch FROM (clock_timestamp() - v_insert_start_ts)) * 1000.0)::numeric, 2);
+
+                RAISE NOTICE 'stage07_insert_done family=% inserted=% elapsed_ms=% at=%',
+                    cfg.entity_family,
+                    v_inserted_count,
+                    v_elapsed_ms,
+                    clock_timestamp();
+                PERFORM pg_temp.stage07_log(
+                    cfg.entity_family,
+                    'insert_done',
+                    format('inserted=%s diff_run_id=%s', v_inserted_count, v_diff_run_id),
+                    v_elapsed_ms,
+                    jsonb_build_object(
+                        'diff_run_id', v_diff_run_id,
+                        'inserted', v_inserted_count,
+                        'mode', 'landuse_fast_path',
+                        'source_matches', v_building_source_match_count,
+                        'spatial_matches', v_building_spatial_match_count,
+                        'no_matches', v_building_no_match_count
+                    )
+                );
+            EXCEPTION
+                WHEN OTHERS THEN
+                    UPDATE system.system_diff_runs AS run
+                    SET
+                        status = 'failed',
+                        finished_at = now(),
+                        summary = run.summary || jsonb_build_object(
+                            'error_sqlstate', SQLSTATE,
+                            'error_message', SQLERRM,
+                            'mode', 'landuse_fast_path'
+                        )
+                    WHERE run.id = v_diff_run_id;
+
+                    RAISE NOTICE 'stage07_insert_fail family=% sqlstate=% sqlerrm=% at=%',
+                        cfg.entity_family,
+                        SQLSTATE,
+                        SQLERRM,
+                        clock_timestamp();
+                    PERFORM pg_temp.stage07_log(
+                        cfg.entity_family,
+                        'insert_fail',
+                        SQLERRM,
+                        NULL,
+                        jsonb_build_object(
+                            'diff_run_id', v_diff_run_id,
+                            'sqlstate', SQLSTATE,
+                            'sqlerrm', SQLERRM
+                        )
+                    );
+                    RAISE;
+            END;
+
+            UPDATE system.system_diff_runs AS run
+            SET
+                status = 'completed',
+                finished_at = now(),
+                summary = run.summary
+                    || jsonb_build_object(
+                        'mode', 'landuse_fast_path',
+                        'landuse_match_counts',
+                        jsonb_build_object(
+                            'source_matches', v_building_source_match_count,
+                            'spatial_matches', v_building_spatial_match_count,
+                            'no_matches', v_building_no_match_count
+                        ),
+                        'counts_by_diff_type',
+                        coalesce((
+                            SELECT jsonb_object_agg(counts.diff_type, counts.value_n)
+                            FROM (
+                                SELECT item.diff_type, count(*)::bigint AS value_n
+                                FROM system.system_diff_items AS item
+                                WHERE item.diff_run_id = v_diff_run_id
+                                GROUP BY item.diff_type
+                            ) AS counts
+                        ), '{}'::jsonb),
+                        'counts_by_auto_action',
+                        coalesce((
+                            SELECT jsonb_object_agg(counts.auto_action, counts.value_n)
+                            FROM (
+                                SELECT item.auto_action, count(*)::bigint AS value_n
+                                FROM system.system_diff_items AS item
+                                WHERE item.diff_run_id = v_diff_run_id
+                                GROUP BY item.auto_action
+                            ) AS counts
+                        ), '{}'::jsonb),
+                        'total_items',
+                        (
+                            SELECT count(*)::bigint
+                            FROM system.system_diff_items AS item
+                            WHERE item.diff_run_id = v_diff_run_id
+                        )
+                    )
+            WHERE run.id = v_diff_run_id;
+
+            PERFORM pg_temp.stage07_log(
+                cfg.entity_family,
+                'family_done',
+                format('diff_run_id=%s status=completed', v_diff_run_id),
+                NULL,
+                jsonb_build_object('diff_run_id', v_diff_run_id)
+            );
+
+            INSERT INTO stage07_report (entity_family, staging_table, prod_table, auto_action, value_n, status, note)
+            SELECT
+                cfg.entity_family,
+                format('%s.%s', v_staging_schema, cfg.staging_table),
+                format('%s.%s', v_prod_mirror_schema, cfg.prod_table),
+                item.auto_action,
+                count(*)::bigint,
+                'PASS',
+                'F2 landuse fast-path staging-vs-prod_mirror diff items written.'
+            FROM system.system_diff_items AS item
+            WHERE item.diff_run_id = v_diff_run_id
+            GROUP BY item.auto_action;
+
+            UPDATE stage07_diff_runs AS runs
+            SET staging_rows = v_staging_count,
+                prod_rows = v_prod_count
+            WHERE runs.diff_run_id = v_diff_run_id;
+
+            PERFORM pg_temp.stage07_write_family_summary(
+                cfg.entity_family,
+                format('%s.%s', v_staging_schema, cfg.staging_table),
+                format('%s.%s', v_prod_mirror_schema, cfg.prod_table),
+                v_diff_run_id,
+                v_staging_count,
+                v_prod_count
+            );
+
+            RAISE NOTICE 'progress: %/% (100.00%%) stage07 family=landuse done',
                 v_done, v_done;
             CONTINUE;
         END IF;

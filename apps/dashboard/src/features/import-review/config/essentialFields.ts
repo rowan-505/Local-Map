@@ -38,9 +38,9 @@ const ESSENTIAL_BY_API_FAMILY: Record<string, readonly DashboardEssentialFieldRu
         { kind: "field", key: "admin_area_id" },
         { kind: "geometry" },
     ],
-    landuse: [{ kind: "field", key: "landuse_class_id" }, { kind: "geometry" }],
-    water_lines: [{ kind: "field", key: "class_code" }, { kind: "geometry" }],
-    water_polygons: [{ kind: "field", key: "class_code" }, { kind: "geometry" }],
+    land_areas: [{ kind: "field", key: "land_area_class_id" }, { kind: "geometry" }],
+    water_lines: [{ kind: "field", key: "water_class_id" }, { kind: "geometry" }],
+    water_polygons: [{ kind: "field", key: "water_class_id" }, { kind: "geometry" }],
 };
 
 export function essentialRulesForEntity(config: ImportReviewEntityConfig): readonly DashboardEssentialFieldRule[] {

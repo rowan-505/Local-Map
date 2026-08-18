@@ -48,7 +48,7 @@ const FAMILY_DB = {
     buildings: { table: "building_candidates", candidateTable: "building_candidates" },
     places: { table: "place_candidates", candidateTable: "place_candidates" },
     roads: { table: "road_candidates", candidateTable: "road_candidates" },
-    landuse: { table: "landuse_candidates", candidateTable: "landuse_candidates" },
+    landuse: { table: "land_area_candidates", candidateTable: "land_area_candidates" },
     water_lines: { table: "water_line_candidates", candidateTable: "water_line_candidates" },
     water_polygons: { table: "water_polygon_candidates", candidateTable: "water_polygon_candidates" },
     admin_areas: { table: "admin_area_candidates", candidateTable: "admin_area_candidates" },
@@ -120,12 +120,12 @@ function readApiFieldValue(item, field) {
         }
         return item.effective_admin_level_id ?? null;
     }
-    if (field === "landuse_class_id") {
-        const direct = item.landuse_class_id;
+    if (field === "land_area_class_id") {
+        const direct = item.land_area_class_id;
         if (direct !== null && direct !== undefined && String(direct).trim() !== "") {
             return direct;
         }
-        return item.effective_landuse_class_id ?? null;
+        return item.effective_land_area_class_id ?? null;
     }
     return item[field];
 }
@@ -276,8 +276,8 @@ function applyRequiredFieldPreservation(family, item, fields, options = {}) {
     if (family === "landuse") {
         preserveNameMm();
         preserveNameEn();
-        if (patchField !== "landuse_class_id" && item.landuse_class_id != null) {
-            preserved.landuse_class_id = coerceJsonFieldValue(item.landuse_class_id);
+        if (patchField !== "land_area_class_id" && item.land_area_class_id != null) {
+            preserved.land_area_class_id = coerceJsonFieldValue(item.land_area_class_id);
         }
         if (patchField !== "class_code" && typeof item.class_code === "string" && item.class_code.trim() !== "") {
             preserved.class_code = item.class_code;
@@ -681,14 +681,14 @@ const REFERENCE_FIELD_TESTS = [
         requiresDb: true,
     },
     {
-        id: "landuse.landuse_class_id",
+        id: "landuse.land_area_class_id",
         family: "landuse",
-        field: "landuse_class_id",
+        field: "land_area_class_id",
         kind: "ref_id",
-        refTable: "ref.ref_landuse_classes",
+        refTable: "ref.ref_land_area_classes",
         refSql: `
             select id::text as id
-            from ref.ref_landuse_classes
+            from ref.ref_land_area_classes
             where is_active = true
             order by sort_order nulls last, id
             limit 20

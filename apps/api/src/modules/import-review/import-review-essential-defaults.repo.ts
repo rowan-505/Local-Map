@@ -44,7 +44,7 @@ function essentialSelectColumns(family: ImportReviewEntityFamilySlug, alias: str
     const geomCol = geometryColumnForFamily(family);
 
     const nameCol =
-        family === "buildings" || family === "landuse" || family.startsWith("water") ? "name" : null;
+        family === "buildings" || family === "land_areas" || family.startsWith("water") ? "name" : null;
     const nameLocalCol = null;
     const primaryNameCol = family === "places" ? "primary_name" : null;
     const displayNameCol = family === "places" ? "display_name" : null;
@@ -79,7 +79,7 @@ function essentialSelectColumns(family: ImportReviewEntityFamilySlug, alias: str
     const classCodeCol =
         family === "buildings" ||
         family === "places" ||
-        family === "landuse" ||
+        family === "land_areas" ||
         family.startsWith("water") ||
         family === "roads"
             ? "class_code"

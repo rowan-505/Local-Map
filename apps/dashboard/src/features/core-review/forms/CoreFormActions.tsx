@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useDashboardRoleAccess } from "@/src/hooks/useDashboardRoleAccess";
 
 export type CoreFormActionsProps = {
     cancelHref: string;
@@ -23,6 +24,9 @@ export default function CoreFormActions({
     saveSuccess,
     saveStageLabel,
 }: CoreFormActionsProps) {
+    const dashboardAccess = useDashboardRoleAccess();
+    const canSubmit = showSubmit && dashboardAccess.canWrite;
+
     return (
         <div className="sticky bottom-0 z-10 -mx-6 border-t border-slate-200 bg-white/95 px-6 py-4 backdrop-blur supports-[backdrop-filter]:bg-white/80">
             {isSubmitting && saveStageLabel ? (
@@ -44,9 +48,9 @@ export default function CoreFormActions({
                     prefetch={false}
                     className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
                 >
-                    {showSubmit ? "Cancel" : "Back to list"}
+                    {canSubmit ? "Cancel" : "Back to list"}
                 </Link>
-                {showSubmit ? (
+                {canSubmit ? (
                     <button
                         type="submit"
                         disabled={disabled || isSubmitting}

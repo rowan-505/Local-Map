@@ -11,7 +11,7 @@
 -- - address_candidates
 -- - admin_area_candidates
 -- - building_candidates
--- - landuse_candidates
+-- - land_area_candidates
 -- - place_candidates
 -- - road_candidates
 -- - routing_barrier_candidates
@@ -58,7 +58,7 @@ declare
     'address_candidates',
     'admin_area_candidates',
     'building_candidates',
-    'landuse_candidates',
+    'land_area_candidates',
     'place_candidates',
     'road_candidates',
     'routing_barrier_candidates',

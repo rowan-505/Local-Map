@@ -50,7 +50,7 @@ const entityAdminAreaRoutes: FastifyPluginAsync = async (app) => {
         app.post(
         "/entity-admin-area/infer",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardAccess],
             schema: postEntityAdminAreaInferSchema,
         },
         async (request, reply) => {
@@ -110,7 +110,7 @@ const entityAdminAreaRoutes: FastifyPluginAsync = async (app) => {
     app.post(
         "/entity-admin-area/validate-manual",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardAccess],
             schema: postEntityAdminAreaValidateManualSchema,
         },
         async (request, reply) => {

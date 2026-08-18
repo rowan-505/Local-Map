@@ -4,7 +4,7 @@ import type {
     CoreReviewAddressRow,
     CoreReviewAdminAreaRow,
     CoreReviewBuildingRow,
-    CoreReviewLanduseRow,
+    CoreReviewLandAreaRow,
     CoreReviewMapFeatureRow,
     CoreReviewPlaceRow,
 } from "./types";
@@ -67,13 +67,13 @@ export function applyBuildingDetailToListRow(
     };
 }
 
-/** Maps landuse edit detail onto a core-review list row. */
-export function applyLanduseDetailToListRow(
-    row: CoreReviewLanduseRow,
+/** Maps land area edit detail onto a core-review list row. */
+export function applyLandAreaDetailToListRow(
+    row: CoreReviewLandAreaRow,
     detail: unknown,
-): CoreReviewLanduseRow {
-    const d = detail as CoreReviewLanduseRow &
-        Partial<Record<"name_mm" | "name_en" | "class_code" | "landuse_class_id", string | null>>;
+): CoreReviewLandAreaRow {
+    const d = detail as CoreReviewLandAreaRow &
+        Partial<Record<"name_mm" | "name_en" | "class_code" | "land_area_class_id", string | null>>;
     const verification = verificationFieldsFromDetail(d, row);
 
     return {
@@ -86,10 +86,10 @@ export function applyLanduseDetailToListRow(
         nameEn: strOrNull(d.nameEn ?? d.name_en) ?? row.nameEn,
         nameUnd: strOrNull(d.nameUnd) ?? row.nameUnd,
         classCode: strOrNull(d.classCode ?? d.class_code) ?? row.classCode,
-        landuseClassId: strOrNull(d.landuseClassId ?? d.landuse_class_id) ?? row.landuseClassId,
-        landuseClassCode: strOrNull(d.landuseClassCode) ?? row.landuseClassCode,
-        landuseClassNameEn: strOrNull(d.landuseClassNameEn) ?? row.landuseClassNameEn,
-        landuseClassNameMm: strOrNull(d.landuseClassNameMm) ?? row.landuseClassNameMm,
+        landAreaClassId: strOrNull(d.landAreaClassId ?? d.land_area_class_id) ?? row.landAreaClassId,
+        landAreaClassCode: strOrNull(d.landAreaClassCode) ?? row.landAreaClassCode,
+        landAreaClassNameEn: strOrNull(d.landAreaClassNameEn) ?? row.landAreaClassNameEn,
+        landAreaClassNameMm: strOrNull(d.landAreaClassNameMm) ?? row.landAreaClassNameMm,
         adminAreaId: strOrNull(d.adminAreaId) ?? row.adminAreaId,
         adminAreaName: strOrNull(d.adminAreaName) ?? row.adminAreaName,
         detailLevel: strOrNull(d.detailLevel) ?? row.detailLevel,

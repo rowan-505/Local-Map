@@ -4,7 +4,7 @@ SELECT 'import_review_candidates_total' AS metric, (
   (SELECT count(*) FROM import_review.place_candidates) +
   (SELECT count(*) FROM import_review.building_candidates) +
   (SELECT count(*) FROM import_review.admin_area_candidates) +
-  (SELECT count(*) FROM import_review.landuse_candidates)
+  (SELECT count(*) FROM import_review.land_area_candidates)
 )::text AS value
 UNION ALL
 SELECT 'publish_batches_archived', count(*)::text

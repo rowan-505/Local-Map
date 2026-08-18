@@ -15,7 +15,7 @@ const PROMOTED_ENTITY_FAMILIES: ImportReviewEntityFamilySlug[] = [
     "buildings",
     "places",
     "roads",
-    "landuse",
+    "land_areas",
     "water_lines",
     "water_polygons",
     "admin_areas",

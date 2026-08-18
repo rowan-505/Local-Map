@@ -18,7 +18,7 @@ import type {
     AdminAreaAtPointRow,
     ClickPoint,
     CoreAddressComponentDbRow,
-    LanduseAtPointRow,
+    LandAreaAtPointRow,
     NearbyCoreAddressRow,
     NearbyPlaceRow,
     NearbyStreetRow,
@@ -236,7 +236,7 @@ function placeNameComponents(place: NearbyPlaceRow): ReverseAddressResolverCompo
     return out;
 }
 
-function landuseContextComponent(lu: LanduseAtPointRow): ReverseAddressResolverComponent | null {
+function landAreaContextComponent(lu: LandAreaAtPointRow): ReverseAddressResolverComponent | null {
     const label = (lu.name ?? lu.class_name ?? lu.class_code)?.trim();
     if (!label) {
         return null;
@@ -245,10 +245,10 @@ function landuseContextComponent(lu: LanduseAtPointRow): ReverseAddressResolverC
         component_type_code: "building",
         component_value: label,
         language_code: "und",
-        source: "core_landuse",
+        source: "core_land_area",
         source_id: lu.public_id,
         confidence_score: 0.4,
-        match_type: "landuse_at_point",
+        match_type: "land_area_at_point",
         boundary_status: null,
         address_usage: null,
         sort_order: 5,
@@ -336,14 +336,14 @@ export class ReverseAddressResolver {
             places,
             streets,
             adminAreas,
-            landuse,
+            landArea,
         ] = await Promise.all([
             this.repo.findNearbyCoreAddresses(point),
             this.repo.findBuildingAtPoint(point),
             this.repo.findNearbyPlaces(point),
             this.repo.findNearbyStreets(point, REVERSE_STREET_MAX_M),
             this.repo.findAdminAreasAtPoint(point),
-            this.repo.findLanduseAtPoint(point),
+            this.repo.findLandAreaAtPoint(point),
         ]);
 
         const { official: officialAdmins, localityHints: polygonLocalityHints } = partitionAdmins(adminAreas);
@@ -357,7 +357,7 @@ export class ReverseAddressResolver {
                   places,
                   streets,
                   admin_areas: adminAreas,
-                  landuse,
+                  land_area: landArea,
               }
             : {};
 
@@ -536,8 +536,8 @@ export class ReverseAddressResolver {
         const localityComponents: ReverseAddressResolverComponent[] = [];
         const warnings: string[] = [];
 
-        if (landuse) {
-            const luComp = landuseContextComponent(landuse);
+        if (landArea) {
+            const luComp = landAreaContextComponent(landArea);
             if (luComp) {
                 localityComponents.push(luComp);
             }
@@ -550,7 +550,7 @@ export class ReverseAddressResolver {
         }
         localityComponents.push(...adminToComponents(officialAdmins, "core_admin_area", false));
 
-        if (localityComponents.length > 0 || villageHint || landuse) {
+        if (localityComponents.length > 0 || villageHint || landArea) {
             const composed = composeAddress({
                 components: toComposerRows(localityComponents),
                 displayLanguage: lang,
@@ -568,7 +568,7 @@ export class ReverseAddressResolver {
                 warnings,
                 display
             );
-            return { response, layers, decision_reason: "priority_6_7_locality_and_landuse" };
+            return { response, layers, decision_reason: "priority_6_7_locality_and_land_area" };
         }
 
         // 8. Coordinates fallback

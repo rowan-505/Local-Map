@@ -42,13 +42,18 @@ AS $$
         ]
         WHEN 'admin_areas' THEN ARRAY['canonical_name']
         WHEN 'landuse' THEN ARRAY[
-            'canonical_name', 'name', 'class_code', 'geom', 'centroid', 'admin_area_id'
+            'canonical_name', 'name', 'class_code', 'land_area_class_id',
+            'geom', 'centroid', 'admin_area_id'
+        ]
+        WHEN 'protected_areas' THEN ARRAY[
+            'canonical_name', 'name', 'class_code', 'protected_area_class_id',
+            'geom', 'centroid', 'admin_area_id'
         ]
         WHEN 'water_polygons' THEN ARRAY[
-            'canonical_name', 'name', 'class_code', 'geom'
+            'canonical_name', 'name', 'class_code', 'water_class_id', 'geom'
         ]
         WHEN 'water_lines' THEN ARRAY[
-            'canonical_name', 'name', 'class_code', 'geom'
+            'canonical_name', 'name', 'class_code', 'water_class_id', 'geom'
         ]
         WHEN 'routing_barriers' THEN ARRAY[]::text[]
         ELSE ARRAY['canonical_name', 'name', 'class_code', 'geom', 'point_geom']
@@ -66,6 +71,7 @@ AS $$
         WHEN 'roads' THEN NULL
         WHEN 'admin_areas' THEN 22.3
         WHEN 'landuse' THEN 5
+        WHEN 'protected_areas' THEN 5
         WHEN 'water_polygons' THEN 5
         WHEN 'water_lines' THEN 10
         WHEN 'routing_barriers' THEN 10

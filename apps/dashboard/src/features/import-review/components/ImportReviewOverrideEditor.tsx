@@ -95,13 +95,13 @@ function OverrideFieldGrid({
                 const importedDisplay =
                     def.configKey === "building_type_id"
                         ? formatImportReviewBuildingTypeLabel(row)
-                        : def.patchKey === "landuse_class_id" && config.apiFamily === "landuse"
+                        : def.patchKey === "land_area_class_id" && config.apiFamily === "land_areas"
                           ? (deriveImportedClassCode(row, config.apiFamily) ?? "")
                           : isNameField
                             ? (sourceImportedName ?? "")
                             : importedForPatch;
                 const importedLabel =
-                    def.patchKey === "landuse_class_id" && config.apiFamily === "landuse"
+                    def.patchKey === "land_area_class_id" && config.apiFamily === "land_areas"
                         ? "Imported class:"
                         : isNameField
                           ? "Imported/source name:"
@@ -364,8 +364,8 @@ export default function ImportReviewOverrideEditor({
                 continue;
             }
 
-            if (def.configKey === "landuse_class_id") {
-                const options = (formOptions.landuse_classes ?? []).map((opt) => ({
+            if (def.configKey === "land_area_class_id") {
+                const options = (formOptions.land_area_classes ?? []).map((opt) => ({
                     value: String(opt.value),
                     label: opt.label,
                     code: opt.code ?? null,

@@ -76,7 +76,7 @@ BEGIN
             v_age_hours, v_max_age, v_refreshed_at, coalesce(v_project_ref, '');
     END IF;
 
-    FOREACH r IN ARRAY ARRAY['core_places', 'core_streets', 'core_map_buildings', 'core_admin_areas', 'ref_admin_levels'] LOOP
+    FOREACH r IN ARRAY ARRAY['core_places', 'core_streets', 'core_buildings', 'core_admin_areas', 'ref_admin_levels'] LOOP
         IF to_regclass(format('%I.%I', v_schema, r)) IS NULL THEN
             v_missing := array_append(v_missing, r);
         END IF;

@@ -102,7 +102,7 @@ const FAMILY_CONFIG = {
         apiPath: "buildings",
         candidateTable: "building_candidates",
         targetSchema: "core",
-        targetTable: "core_map_buildings",
+        targetTable: "core_buildings",
         highRisk: false,
         selectCandidateSql: `
             SELECT id, external_id, local_staging_id, name_en, name_mm, building_type_id,
@@ -953,7 +953,7 @@ async function main() {
 
         const coreAfter = await db.query(
             `
-            SELECT id, name, building_type_id, external_id, source_staging_id, is_active,
+            SELECT id, name, building_type_id, external_id, is_active,
                    ST_Area(geom::geography) AS area_m2
             FROM ${cfg.targetSchema}.${cfg.targetTable}
             WHERE id = $1::bigint

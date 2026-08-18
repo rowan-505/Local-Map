@@ -59,20 +59,20 @@ export class CoreReviewRefValidator {
         return ok ? [] : [{ path, message: "road_class_id not found" }];
     }
 
-    async validateLanduseClassId(
-        landuseClassId: bigint | null | undefined,
+    async validateLandAreaClassId(
+        landAreaClassId: bigint | null | undefined,
         required = false,
-        path = "landuseClassId"
+        path = "landAreaClassId"
     ): Promise<ValidationIssue[]> {
-        if (landuseClassId === undefined || landuseClassId === null) {
-            return required ? [{ path, message: "landuse_class_id is required" }] : [];
+        if (landAreaClassId === undefined || landAreaClassId === null) {
+            return required ? [{ path, message: "land_area_class_id is required" }] : [];
         }
         const rows = await this.prisma.$queryRaw<{ id: bigint }[]>`
-            SELECT id FROM ref.ref_landuse_classes
-            WHERE id = ${landuseClassId} AND is_active IS TRUE
+            SELECT id FROM ref.ref_land_area_classes
+            WHERE id = ${landAreaClassId} AND is_active IS TRUE
             LIMIT 1
         `;
-        return rows.length > 0 ? [] : [{ path, message: "landuse_class_id is invalid or inactive" }];
+        return rows.length > 0 ? [] : [{ path, message: "land_area_class_id is invalid or inactive" }];
     }
 
     async validateAdminLevelId(adminLevelId: bigint, path = "adminLevelId"): Promise<ValidationIssue[]> {

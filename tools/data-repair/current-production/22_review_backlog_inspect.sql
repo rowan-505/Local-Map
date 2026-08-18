@@ -4,7 +4,7 @@ UNION ALL SELECT 'road_candidates', count(*)::text FROM import_review.road_candi
 UNION ALL SELECT 'place_candidates', count(*)::text FROM import_review.place_candidates
 UNION ALL SELECT 'building_candidates', count(*)::text FROM import_review.building_candidates
 UNION ALL SELECT 'admin_area_candidates', count(*)::text FROM import_review.admin_area_candidates
-UNION ALL SELECT 'landuse_candidates', count(*)::text FROM import_review.landuse_candidates
+UNION ALL SELECT 'land_area_candidates', count(*)::text FROM import_review.land_area_candidates
 UNION ALL SELECT 'water_line_candidates', count(*)::text FROM import_review.water_line_candidates
 UNION ALL SELECT 'water_polygon_candidates', count(*)::text FROM import_review.water_polygon_candidates
 UNION ALL SELECT 'publish_batches', count(*)::text FROM system.system_publish_batches

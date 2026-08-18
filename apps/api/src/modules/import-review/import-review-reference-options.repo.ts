@@ -132,15 +132,15 @@ export class ImportReviewReferenceOptionsRepository {
         return rows[0] ?? null;
     }
 
-    async getActiveLanduseClassById(
+    async getActiveLandAreaClassById(
         id: bigint
     ): Promise<{ id: bigint; code: string; name_en: string } | null> {
-        if (!(await tableExists(this.prisma, "ref.ref_landuse_classes"))) {
+        if (!(await tableExists(this.prisma, "ref.ref_land_area_classes"))) {
             return null;
         }
         const rows = await this.prisma.$queryRaw<{ id: bigint; code: string; name_en: string }[]>`
             SELECT id, code, name_en
-            FROM ref.ref_landuse_classes
+            FROM ref.ref_land_area_classes
             WHERE id = ${id}
               AND is_active IS TRUE
             LIMIT 1
@@ -148,13 +148,29 @@ export class ImportReviewReferenceOptionsRepository {
         return rows[0] ?? null;
     }
 
-    async findActiveLanduseClassIdByCode(code: string): Promise<bigint | null> {
-        if (!(await tableExists(this.prisma, "ref.ref_landuse_classes"))) {
+    async getActiveWaterClassById(
+        id: bigint
+    ): Promise<{ id: bigint; code: string; name_en: string } | null> {
+        if (!(await tableExists(this.prisma, "ref.ref_water_classes"))) {
+            return null;
+        }
+        const rows = await this.prisma.$queryRaw<{ id: bigint; code: string; name_en: string }[]>`
+            SELECT id, code, name_en
+            FROM ref.ref_water_classes
+            WHERE id = ${id}
+              AND is_active IS TRUE
+            LIMIT 1
+        `;
+        return rows[0] ?? null;
+    }
+
+    async findActiveLandAreaClassIdByCode(code: string): Promise<bigint | null> {
+        if (!(await tableExists(this.prisma, "ref.ref_land_area_classes"))) {
             return null;
         }
         const rows = await this.prisma.$queryRaw<{ id: bigint }[]>`
             SELECT id
-            FROM ref.ref_landuse_classes
+            FROM ref.ref_land_area_classes
             WHERE lower(code) = lower(${code})
               AND is_active IS TRUE
             ORDER BY sort_order ASC NULLS LAST, id ASC

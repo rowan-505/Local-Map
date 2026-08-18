@@ -5,7 +5,7 @@ import { getImportReviewEntityConfig } from "./import-review-config.js";
 export const NORMAL_PROMOTION_FAMILIES = [
     "buildings",
     "places",
-    "landuse",
+    "land_areas",
     "water_lines",
     "water_polygons",
 ] as const satisfies readonly ImportReviewEntityFamilySlug[];
@@ -24,11 +24,11 @@ export type HighRiskPromotionFamily = (typeof HIGH_RISK_PROMOTION_FAMILIES)[numb
 
 /** Promotion target table per allowed family. */
 export const IMPORT_REVIEW_PROMOTION_TARGETS = {
-    buildings: "core.core_map_buildings",
+    buildings: "core.core_buildings",
     places: "core.core_places",
-    landuse: "core.core_map_landuse",
-    water_lines: "core.core_map_water_lines",
-    water_polygons: "core.core_map_water_polygons",
+    land_areas: "core.core_land_areas",
+    water_lines: "core.core_water_lines",
+    water_polygons: "core.core_water_polygons",
     roads: "core.core_streets",
     addresses: "core.core_addresses",
     admin_areas: "core.core_admin_areas",
@@ -131,7 +131,7 @@ export const IMPORT_REVIEW_PUBLISH_FAMILY_CONFIG: Record<
 > = {
     buildings: publishFamilyConfig("buildings"),
     places: publishFamilyConfig("places"),
-    landuse: publishFamilyConfig("landuse"),
+    land_areas: publishFamilyConfig("land_areas"),
     water_lines: publishFamilyConfig("water_lines"),
     water_polygons: publishFamilyConfig("water_polygons"),
     roads: publishFamilyConfig("roads"),

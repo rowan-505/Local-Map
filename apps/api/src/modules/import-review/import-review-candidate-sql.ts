@@ -97,7 +97,7 @@ const BIGINT_SET_COLUMNS = new Set([
     "category_id",
     "building_type_id",
     "road_class_id",
-    "landuse_class_id",
+    "land_area_class_id",
     "admin_level_id",
     "parent_id",
     "street_id",
@@ -272,9 +272,9 @@ export function effectiveBuildingTypeIdExpr(config: ImportReviewEntityFamilyConf
     return shapeColumn(config, "building_type_id", "bigint");
 }
 
-/** Effective FK from typed landuse_class_id column. */
-export function effectiveLanduseClassIdExpr(config: ImportReviewEntityFamilyConfig): Prisma.Sql {
-    return shapeColumn(config, "landuse_class_id", "bigint");
+/** Effective FK from typed land_area_class_id column. */
+export function effectiveLandAreaClassIdExpr(config: ImportReviewEntityFamilyConfig): Prisma.Sql {
+    return shapeColumn(config, "land_area_class_id", "bigint");
 }
 
 function buildSearchClause(config: ImportReviewEntityFamilyConfig, q: string): Prisma.Sql {
@@ -464,9 +464,10 @@ export function buildCandidateCommonSelect(
         config.buildingTypeJoin
             ? Prisma.sql`${effectiveBuildingTypeIdExpr(config)} AS building_type_id,`
             : Prisma.sql`${shapeColumn(config, "building_type_id", "bigint")} AS building_type_id,`,
-        config.landuseClassJoin
-            ? Prisma.sql`${effectiveLanduseClassIdExpr(config)} AS landuse_class_id,`
-            : Prisma.sql`${shapeColumn(config, "landuse_class_id", "bigint")} AS landuse_class_id,`,
+        config.landAreaClassJoin
+            ? Prisma.sql`${effectiveLandAreaClassIdExpr(config)} AS land_area_class_id,`
+            : Prisma.sql`${shapeColumn(config, "land_area_class_id", "bigint")} AS land_area_class_id,`,
+        Prisma.sql`${optionalTypedCandidateColumn(config, "water_class_id", "bigint")} AS water_class_id,`,
         ...(config.routeFamily === "roads" && config.effectiveAdminAreaJoin
             ? []
             : [Prisma.sql`${shapeColumn(config, "admin_area_id", "bigint")} AS admin_area_id,`]),
@@ -544,12 +545,12 @@ export function buildCandidateCommonSelect(
         );
     }
 
-    if (config.landuseClassJoin) {
+    if (config.landAreaClassJoin) {
         selectParts.push(
             Prisma.sql`,`,
-            Prisma.sql`lc.code AS landuse_class_code,`,
-            Prisma.sql`lc.name_en AS landuse_class_name,`,
-            Prisma.sql`lc.name_mm AS landuse_class_name_mm`
+            Prisma.sql`lc.code AS land_area_class_code,`,
+            Prisma.sql`lc.name_en AS land_area_class_name,`,
+            Prisma.sql`lc.name_mm AS land_area_class_name_mm`
         );
     }
 
@@ -629,10 +630,10 @@ export function buildCandidateFromClause(config: ImportReviewEntityFamilyConfig)
             ${adminJoin}
         `;
     }
-    if (config.landuseClassJoin) {
+    if (config.landAreaClassJoin) {
         return Prisma.sql`
             ${tableFrom(config)}
-            LEFT JOIN ref.ref_landuse_classes AS lc ON lc.id = ${effectiveLanduseClassIdExpr(config)}
+            LEFT JOIN ref.ref_land_area_classes AS lc ON lc.id = ${effectiveLandAreaClassIdExpr(config)}
             ${adminJoin}
         `;
     }

@@ -16,6 +16,7 @@ import ReviewPagination from "@/src/components/review/ReviewPagination";
 import { reviewTableRowClass } from "@/src/components/review/reviewPalette";
 
 import { getCoreReviewDetail, isAbortError } from "@/src/lib/api";
+import { useDashboardRoleAccess } from "@/src/hooks/useDashboardRoleAccess";
 
 import type { CoreReviewEntityConfig } from "../config/entity-config-types";
 import { useCoreReviewListState } from "../hooks/useCoreReviewListState";
@@ -39,6 +40,7 @@ function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
     initialSelectedRowId = null,
     initialDrawerMode = "view",
 }: CoreReviewEntityPageProps<T>) {
+    const dashboardAccess = useDashboardRoleAccess();
     const list = useCoreReviewListState<T>({
         apiSlug: config.apiSlug,
         defaultSortBy: config.defaultSortBy,
@@ -58,7 +60,7 @@ function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
         action();
     });
 
-    const supportsInlineEdit = config.supportsInlineEdit === true;
+    const supportsInlineEdit = dashboardAccess.canWrite && config.supportsInlineEdit === true;
 
     const handleInlineEditGuardReady = useCallback((guard: CoreReviewInlineEditGuard | null) => {
         inlineEditGuardRef.current = guard;
@@ -152,7 +154,7 @@ function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
             isPublic: "",
             statusFilter: "active",
             routeId: "",
-            landuseClassId: "",
+            landAreaClassId: "",
             detailLevel: "",
             cropCode: "",
             boundaryStatus: "",
@@ -227,6 +229,9 @@ function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
             : undefined;
 
     const headerActions = useMemo(() => {
+        if (!dashboardAccess.canWrite) {
+            return undefined;
+        }
         if (config.extensions?.headerActions) {
             return config.extensions.headerActions;
         }
@@ -242,7 +247,7 @@ function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
                 {coreReviewCreateButtonLabel(config.title)}
             </Link>
         );
-    }, [config.extensions?.headerActions, config.newPath, config.title]);
+    }, [dashboardAccess.canWrite, config.extensions?.headerActions, config.newPath, config.title]);
 
     const content = (
         <CoreReviewPageShell>
@@ -382,14 +387,14 @@ function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
                 open={Boolean(selectedId && drawerRow)}
                 row={drawerRow}
                 rowId={selectedId}
-                startInEditMode={startInEditMode}
+                startInEditMode={dashboardAccess.canWrite && startInEditMode}
                 onClose={handleCloseDrawer}
                 onRowPatched={(rowId, updater) => list.patchRow(rowId, updater)}
                 onInlineEditGuardReady={
                     supportsInlineEdit ? handleInlineEditGuardReady : undefined
                 }
                 drawerActions={
-                    drawerRow ? (
+                    dashboardAccess.canWrite && drawerRow ? (
                         <>
                             <CoreReviewLifecycleDrawerActions
                                 apiSlug={config.apiSlug}

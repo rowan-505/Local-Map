@@ -1,3 +1,6 @@
-import { createImportReviewEntityRoutePage } from "@/src/features/import-review/routes/importReviewEntityRoutePage";
+import { redirect } from "next/navigation";
 
-export default createImportReviewEntityRoutePage("landuse");
+/** Legacy URL → land-areas. */
+export default function LegacyLanduseImportReviewRedirectPage() {
+    redirect("/dashboard/import-review/land-areas");
+}

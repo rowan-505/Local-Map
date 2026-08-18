@@ -20,6 +20,7 @@ Every managed area is split by **target database**:
 | [`seeds/`](seeds/) | Repeatable seed data (reference rows, registry entries) |
 | [`checks/`](checks/) | Validation `SELECT` scripts (run after migrate/seed/import) |
 | [`docs/`](docs/) | Schema, pipeline, and workflow documentation (hand-written) |
+| [`docs/core_coastlines.md`](docs/core_coastlines.md) | Myanmar coastline Core storage (migration 157) |
 | [`snapshots/`](snapshots/) | Generated schema/data dumps for diffing—not source of truth |
 
 ```text

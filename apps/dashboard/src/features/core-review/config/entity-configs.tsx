@@ -16,7 +16,7 @@ import {
     applyAddressDetailToListRow,
     applyAdminAreaDetailToListRow,
     applyBuildingDetailToListRow,
-    applyLanduseDetailToListRow,
+    applyLandAreaDetailToListRow,
     applyMapFeatureDetailToListRow,
     applyPlaceDetailToListRow,
 } from "./applyInlineEditDetailToListRow";
@@ -40,7 +40,7 @@ import type {
     CoreReviewAddressRow,
     CoreReviewAdminAreaRow,
     CoreReviewBuildingRow,
-    CoreReviewLanduseRow,
+    CoreReviewLandAreaRow,
     CoreReviewMapFeatureRow,
     CoreReviewPlaceRow,
     CoreReviewStreetRow,
@@ -103,7 +103,7 @@ const FILTER_LANDUSE: CoreReviewFilterSupport = {
     isPublic: false,
     includeDeleted: true,
     routeId: false,
-    landuseClassId: true,
+    landAreaClassId: true,
     detailLevel: true,
     cropCode: true,
 };
@@ -335,6 +335,8 @@ function genericClassColumns<
     T extends {
         name: string | null;
         classCode: string | null;
+        waterClassCode?: string | null;
+        waterClassNameEn?: string | null;
         verificationStatus?: string | null;
         isVerified: boolean;
         isActive: boolean;
@@ -342,7 +344,11 @@ function genericClassColumns<
     },
 >(): CoreReviewEntityConfig<T>["columns"] {
     return [
-        { id: "class", header: "Class", cell: (r, q) => hl(dash(r.classCode), q) },
+        {
+            id: "class",
+            header: "Class",
+            cell: (r, q) => hl(dash(r.waterClassNameEn ?? r.waterClassCode ?? r.classCode), q),
+        },
         { id: "active", header: "Active", cell: (r) => yesNo(r.isActive) },
         ...standardNameAndVerificationColumns<T>({
             myanmar: (r) => r.name,
@@ -352,32 +358,32 @@ function genericClassColumns<
     ];
 }
 
-function landuseClassLabel(row: CoreReviewLanduseRow): string {
-    const en = row.landuseClassNameEn?.trim();
-    const mm = row.landuseClassNameMm?.trim();
+function landAreaClassLabel(row: CoreReviewLandAreaRow): string {
+    const en = row.landAreaClassNameEn?.trim();
+    const mm = row.landAreaClassNameMm?.trim();
     if (en && mm) {
         return `${en} — ${mm}`;
     }
-    return en || mm || row.landuseClassCode?.trim() || row.classCode?.trim() || "—";
+    return en || mm || row.landAreaClassCode?.trim() || row.classCode?.trim() || "—";
 }
 
-function landuseDisplayName(row: CoreReviewLanduseRow): string {
+function landAreaDisplayName(row: CoreReviewLandAreaRow): string {
     return row.nameMm?.trim() || row.nameEn?.trim() || row.name?.trim() || "—";
 }
 
-export const CORE_REVIEW_LANDUSE_CONFIG: CoreReviewEntityConfig<CoreReviewLanduseRow> = {
-    segment: "landuse",
-    entityKey: "landuse",
-    apiSlug: "landuse",
+export const CORE_REVIEW_LAND_AREAS_CONFIG: CoreReviewEntityConfig<CoreReviewLandAreaRow> = {
+    segment: "land-areas",
+    entityKey: "land-areas",
+    apiSlug: "land-areas",
     supportsInlineEdit: true,
-    applyDetailToListRow: applyLanduseDetailToListRow,
-    title: "Landuse",
+    applyDetailToListRow: applyLandAreaDetailToListRow,
+    title: "Land areas",
     description:
-        "Production landuse polygons — urban zones and village farmland/paddy parcels for map context.",
+        "Production land-area polygons — urban zones, farmland/paddy, landcover, and wetlands for map context.",
     overviewStatus: "ready",
     idKind: "public_id",
     geometryKind: "polygon",
-    mapEntityType: "landuse",
+    mapEntityType: "land_area",
     defaultSortBy: "updated_at",
     sortOptions: [
         { value: "name", label: "Name", type: "text" },
@@ -389,20 +395,20 @@ export const CORE_REVIEW_LANDUSE_CONFIG: CoreReviewEntityConfig<CoreReviewLandus
     ],
     filterSupport: FILTER_LANDUSE,
     getRowId: (r) => r.publicId,
-    getRowTitle: landuseDisplayName,
+    getRowTitle: landAreaDisplayName,
     getRowSubtitle: (r) => r.publicId,
     getGeometry: (r) => r.geometry,
-    searchPlaceholder: "Search landuse (name, class, crop)…",
+    searchPlaceholder: "Search land areas (name, class, crop)…",
     columns: [
         { id: "public_id", header: "Public ID", cell: (r, q) => hl(r.publicId, q) },
-        ...standardNameAndVerificationColumns<CoreReviewLanduseRow>({
+        ...standardNameAndVerificationColumns<CoreReviewLandAreaRow>({
             myanmar: (r) => r.nameMm,
             english: (r) => r.nameEn,
         }),
         {
             id: "class",
-            header: "Landuse class",
-            cell: (r, q) => hl(landuseClassLabel(r), q),
+            header: "Land area class",
+            cell: (r, q) => hl(landAreaClassLabel(r), q),
         },
         { id: "admin", header: "Admin area", cell: (r, q) => hl(dash(r.adminAreaName), q) },
         { id: "detail", header: "Detail level", cell: (r) => dash(r.detailLevel) },
@@ -420,7 +426,7 @@ export const CORE_REVIEW_LANDUSE_CONFIG: CoreReviewEntityConfig<CoreReviewLandus
         { label: "External ID", value: dash(r.externalId) },
         { label: "Myanmar name", value: dash(r.nameMm) },
         { label: "English name", value: dash(r.nameEn) },
-        { label: "Landuse class", value: landuseClassLabel(r) },
+        { label: "Land area class", value: landAreaClassLabel(r) },
         { label: "Admin area", value: dash(r.adminAreaName) },
         { label: "Detail level", value: dash(r.detailLevel) },
         { label: "Crop code", value: dash(r.cropCode) },
@@ -433,7 +439,7 @@ export const CORE_REVIEW_LANDUSE_CONFIG: CoreReviewEntityConfig<CoreReviewLandus
         { label: "Created", value: formatDate(r.createdAt) },
         { label: "Updated", value: formatDate(r.updatedAt) },
     ],
-    newPath: coreReviewPath("landuse/new"),
+    newPath: coreReviewPath("land-areas/new"),
 };
 
 const FILTER_MAP_FEATURE: CoreReviewFilterSupport = {
@@ -451,7 +457,10 @@ function mapFeatureDetailFields(r: CoreReviewMapFeatureRow) {
     return [
         { label: "ID", value: r.id },
         { label: "Name", value: dash(r.name) },
-        { label: "Class", value: dash(r.classCode) },
+        {
+            label: "Class",
+            value: dash(r.waterClassNameEn ?? r.waterClassCode ?? r.classCode),
+        },
         verificationStatusDetailField(r),
         { label: "Active", value: yesNo(r.isActive) },
         { label: "Updated", value: formatDate(r.updatedAt) },
@@ -643,7 +652,7 @@ export const CORE_REVIEW_ENTITY_CONFIG_BY_SEGMENT = {
     buildings: CORE_REVIEW_BUILDINGS_CONFIG,
     places: CORE_REVIEW_PLACES_CONFIG,
     roads: CORE_REVIEW_STREETS_CONFIG,
-    landuse: CORE_REVIEW_LANDUSE_CONFIG,
+    "land-areas": CORE_REVIEW_LAND_AREAS_CONFIG,
     "water-lines": CORE_REVIEW_WATER_LINES_CONFIG,
     "water-polygons": CORE_REVIEW_WATER_POLYGONS_CONFIG,
     addresses: CORE_REVIEW_ADDRESSES_CONFIG,

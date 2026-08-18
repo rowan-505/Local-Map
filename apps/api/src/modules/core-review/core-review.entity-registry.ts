@@ -67,8 +67,8 @@ const ENTITY_DEFINITIONS: readonly CoreReviewEntityDefinition[] = [
         allowedSortBy: ["name", "admin_area", "created", "created_at", "updated", "updated_at", "id"],
     },
     {
-        slug: "landuse",
-        path: "landuse",
+        slug: "land-areas",
+        path: "land-areas",
         idKind: "public_id",
         supportsIsVerified: true,
         supportsAdminAreaId: true,
@@ -82,7 +82,7 @@ const ENTITY_DEFINITIONS: readonly CoreReviewEntityDefinition[] = [
         allowedSortBy: [
             "name",
             "class_code",
-            "landuse_class",
+            "land_area_class",
             "admin_area",
             "detail_level",
             "area_m2",

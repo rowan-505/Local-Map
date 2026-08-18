@@ -124,7 +124,7 @@ export const postEntityAdminAreaInferSchema = {
         type: "object",
         required: ["kind"],
         properties: {
-            kind: { type: "string", enum: ["place", "street", "building", "landuse", "bus_stop", "road"] },
+            kind: { type: "string", enum: ["place", "street", "building", "land_area", "bus_stop", "road"] },
             lat: { type: "number" },
             lng: { type: "number" },
             geometry: { type: "object", additionalProperties: true },
@@ -147,7 +147,7 @@ export const postEntityAdminAreaValidateManualSchema = {
         type: "object",
         required: ["kind", "admin_area_id"],
         properties: {
-            kind: { type: "string", enum: ["place", "street", "building", "landuse", "bus_stop", "road"] },
+            kind: { type: "string", enum: ["place", "street", "building", "land_area", "bus_stop", "road"] },
             admin_area_id: { type: "string" },
             lat: { type: "number" },
             lng: { type: "number" },

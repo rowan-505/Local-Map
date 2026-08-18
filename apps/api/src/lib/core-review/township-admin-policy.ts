@@ -22,7 +22,7 @@ export const TOWNSHIP_ADMIN_ENTITY_SLUGS = [
     "streets",
     "places",
     "buildings",
-    "landuse",
+    "land-areas",
     "bus-stops",
 ] as const;
 
@@ -36,7 +36,7 @@ export function isTownshipAdminEntity(slug: string): slug is TownshipAdminEntity
 }
 
 /** POST /entity-admin-area/infer `kind` for each township-default slug. */
-export type TownshipAdminInferKind = "place" | "street" | "building" | "landuse" | "bus_stop";
+export type TownshipAdminInferKind = "place" | "street" | "building" | "land_area" | "bus_stop";
 
 export function townshipAdminEntityInferKind(slug: TownshipAdminEntitySlug): TownshipAdminInferKind {
     switch (slug) {
@@ -48,8 +48,8 @@ export function townshipAdminEntityInferKind(slug: TownshipAdminEntitySlug): Tow
             return "bus_stop";
         case "buildings":
             return "building";
-        case "landuse":
-            return "landuse";
+        case "land-areas":
+            return "land_area";
     }
 }
 
@@ -63,7 +63,7 @@ export function townshipAdminEntityGeometryRole(slug: TownshipAdminEntitySlug): 
         case "bus-stops":
             return "point";
         case "buildings":
-        case "landuse":
+        case "land-areas":
             return "polygon";
     }
 }

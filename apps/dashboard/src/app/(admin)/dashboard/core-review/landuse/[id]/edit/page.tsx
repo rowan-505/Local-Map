@@ -1,14 +1,13 @@
-"use client";
+import { redirect } from "next/navigation";
 
-import { useParams } from "next/navigation";
+import { coreReviewPath } from "@/src/lib/dashboardNavigation";
 
-import CoreEntityFormRoutePage, {
-    resolveCoreEntityRouteId,
-} from "@/src/features/core-review/forms/CoreEntityFormRoutePage";
+type Props = {
+    params: Promise<{ id: string }>;
+};
 
-export default function EditPage() {
-    const params = useParams();
-    const id = resolveCoreEntityRouteId(params.id);
-
-    return <CoreEntityFormRoutePage entityKey="landuse" mode="edit" id={id} />;
+/** Legacy URL → land-areas/[id]/edit. */
+export default async function LegacyLanduseCoreReviewEditRedirectPage({ params }: Props) {
+    const { id } = await params;
+    redirect(coreReviewPath(`land-areas/${id}/edit`));
 }

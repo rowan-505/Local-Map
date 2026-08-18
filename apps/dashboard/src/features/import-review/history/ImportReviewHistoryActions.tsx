@@ -10,6 +10,7 @@ import {
     postImportReviewPromotionBatchResume,
 } from "@/src/lib/api";
 import { importReviewPath } from "@/src/lib/dashboardPaths";
+import { useDashboardRoleAccess } from "@/src/hooks/useDashboardRoleAccess";
 
 type Props = {
     batchId: string;
@@ -22,6 +23,7 @@ export function ImportReviewHistoryPublishBatchActions({
     resumableActions,
     onActionComplete,
 }: Props) {
+    const dashboardAccess = useDashboardRoleAccess();
     const router = useRouter();
     const [busy, setBusy] = useState<string | null>(null);
     const [actionError, setActionError] = useState<string | null>(null);
@@ -49,7 +51,7 @@ export function ImportReviewHistoryPublishBatchActions({
                 >
                     Open
                 </Link>
-                {actions.has("resume_validation") || actions.has("resume_promotion") || actions.has("resume_dry_run") || actions.has("resume_verify") ? (
+                {dashboardAccess.canWrite && (actions.has("resume_validation") || actions.has("resume_promotion") || actions.has("resume_dry_run") || actions.has("resume_verify")) ? (
                     <button
                         type="button"
                         disabled={busy != null}
@@ -61,7 +63,7 @@ export function ImportReviewHistoryPublishBatchActions({
                         {busy === "resume" ? "…" : "Resume"}
                     </button>
                 ) : null}
-                {actions.has("verify") || actions.has("resume_verify") ? (
+                {dashboardAccess.canWrite && (actions.has("verify") || actions.has("resume_verify")) ? (
                     <button
                         type="button"
                         disabled={busy != null}
@@ -73,7 +75,7 @@ export function ImportReviewHistoryPublishBatchActions({
                         {busy === "verify" ? "…" : "Verify"}
                     </button>
                 ) : null}
-                {actions.has("reset_validation") ? (
+                {dashboardAccess.canWrite && actions.has("reset_validation") ? (
                     <button
                         type="button"
                         disabled={busy != null}

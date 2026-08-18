@@ -26,8 +26,8 @@ export function formOptionsKeyForField(
 
     if (def.configKey === "class_code") {
         switch (config.apiFamily) {
-            case "landuse":
-                return "landuse_classes";
+            case "land_areas":
+                return "land_area_classes";
             case "water_lines":
                 return "waterway_classes";
             case "water_polygons":
@@ -54,8 +54,10 @@ export function formOptionsKeyForField(
             return "road_classes";
         case "ref_building_types":
             return "building_types";
-        case "ref_landuse_classes":
-            return "landuse_classes";
+        case "ref_land_area_classes":
+            return "land_area_classes";
+        case "ref_water_classes":
+            return "water_classes";
         case "ref_admin_levels":
             return "admin_levels";
         default:
@@ -235,7 +237,8 @@ export function fieldUsesSelectOptions(
     }
     if (
         def.configKey === "class_code" ||
-        def.configKey === "landuse_class_id" ||
+        def.configKey === "land_area_class_id" ||
+        def.configKey === "water_class_id" ||
         def.configKey === "barrier_type" ||
         def.configKey === "surface"
     ) {

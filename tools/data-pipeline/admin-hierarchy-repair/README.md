@@ -111,7 +111,7 @@ The runner **requires exactly one env file** argument (see `imports/template.env
 | 03 | `03_create_admin_assignment_functions.sql` | Yes (functions + indexes) | Required | Yes |
 | 04 | `04_backfill_places_admin_area.sql` | Yes | Required | Skipped |
 | 05 | `05_backfill_roads_admin_area.sql` | Yes (`core.core_streets`) | Required | Skipped |
-| 06 | `06_backfill_buildings_admin_area.sql` | Yes (`core.core_map_buildings`) | Required | Skipped |
+| 06 | `06_backfill_buildings_admin_area.sql` | Yes (`core.core_buildings`) | Required | Skipped |
 | 07 | `07_verify_entity_admin_assignment.sql` | No (hard-fail gate) | — | Skipped |
 
 **Stage 00** skips places/streets/buildings checks unless `inspect_entity_assignment=true` (default on full runs only).

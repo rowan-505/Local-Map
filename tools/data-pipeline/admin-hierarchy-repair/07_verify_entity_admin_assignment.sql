@@ -107,7 +107,7 @@ SELECT
         ),
         4326
     )::geometry(Point, 4326) AS lookup_point
-FROM core.core_map_buildings AS b
+FROM core.core_buildings AS b
 WHERE b.deleted_at IS NULL
   AND coalesce(b.is_active, true) IS TRUE
   AND b.geom IS NOT NULL
@@ -135,13 +135,13 @@ BEGIN
         SELECT 1
         FROM information_schema.columns AS c
         WHERE c.table_schema = 'core'
-          AND c.table_name = 'core_map_buildings'
+          AND c.table_name = 'core_buildings'
           AND c.column_name = 'manual_override'
     ) THEN
         EXECUTE $sql$
             UPDATE _verify_buildings AS b
             SET manual_override = coalesce(src.manual_override, false)
-            FROM core.core_map_buildings AS src
+            FROM core.core_buildings AS src
             WHERE src.id = b.id
         $sql$;
     END IF;
@@ -180,13 +180,13 @@ BEGIN
         SELECT 1
         FROM information_schema.columns AS c
         WHERE c.table_schema = 'core'
-          AND c.table_name = 'core_map_buildings'
+          AND c.table_name = 'core_buildings'
           AND c.column_name = 'verification_status'
     ) THEN
         EXECUTE $sql$
             UPDATE _verify_buildings AS b
             SET verification_status = src.verification_status
-            FROM core.core_map_buildings AS src
+            FROM core.core_buildings AS src
             WHERE src.id = b.id
         $sql$;
     END IF;

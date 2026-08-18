@@ -65,6 +65,7 @@ INSERT INTO stage08b_family VALUES
     ('buildings', 'staging_building_candidates'),
     ('admin_areas', 'staging_admin_area_candidates'),
     ('landuse', 'staging_landuse_candidates'),
+    ('protected_areas', 'staging_protected_area_candidates'),
     ('water_lines', 'staging_water_line_candidates'),
     ('water_polygons', 'staging_water_polygon_candidates'),
     ('routing_barriers', 'staging_routing_barrier_candidates');
@@ -251,7 +252,7 @@ BEGIN
                     s.staging_id,
                     CASE
                         WHEN s.settled_import_class = 'invalid' THEN 'invalid'
-                        WHEN %1$L IN ('buildings', 'landuse', 'water_lines', 'water_polygons')
+                        WHEN %1$L IN ('buildings', 'landuse', 'protected_areas', 'water_lines', 'water_polygons')
                              AND s.eligible_for_core IS FALSE
                             THEN 'pmtiles_only'
                         ELSE s.settled_import_class
@@ -276,7 +277,7 @@ BEGIN
                         END,
                         'final_action', CASE
                             WHEN s.settled_import_class = 'invalid' THEN 'invalid'
-                            WHEN %1$L IN ('buildings', 'landuse', 'water_lines', 'water_polygons')
+                            WHEN %1$L IN ('buildings', 'landuse', 'protected_areas', 'water_lines', 'water_polygons')
                                  AND s.eligible_for_core IS FALSE
                                 THEN 'skip'
                             ELSE system.pipeline_import_class_to_final_action(s.settled_import_class)

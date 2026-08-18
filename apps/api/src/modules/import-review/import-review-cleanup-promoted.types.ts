@@ -19,7 +19,7 @@ export type CleanupIneligibleReason = (typeof CLEANUP_INELIGIBLE_REASONS)[number
 export const CLEANUP_SUPPORTED_FAMILIES = [
     "buildings",
     "places",
-    "landuse",
+    "land_areas",
     "water_lines",
     "water_polygons",
     "roads",

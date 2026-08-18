@@ -30,7 +30,7 @@ export const IMPORT_REVIEW_HISTORY_ENTITY_FAMILIES = [
     "buildings",
     "places",
     "roads",
-    "landuse",
+    "land_areas",
     "water_lines",
     "water_polygons",
     "admin_areas",

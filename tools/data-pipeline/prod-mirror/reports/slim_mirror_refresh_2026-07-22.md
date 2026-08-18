@@ -16,7 +16,7 @@ Local only. Supabase core was not written.
 |-------|-----:|
 | core_streets | 823013 |
 | core_places | 282 |
-| core_map_buildings | 1083 |
+| core_buildings | 1083 |
 | core_admin_areas | 2518 |
 | core_street_names | 26460 |
 | core_admin_area_names | 3362 |

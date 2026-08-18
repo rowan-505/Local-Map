@@ -22,8 +22,8 @@ WHERE a.deleted_at IS NULL GROUP BY 1 ORDER BY 2 DESC;
 
 -- Admin links
 SELECT 'places_missing_admin' AS metric, count(*)::text FROM core.core_places WHERE deleted_at IS NULL AND admin_area_id IS NULL
-UNION ALL SELECT 'buildings_missing_admin', count(*)::text FROM core.core_map_buildings WHERE deleted_at IS NULL AND admin_area_id IS NULL
-UNION ALL SELECT 'landuse_missing_admin', count(*)::text FROM core.core_map_landuse WHERE deleted_at IS NULL AND admin_area_id IS NULL
+UNION ALL SELECT 'buildings_missing_admin', count(*)::text FROM core.core_buildings WHERE deleted_at IS NULL AND admin_area_id IS NULL
+UNION ALL SELECT 'landuse_missing_admin', count(*)::text FROM core.core_land_areas WHERE deleted_at IS NULL AND admin_area_id IS NULL
 UNION ALL SELECT 'streets_missing_admin', count(*)::text FROM core.core_streets WHERE deleted_at IS NULL AND admin_area_id IS NULL
 UNION ALL SELECT 'stops_missing_admin', count(*)::text FROM transport.stops WHERE deleted_at IS NULL AND admin_area_id IS NULL
 UNION ALL SELECT 'terminals_missing_admin', count(*)::text FROM transport.terminals WHERE deleted_at IS NULL AND admin_area_id IS NULL
@@ -51,10 +51,10 @@ GROUP BY 1 ORDER BY 2 DESC LIMIT 20;
 
 -- Small core
 SELECT 'places_active' AS metric, count(*)::text FROM core.core_places WHERE deleted_at IS NULL
-UNION ALL SELECT 'buildings_active', count(*)::text FROM core.core_map_buildings WHERE deleted_at IS NULL
-UNION ALL SELECT 'landuse_active', count(*)::text FROM core.core_map_landuse WHERE deleted_at IS NULL
-UNION ALL SELECT 'water_lines', count(*)::text FROM core.core_map_water_lines WHERE deleted_at IS NULL
-UNION ALL SELECT 'water_polygons', count(*)::text FROM core.core_map_water_polygons WHERE deleted_at IS NULL;
+UNION ALL SELECT 'buildings_active', count(*)::text FROM core.core_buildings WHERE deleted_at IS NULL
+UNION ALL SELECT 'landuse_active', count(*)::text FROM core.core_land_areas WHERE deleted_at IS NULL
+UNION ALL SELECT 'water_lines', count(*)::text FROM core.core_water_lines WHERE deleted_at IS NULL
+UNION ALL SELECT 'water_polygons', count(*)::text FROM core.core_water_polygons WHERE deleted_at IS NULL;
 
 -- Review / lineage
 SELECT 'publish_batches_archived' AS metric, count(*)::text FROM system.system_publish_batches WHERE status='archived'

@@ -57,9 +57,9 @@ WHERE i.publish_status = 'pending'
     OR (i.entity_family = 'places' AND EXISTS (
       SELECT 1 FROM core.core_places p WHERE p.external_id = i.external_id AND p.deleted_at IS NULL))
     OR (i.entity_family = 'buildings' AND EXISTS (
-      SELECT 1 FROM core.core_map_buildings b WHERE b.external_id = i.external_id AND b.deleted_at IS NULL))
+      SELECT 1 FROM core.core_buildings b WHERE b.external_id = i.external_id AND b.deleted_at IS NULL))
     OR (i.entity_family = 'landuse' AND EXISTS (
-      SELECT 1 FROM core.core_map_landuse l WHERE l.external_id = i.external_id AND l.deleted_at IS NULL))
+      SELECT 1 FROM core.core_land_areas l WHERE l.external_id = i.external_id AND l.deleted_at IS NULL))
   );
 
 INSERT INTO system.repair_review_backlog_before_202607 (entity_family, entity_id, field_name, old_value, new_value)

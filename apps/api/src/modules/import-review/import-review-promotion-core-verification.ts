@@ -22,23 +22,23 @@ export type CoreVerificationDefaults = Partial<{
 /** Registry for current and future import-review promotion targets. */
 export const CORE_ENTITY_VERIFICATION_CONFIG = {
     buildings: {
-        table: "core.core_map_buildings",
+        table: "core.core_buildings",
         columns: [...CORE_VERIFICATION_COLUMNS] as CoreVerificationColumn[],
     },
     places: {
         table: "core.core_places",
         columns: [...CORE_VERIFICATION_COLUMNS] as CoreVerificationColumn[],
     },
-    landuse: {
-        table: "core.core_map_landuse",
+    land_areas: {
+        table: "core.core_land_areas",
         columns: [...CORE_VERIFICATION_COLUMNS] as CoreVerificationColumn[],
     },
     water_lines: {
-        table: "core.core_map_water_lines",
+        table: "core.core_water_lines",
         columns: [...CORE_VERIFICATION_COLUMNS] as CoreVerificationColumn[],
     },
     water_polygons: {
-        table: "core.core_map_water_polygons",
+        table: "core.core_water_polygons",
         columns: [...CORE_VERIFICATION_COLUMNS] as CoreVerificationColumn[],
     },
     roads: {

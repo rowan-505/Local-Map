@@ -15,7 +15,7 @@ export const SEARCH_ALIAS_ENTITY_TYPES = [
     "address",
     ...CANONICAL_TRANSPORT_SEARCH_ENTITY_TYPES,
     "building",
-    "landuse",
+    "land_area",
     "water_line",
     "water_polygon",
 ] as const;

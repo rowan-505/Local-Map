@@ -87,7 +87,8 @@ export class ImportReviewOptionsRepository {
             road_classes,
             poi_categories,
             building_types,
-            landuse_classes,
+            land_area_classes,
+            water_classes,
             barrier_types,
         ] = await Promise.all([
             this.fetchAdminAreas(),
@@ -95,7 +96,8 @@ export class ImportReviewOptionsRepository {
             this.fetchRefTable("ref.ref_road_classes", "code ASC"),
             this.fetchPoiCategories(),
             this.fetchBuildingTypes(),
-            this.fetchLanduseClassesFromRefOnly(),
+            this.fetchLandAreaClassesFromRefOnly(),
+            this.fetchWaterClassesFromRefOnly(),
             this.fetchBarrierTypesFromRefOnly(),
         ]);
 
@@ -107,10 +109,10 @@ export class ImportReviewOptionsRepository {
             road_classes,
             poi_categories,
             building_types,
-            landuse_classes,
-            /** Observed values are per-batch — use GET /:family/filter-options class_code. */
-            waterway_classes: [],
-            water_classes: [],
+            land_area_classes,
+            /** Same taxonomy as water_classes (lines + polygons share ref.ref_water_classes). */
+            waterway_classes: water_classes,
+            water_classes,
             barrier_types,
             surface_presets,
         };
@@ -255,8 +257,8 @@ export class ImportReviewOptionsRepository {
         return rows.map((row) => refRowToOption(row));
     }
 
-    private async fetchLanduseClassesFromRefOnly(): Promise<ImportReviewFormOption[]> {
-        if (!(await tableExists(this.prisma, "ref.ref_landuse_classes"))) {
+    private async fetchLandAreaClassesFromRefOnly(): Promise<ImportReviewFormOption[]> {
+        if (!(await tableExists(this.prisma, "ref.ref_land_area_classes"))) {
             return [];
         }
 
@@ -264,7 +266,7 @@ export class ImportReviewOptionsRepository {
             { id: bigint; code: string; name_en: string; name_mm: string | null }[]
         >`
             SELECT id, code, name_en, name_mm
-            FROM ref.ref_landuse_classes
+            FROM ref.ref_land_area_classes
             WHERE is_active IS TRUE
             ORDER BY sort_order ASC NULLS LAST, name_en ASC
         `;
@@ -273,6 +275,36 @@ export class ImportReviewOptionsRepository {
             const mm = row.name_mm?.trim() || null;
             const en = row.name_en?.trim() || null;
             const label = en && mm ? `${en} — ${mm}` : en ?? mm ?? row.code ?? row.id.toString();
+            return {
+                value: row.id.toString(),
+                label,
+                code: row.code,
+            };
+        });
+    }
+
+    private async fetchWaterClassesFromRefOnly(): Promise<ImportReviewFormOption[]> {
+        if (!(await tableExists(this.prisma, "ref.ref_water_classes"))) {
+            return [];
+        }
+
+        const rows = await this.prisma.$queryRaw<
+            { id: bigint; code: string; name_en: string; name_mm: string | null }[]
+        >`
+            SELECT id, code, name_en, name_mm
+            FROM ref.ref_water_classes
+            WHERE is_active IS TRUE
+            ORDER BY sort_order ASC NULLS LAST, name_en ASC
+        `;
+
+        return rows.map((row) => {
+            const mm = row.name_mm?.trim() || null;
+            const en = row.name_en?.trim() || null;
+            const label = en && mm
+                ? `${en} (${row.code}) — ${mm}`
+                : en
+                  ? `${en} (${row.code})`
+                  : row.code ?? row.id.toString();
             return {
                 value: row.id.toString(),
                 label,

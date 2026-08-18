@@ -10,7 +10,7 @@ export type ImportReviewEntitySlug =
     | "bus-route-variants"
     | "bus-route-stops"
     | "bus-stops"
-    | "landuse"
+    | "land-areas"
     | "water-lines"
     | "water-polygons"
     | "addresses"

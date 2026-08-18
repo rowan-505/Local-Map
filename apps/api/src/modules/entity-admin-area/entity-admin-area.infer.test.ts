@@ -78,7 +78,7 @@ describe("normalizeEntityAdminAreaKind", () => {
         assert.equal(normalizeEntityAdminAreaKind("place"), "place");
         assert.equal(normalizeEntityAdminAreaKind("street"), "street");
         assert.equal(normalizeEntityAdminAreaKind("building"), "building");
-        assert.equal(normalizeEntityAdminAreaKind("landuse"), "landuse");
+        assert.equal(normalizeEntityAdminAreaKind("land_area"), "land_area");
         assert.equal(normalizeEntityAdminAreaKind("bus_stop"), "bus_stop");
     });
 });
@@ -406,7 +406,7 @@ describe("EntityAdminAreaService.infer roads", () => {
         };
 
         const result = await service.infer({
-            kind: "landuse",
+            kind: "land_area",
             geometry: polygon,
             current_admin_area_id: "",
         });
@@ -462,7 +462,7 @@ describe("EntityAdminAreaService.infer roads", () => {
         const service = new EntityAdminAreaService(roadRepoStub());
 
         const result = await service.infer({
-            kind: "landuse",
+            kind: "land_area",
             current_admin_area_id: "",
         });
 

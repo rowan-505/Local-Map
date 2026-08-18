@@ -18,9 +18,9 @@ SELECT
         SELECT coalesce(sum(wal.size), 0)
         FROM pg_ls_waldir() AS wal
     ) AS wal_directory_bytes,
-    pg_relation_size('core.core_map_buildings') AS building_table_bytes,
-    pg_indexes_size('core.core_map_buildings') AS building_index_bytes,
-    pg_total_relation_size('core.core_map_buildings') AS building_total_bytes,
+    pg_relation_size('core.core_buildings') AS building_table_bytes,
+    pg_indexes_size('core.core_buildings') AS building_index_bytes,
+    pg_total_relation_size('core.core_buildings') AS building_total_bytes,
     693.310::numeric AS measured_persistent_bytes_per_new_building,
     3110.448::numeric AS measured_wal_bytes_per_staged_building,
     3990.825::numeric AS measured_temp_bytes_per_staged_building,
@@ -43,7 +43,7 @@ SELECT
 FROM required_columns AS required
 LEFT JOIN information_schema.columns AS column_info
   ON column_info.table_schema = 'core'
- AND column_info.table_name = 'core_map_buildings'
+ AND column_info.table_name = 'core_buildings'
  AND column_info.column_name = required.column_name
 ORDER BY required.column_name;
 
@@ -59,11 +59,11 @@ FROM pg_class AS index_class
 JOIN pg_index AS index_meta
   ON index_meta.indexrelid = index_class.oid
 WHERE index_class.oid IN (
-    'core.core_map_buildings_source_identity_uidx'::regclass,
-    'core.core_map_buildings_geom_gix'::regclass,
-    'core.core_map_buildings_public_id_uidx'::regclass,
+    'core.core_buildings_source_identity_uidx'::regclass,
+    'core.core_buildings_geom_gix'::regclass,
+    'core.core_buildings_public_id_uidx'::regclass,
     'core.core_place_buildings_building_id_idx'::regclass,
-    'core.core_map_building_names_building_id_idx'::regclass
+    'core.core_building_names_building_id_idx'::regclass
 )
 ORDER BY index_class.relname;
 
@@ -82,7 +82,7 @@ SELECT
               OR GeometryType(building.geom) NOT IN ('POLYGON', 'MULTIPOLYGON')
           )
     ) AS invalid_geometry
-FROM core.core_map_buildings AS building;
+FROM core.core_buildings AS building;
 
 SELECT
     'duplicate_source_identity' AS section,
@@ -92,7 +92,7 @@ FROM (
         building.source_registry_id,
         building.source_feature_type,
         building.source_feature_id
-    FROM core.core_map_buildings AS building
+    FROM core.core_buildings AS building
     WHERE building.source_registry_id IS NOT NULL
       AND building.source_feature_type IS NOT NULL
       AND building.source_feature_id IS NOT NULL
@@ -108,7 +108,7 @@ SELECT
     count(*) FILTER (WHERE building.id IS NULL) AS orphan_building_links,
     count(*) FILTER (WHERE place.id IS NULL) AS orphan_place_links
 FROM core.core_place_buildings AS place_building
-LEFT JOIN core.core_map_buildings AS building
+LEFT JOIN core.core_buildings AS building
   ON building.id = place_building.building_id
 LEFT JOIN core.core_places AS place
   ON place.id = place_building.place_id;
@@ -117,12 +117,12 @@ SELECT
     'unnamed_search_exposure' AS section,
     count(*) AS unnamed_ordinary_footprints_in_search
 FROM search.v_search_buildings_source AS search_building
-JOIN core.core_map_buildings AS building
+JOIN core.core_buildings AS building
   ON building.id = search_building.entity_id
 WHERE nullif(btrim(building.name), '') IS NULL
   AND NOT EXISTS (
       SELECT 1
-      FROM core.core_map_building_names AS building_name
+      FROM core.core_building_names AS building_name
       WHERE building_name.building_id = building.id
         AND nullif(btrim(building_name.name), '') IS NOT NULL
   );
@@ -177,8 +177,8 @@ JOIN pg_namespace AS namespace
 CROSS JOIN application_roles
 WHERE namespace.nspname = 'core'
   AND relation.relname IN (
-      'core_map_buildings',
-      'core_map_building_names',
+      'core_buildings',
+      'core_building_names',
       'core_place_buildings'
   )
 ORDER BY relation.relname;
@@ -194,8 +194,8 @@ SELECT
 FROM pg_stat_user_indexes AS index_stats
 WHERE index_stats.schemaname = 'core'
   AND index_stats.relname IN (
-      'core_map_buildings',
-      'core_map_building_names',
+      'core_buildings',
+      'core_building_names',
       'core_place_buildings'
   )
 ORDER BY index_stats.relname, index_stats.indexrelname;

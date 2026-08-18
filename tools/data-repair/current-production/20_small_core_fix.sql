@@ -16,18 +16,18 @@ CREATE TABLE IF NOT EXISTS system.repair_small_core_before_202607 (
 -- 1) Landuse class_code vs FK (tags say residential, FK was farmland)
 BEGIN;
 INSERT INTO system.repair_small_core_before_202607 (entity_family, entity_id, field_name, old_value, new_value)
-SELECT 'landuse', id, 'landuse_class_id', landuse_class_id::text, '7'
-FROM core.core_map_landuse
-WHERE id = 30 AND deleted_at IS NULL AND landuse_class_id IS DISTINCT FROM 7
+SELECT 'landuse', id, 'land_area_class_id', land_area_class_id::text, '7'
+FROM core.core_land_areas
+WHERE id = 30 AND deleted_at IS NULL AND land_area_class_id IS DISTINCT FROM 7
 ON CONFLICT DO NOTHING;
 
-UPDATE core.core_map_landuse
-SET landuse_class_id = 7,
+UPDATE core.core_land_areas
+SET land_area_class_id = 7,
     updated_at = now()
 WHERE id = 30
   AND deleted_at IS NULL
   AND class_code = 'residential'
-  AND landuse_class_id IS DISTINCT FROM 7
+  AND land_area_class_id IS DISTINCT FROM 7
   AND NOT COALESCE(manual_override, false);
 COMMIT;
 

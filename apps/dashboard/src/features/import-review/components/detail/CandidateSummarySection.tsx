@@ -10,9 +10,9 @@ import {
     getImportReviewSourceImportedName,
 } from "../../utils/importReviewNaming";
 import {
-    formatLanduseClassLabel,
-    formatLanduseImportedClassCode,
-} from "../../utils/importReviewLanduseListDisplay";
+    formatLandAreaClassLabel,
+    formatLandAreaImportedClassCode,
+} from "../../utils/importReviewLandAreaListDisplay";
 
 function hasNameFields(config: ImportReviewEntityConfig): boolean {
     return config.overrideEditableFields.includes("name_mm") || config.overrideEditableFields.includes("name_en");
@@ -90,16 +90,16 @@ export default function CandidateSummarySection({
                             <div className="font-mono text-gray-900">{dash(row.effective_class_code)}</div>
                         </div>
                     </>
-                ) : config.apiFamily === "roads" ? null : config.apiFamily === "landuse" ? (
+                ) : config.apiFamily === "roads" ? null : config.apiFamily === "land_areas" ? (
                     <>
                         <div>
-                            <span className="font-medium text-gray-500">Landuse class</span>
-                            <div className="text-gray-900">{dash(formatLanduseClassLabel(row))}</div>
+                            <span className="font-medium text-gray-500">Land area class</span>
+                            <div className="text-gray-900">{dash(formatLandAreaClassLabel(row))}</div>
                         </div>
                         <div>
                             <span className="font-medium text-gray-500">Imported class</span>
                             <div className="font-mono text-xs text-gray-700">
-                                {dash(formatLanduseImportedClassCode(row))}
+                                {dash(formatLandAreaImportedClassCode(row))}
                             </div>
                         </div>
                     </>

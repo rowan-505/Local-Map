@@ -32,10 +32,10 @@ drop cascades to foreign table supabase_fdw.core_address_components
 drop cascades to foreign table supabase_fdw.core_addresses
 drop cascades to foreign table supabase_fdw.core_admin_area_names
 drop cascades to foreign table supabase_fdw.core_admin_areas
-drop cascades to foreign table supabase_fdw.core_map_buildings
-drop cascades to foreign table supabase_fdw.core_map_landuse
-drop cascades to foreign table supabase_fdw.core_map_water_lines
-drop cascades to foreign table supabase_fdw.core_map_water_polygons
+drop cascades to foreign table supabase_fdw.core_buildings
+drop cascades to foreign table supabase_fdw.core_land_areas
+drop cascades to foreign table supabase_fdw.core_water_lines
+drop cascades to foreign table supabase_fdw.core_water_polygons
 drop cascades to foreign table supabase_fdw.core_place_names
 drop cascades to foreign table supabase_fdw.core_places
 drop cascades to foreign table supabase_fdw.core_place_sources
@@ -74,10 +74,10 @@ psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/prod-mirror/
 psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/prod-mirror/02_import_foreign_tables.sql:93: NOTICE:  foreign table "core_addresses" does not exist, skipping
 psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/prod-mirror/02_import_foreign_tables.sql:93: NOTICE:  foreign table "core_admin_area_names" does not exist, skipping
 psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/prod-mirror/02_import_foreign_tables.sql:93: NOTICE:  foreign table "core_admin_areas" does not exist, skipping
-psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/prod-mirror/02_import_foreign_tables.sql:93: NOTICE:  foreign table "core_map_buildings" does not exist, skipping
-psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/prod-mirror/02_import_foreign_tables.sql:93: NOTICE:  foreign table "core_map_landuse" does not exist, skipping
-psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/prod-mirror/02_import_foreign_tables.sql:93: NOTICE:  foreign table "core_map_water_lines" does not exist, skipping
-psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/prod-mirror/02_import_foreign_tables.sql:93: NOTICE:  foreign table "core_map_water_polygons" does not exist, skipping
+psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/prod-mirror/02_import_foreign_tables.sql:93: NOTICE:  foreign table "core_buildings" does not exist, skipping
+psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/prod-mirror/02_import_foreign_tables.sql:93: NOTICE:  foreign table "core_land_areas" does not exist, skipping
+psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/prod-mirror/02_import_foreign_tables.sql:93: NOTICE:  foreign table "core_water_lines" does not exist, skipping
+psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/prod-mirror/02_import_foreign_tables.sql:93: NOTICE:  foreign table "core_water_polygons" does not exist, skipping
 psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/prod-mirror/02_import_foreign_tables.sql:93: NOTICE:  foreign table "core_place_names" does not exist, skipping
 psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/prod-mirror/02_import_foreign_tables.sql:93: NOTICE:  foreign table "core_places" does not exist, skipping
 psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/prod-mirror/02_import_foreign_tables.sql:93: NOTICE:  foreign table "core_place_sources" does not exist, skipping
@@ -98,10 +98,10 @@ DO
  prod_mirror_foreign_import | core          | core_addresses              | PASS   | Foreign table imported.
  prod_mirror_foreign_import | core          | core_admin_area_names       | PASS   | Foreign table imported.
  prod_mirror_foreign_import | core          | core_admin_areas            | PASS   | Foreign table imported.
- prod_mirror_foreign_import | core          | core_map_buildings          | PASS   | Foreign table imported.
- prod_mirror_foreign_import | core          | core_map_landuse            | PASS   | Foreign table imported.
- prod_mirror_foreign_import | core          | core_map_water_lines        | PASS   | Foreign table imported.
- prod_mirror_foreign_import | core          | core_map_water_polygons     | PASS   | Foreign table imported.
+ prod_mirror_foreign_import | core          | core_buildings          | PASS   | Foreign table imported.
+ prod_mirror_foreign_import | core          | core_land_areas            | PASS   | Foreign table imported.
+ prod_mirror_foreign_import | core          | core_water_lines        | PASS   | Foreign table imported.
+ prod_mirror_foreign_import | core          | core_water_polygons     | PASS   | Foreign table imported.
  prod_mirror_foreign_import | core          | core_place_names            | PASS   | Foreign table imported.
  prod_mirror_foreign_import | core          | core_places                 | PASS   | Foreign table imported.
  prod_mirror_foreign_import | core          | core_place_sources          | PASS   | Foreign table imported.

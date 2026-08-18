@@ -77,10 +77,10 @@ import {
     WATER_POLYGON_CANDIDATE_TABLE,
 } from "./import-review-promotion-promote-map.repo.js";
 import {
-    ImportReviewPromotionPromoteLanduseRepository,
-    CORE_LANDUSE_TABLE,
+    ImportReviewPromotionPromoteLandAreasRepository,
+    CORE_LAND_AREAS_TABLE,
     LANDUSE_CANDIDATE_TABLE,
-} from "./import-review-promotion-promote-landuse.repo.js";
+} from "./import-review-promotion-promote-land-areas.repo.js";
 import {
     ImportReviewPromotionPromoteRoadsRepository,
     CORE_STREETS_TABLE,
@@ -156,7 +156,7 @@ export async function promoteAndCommitImportReviewItem(
 
 const BUILDING_CANDIDATE_TABLE = "import_review.building_candidates";
 
-const CORE_TABLE = "core.core_map_buildings";
+const CORE_TABLE = "core.core_buildings";
 const BUILDING_VERIFICATION_COLUMNS = getCoreVerificationColumnsForEntity("buildings");
 
 export const DEFAULT_PROMOTE_CHUNK_SIZE = 100;
@@ -259,7 +259,7 @@ const PROMOTE_READY_ROW = Prisma.sql`
 export class ImportReviewPromotionPromoteRepository {
     private readonly placesRepo: ImportReviewPromotionPromotePlacesRepository;
     private readonly mapRepo: ImportReviewPromotionPromoteMapRepository;
-    private readonly landuseRepo: ImportReviewPromotionPromoteLanduseRepository;
+    private readonly landAreasRepo: ImportReviewPromotionPromoteLandAreasRepository;
     private readonly roadsRepo: ImportReviewPromotionPromoteRoadsRepository;
     private readonly adminAreasRepo: ImportReviewPromotionPromoteAdminAreasRepository;
     private readonly routingBarriersRepo: ImportReviewPromotionPromoteRoutingBarriersRepository;
@@ -275,7 +275,7 @@ export class ImportReviewPromotionPromoteRepository {
     ) {
         this.placesRepo = new ImportReviewPromotionPromotePlacesRepository(prisma);
         this.mapRepo = new ImportReviewPromotionPromoteMapRepository(prisma);
-        this.landuseRepo = new ImportReviewPromotionPromoteLanduseRepository(prisma);
+        this.landAreasRepo = new ImportReviewPromotionPromoteLandAreasRepository(prisma);
         this.roadsRepo = new ImportReviewPromotionPromoteRoadsRepository(prisma);
         this.adminAreasRepo = new ImportReviewPromotionPromoteAdminAreasRepository(prisma);
         this.routingBarriersRepo = new ImportReviewPromotionPromoteRoutingBarriersRepository(prisma);
@@ -847,8 +847,8 @@ export class ImportReviewPromotionPromoteRepository {
                 UNION ALL
                 SELECT
                     spi.id AS publish_item_id,
-                    'landuse'::text AS entity_family,
-                    ${CORE_LANDUSE_TABLE} AS target_table,
+                    'land_areas'::text AS entity_family,
+                    ${CORE_LAND_AREAS_TABLE} AS target_table,
                     spi.publish_action,
                     spi.publish_status,
                     spi.target_id,
@@ -859,11 +859,11 @@ export class ImportReviewPromotionPromoteRepository {
                     lu.promoted_core_id,
                     lu.matched_core_id
                 FROM system.system_publish_items AS spi
-                INNER JOIN import_review.landuse_candidates AS lu
+                INNER JOIN import_review.land_area_candidates AS lu
                     ON lu.id = spi.review_candidate_id
                    AND spi.review_candidate_table = ${LANDUSE_CANDIDATE_TABLE}
                 WHERE spi.publish_batch_id = ${batchId}
-                  AND spi.entity_family = 'landuse'
+                  AND spi.entity_family IN ('land_areas', 'landuse')
                 UNION ALL
                 SELECT
                     spi.id AS publish_item_id,
@@ -1188,8 +1188,8 @@ export class ImportReviewPromotionPromoteRepository {
                     args.promotedBy
                 );
             }
-            if (item.entity_family === "landuse") {
-                return this.landuseRepo.insertLanduseTx(
+            if ((item.entity_family === "land_areas" || item.entity_family === "landuse")) {
+                return this.landAreasRepo.insertLandAreaTx(
                     this.prisma,
                     args.batchId,
                     args.publishItemId
@@ -1260,8 +1260,8 @@ export class ImportReviewPromotionPromoteRepository {
                     args.promotedBy
                 );
             }
-            if (item.entity_family === "landuse") {
-                const beforeData = await this.landuseRepo.loadLanduseUpdateBeforeData(
+            if ((item.entity_family === "land_areas" || item.entity_family === "landuse")) {
+                const beforeData = await this.landAreasRepo.loadLandAreaUpdateBeforeData(
                     this.prisma,
                     args.publishItemId
                 );
@@ -1276,7 +1276,7 @@ export class ImportReviewPromotionPromoteRepository {
                     };
                 }
                 try {
-                    return await this.landuseRepo.updateLanduseTx(
+                    return await this.landAreasRepo.updateLandAreaTx(
                         this.prisma,
                         args.batchId,
                         args.publishItemId,
@@ -1288,7 +1288,7 @@ export class ImportReviewPromotionPromoteRepository {
                         publish_item_id: args.publishItemId,
                         outcome: "failed",
                         target_id: null,
-                        error_message: `Landuse promotion failed: ${message}`,
+                        error_message: `Land area promotion failed: ${message}`,
                         before_data: beforeData,
                         after_data: null,
                     };
@@ -1352,8 +1352,8 @@ export class ImportReviewPromotionPromoteRepository {
         if (entityFamily === "places") {
             return this.placesRepo.checkPlaceCoreExists(targetId);
         }
-        if (entityFamily === "landuse") {
-            return this.landuseRepo.checkLanduseCoreExists(targetId);
+        if ((entityFamily === "land_areas" || entityFamily === "landuse")) {
+            return this.landAreasRepo.checkLandAreaCoreExists(targetId);
         }
         if (entityFamily === "roads") {
             return this.roadsRepo.checkRoadCoreExists(targetId);
@@ -1369,7 +1369,7 @@ export class ImportReviewPromotionPromoteRepository {
             return this.mapRepo.checkMapCoreExists(mapFamily, targetId);
         }
         const rows = await this.prisma.$queryRaw<{ id: bigint }[]>`
-            SELECT id FROM core.core_map_buildings
+            SELECT id FROM core.core_buildings
             WHERE id = ${targetId}
               AND coalesce(is_active, true) AND deleted_at IS NULL
             LIMIT 1
@@ -1386,7 +1386,6 @@ export class ImportReviewPromotionPromoteRepository {
             {
                 id: bigint;
                 external_id: string | null;
-                source_staging_id: bigint | null;
                 name: string | null;
                 class_code: string;
             }[]
@@ -1418,23 +1417,21 @@ export class ImportReviewPromotionPromoteRepository {
             guard AS (
                 SELECT r.*
                 FROM ready AS r
-                WHERE NOT EXISTS (
-                    SELECT 1 FROM core.core_map_buildings AS c
+                WHERE r.external_id IS NOT NULL
+                  AND trim(r.external_id) <> ''
+                  AND NOT EXISTS (
+                    SELECT 1 FROM core.core_buildings AS c
                     WHERE coalesce(c.is_active, true) AND c.deleted_at IS NULL
-                      AND (
-                          (r.external_id IS NOT NULL AND trim(r.external_id) <> '' AND c.external_id = r.external_id)
-                          OR (r.local_staging_id IS NOT NULL AND c.source_staging_id = r.local_staging_id)
-                      )
+                      AND c.external_id = r.external_id
                 )
             )
-            INSERT INTO core.core_map_buildings (
-                source_staging_id, external_id, name, normalized_data, source_refs,
+            INSERT INTO core.core_buildings (
+                external_id, name, normalized_data, source_refs,
                 geom, building_type_id, admin_area_id, levels, height_m,
                 centroid, area_m2, confidence_score${coreVerificationInsertColumnsSql(BUILDING_VERIFICATION_COLUMNS)}, is_active,
                 created_at, updated_at, deleted_at
             )
             SELECT
-                g.local_staging_id,
                 nullif(trim(g.external_id), ''),
                 ${promotionTypedBuildingNameExpr("g")},
                 ${buildingNormalizedDataMergeExpr("g", batchId)},
@@ -1452,7 +1449,7 @@ export class ImportReviewPromotionPromoteRepository {
                 now(),
                 NULL::timestamptz
             FROM guard AS g
-            RETURNING id, external_id, source_staging_id, name, normalized_data->>'class_code' AS class_code
+            RETURNING id, external_id, name, normalized_data->>'class_code' AS class_code
         `;
 
         if (rows.length === 0) {
@@ -1482,7 +1479,6 @@ export class ImportReviewPromotionPromoteRepository {
             after_data: {
                 id: row.id.toString(),
                 external_id: row.external_id,
-                source_staging_id: row.source_staging_id?.toString() ?? null,
                 name: row.name,
                 class_code: row.class_code,
             },
@@ -1501,7 +1497,7 @@ export class ImportReviewPromotionPromoteRepository {
             INNER JOIN import_review.building_candidates AS b
                 ON b.id = spi.review_candidate_id
                AND spi.review_candidate_table = ${BUILDING_CANDIDATE_TABLE}
-            INNER JOIN core.core_map_buildings AS c ON c.id = b.matched_core_id
+            INNER JOIN core.core_buildings AS c ON c.id = b.matched_core_id
             WHERE spi.id = ${publishItemId}
               AND coalesce(c.is_active, true) AND c.deleted_at IS NULL
               AND NOT (c.source_refs @> '{"source":"dashboard"}'::jsonb)
@@ -1545,9 +1541,8 @@ export class ImportReviewPromotionPromoteRepository {
                 FROM prep AS p
                 WHERE p.geom IS NOT NULL AND ST_IsValid(p.geom) AND NOT ST_IsEmpty(p.geom)
             )
-            UPDATE core.core_map_buildings AS c
+            UPDATE core.core_buildings AS c
             SET
-                source_staging_id = r.local_staging_id,
                 external_id = nullif(trim(r.external_id), ''),
                 name = ${promotionTypedBuildingNameExpr("r")},
                 normalized_data = ${buildingNormalizedDataMergeExpr("r", batchId)},
@@ -1604,7 +1599,7 @@ export class ImportReviewPromotionPromoteRepository {
         };
     }
 
-    /** Write approved names to core.core_map_building_names (legacy buildings.name stays NULL). */
+    /** Write approved names to core.core_building_names (legacy buildings.name stays NULL). */
     private async upsertBuildingNames(publishItemId: bigint, buildingId: bigint): Promise<void> {
         await this.prisma.$executeRaw(
             promotionBuildingNamesUpsertSql({
@@ -1849,7 +1844,7 @@ export class ImportReviewPromotionPromoteRepository {
                       AND (c.geom IS NULL OR NOT ST_IsValid(c.geom) OR ST_SRID(c.geom) <> 4326)
                 )::bigint AS invalid_geom
             FROM system.system_publish_items AS spi
-            LEFT JOIN core.core_map_buildings AS c ON c.id = spi.target_id
+            LEFT JOIN core.core_buildings AS c ON c.id = spi.target_id
             WHERE spi.publish_batch_id = ${batchId}
               AND spi.entity_family = 'buildings'
         `;
@@ -1907,9 +1902,9 @@ export class ImportReviewPromotionPromoteRepository {
                       )
                 )::bigint AS invalid_geom
             FROM system.system_publish_items AS spi
-            LEFT JOIN core.core_map_landuse AS c ON c.id = spi.target_id
+            LEFT JOIN core.core_land_areas AS c ON c.id = spi.target_id
             WHERE spi.publish_batch_id = ${batchId}
-              AND spi.entity_family = 'landuse'
+              AND spi.entity_family IN ('land_areas', 'landuse')
         `;
         const waterLineRows = await this.prisma.$queryRaw<{ missing: bigint; invalid_geom: bigint }[]>`
             SELECT
@@ -1934,7 +1929,7 @@ export class ImportReviewPromotionPromoteRepository {
                       )
                 )::bigint AS invalid_geom
             FROM system.system_publish_items AS spi
-            LEFT JOIN core.core_map_water_lines AS c ON c.id = spi.target_id
+            LEFT JOIN core.core_water_lines AS c ON c.id = spi.target_id
             WHERE spi.publish_batch_id = ${batchId}
               AND spi.entity_family = 'water_lines'
         `;
@@ -1961,7 +1956,7 @@ export class ImportReviewPromotionPromoteRepository {
                       )
                 )::bigint AS invalid_geom
             FROM system.system_publish_items AS spi
-            LEFT JOIN core.core_map_water_polygons AS c ON c.id = spi.target_id
+            LEFT JOIN core.core_water_polygons AS c ON c.id = spi.target_id
             WHERE spi.publish_batch_id = ${batchId}
               AND spi.entity_family = 'water_polygons'
         `;
@@ -2110,7 +2105,7 @@ export class ImportReviewPromotionPromoteRepository {
                 UNION ALL
                 SELECT spi.id
                 FROM system.system_publish_items AS spi
-                INNER JOIN import_review.landuse_candidates AS lu
+                INNER JOIN import_review.land_area_candidates AS lu
                     ON lu.id = spi.review_candidate_id
                    AND spi.review_candidate_table = ${LANDUSE_CANDIDATE_TABLE}
                 WHERE spi.publish_batch_id = ${batchId}
@@ -2270,7 +2265,7 @@ export class ImportReviewPromotionPromoteRepository {
                       AND (c.geom IS NULL OR NOT ST_IsValid(c.geom) OR ST_SRID(c.geom) <> 4326)
                 )::bigint AS geom
             FROM system.system_publish_items AS spi
-            LEFT JOIN core.core_map_buildings AS c ON c.id = spi.target_id
+            LEFT JOIN core.core_buildings AS c ON c.id = spi.target_id
             WHERE spi.publish_batch_id = ${batchId} AND spi.entity_family = 'buildings'
         `;
         const placeCoreIssues = await this.prisma.$queryRaw<

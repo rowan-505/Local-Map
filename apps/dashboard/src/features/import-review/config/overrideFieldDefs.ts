@@ -64,13 +64,23 @@ export const IMPORT_REVIEW_OVERRIDE_FIELD_REGISTRY: Record<string, ImportReviewO
         importedFrom: "row",
         section: "classification",
     }),
-    landuse_class_id: FIELD({
-        configKey: "landuse_class_id",
-        patchKey: "landuse_class_id",
-        label: "Landuse class",
-        helperText: "Category from ref.ref_landuse_classes — not the feature display name.",
+    land_area_class_id: FIELD({
+        configKey: "land_area_class_id",
+        patchKey: "land_area_class_id",
+        label: "Land area class",
+        helperText: "Category from ref.ref_land_area_classes — not the feature display name.",
         type: "select",
-        refSource: "ref_landuse_classes",
+        refSource: "ref_land_area_classes",
+        importedFrom: "row",
+        section: "classification",
+    }),
+    water_class_id: FIELD({
+        configKey: "water_class_id",
+        patchKey: "water_class_id",
+        label: "Water class",
+        helperText: "Category from ref.ref_water_classes — not the feature display name.",
+        type: "select",
+        refSource: "ref_water_classes",
         importedFrom: "row",
         section: "classification",
     }),
@@ -293,8 +303,8 @@ export const IMPORT_REVIEW_OVERRIDE_FIELD_REGISTRY: Record<string, ImportReviewO
 
 function classCodeLabel(config: ImportReviewEntityConfig): string {
     switch (config.apiFamily) {
-        case "landuse":
-            return "Landuse class";
+        case "land_areas":
+            return "Land area class";
         case "water_lines":
             return "Waterway class";
         case "water_polygons":

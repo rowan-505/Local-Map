@@ -30,7 +30,7 @@ function coreActiveSql(entityFamily: ImportReviewEntityFamilySlug, alias: string
         return Prisma.sql`${a}.deleted_at IS NULL`;
     }
     if (
-        entityFamily === "landuse" ||
+        entityFamily === "land_areas" ||
         entityFamily === "water_lines" ||
         entityFamily === "water_polygons"
     ) {

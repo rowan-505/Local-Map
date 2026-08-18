@@ -114,7 +114,7 @@ FROM (
     FROM import_review.bus_stop_candidates
     UNION ALL
     SELECT
-        'import_review.landuse_candidates',
+        'import_review.land_area_candidates',
         entity_family,
         review_overrides,
         promotion_status,
@@ -126,7 +126,7 @@ FROM (
                 'roads', 'addresses', 'admin_areas', 'routing_barriers'
             ]::text[]
         )
-    FROM import_review.landuse_candidates
+    FROM import_review.land_area_candidates
     UNION ALL
     SELECT
         'import_review.place_candidates',
@@ -264,7 +264,7 @@ WITH override_key_rows AS (
       AND (:review_batch_id = 0 OR t.review_batch_id = :review_batch_id)
     UNION ALL
     SELECT entity_family, kv.key
-    FROM import_review.landuse_candidates AS t
+    FROM import_review.land_area_candidates AS t
     CROSS JOIN LATERAL jsonb_each(t.review_overrides) AS kv(key, value)
     WHERE t.review_overrides <> '{}'::jsonb
       AND (:review_batch_id = 0 OR t.review_batch_id = :review_batch_id)
@@ -377,7 +377,7 @@ INSERT INTO review_override_policy_keys (override_key) VALUES
     ('levels'),
     ('height_m'),
     ('class_code'),
-    ('landuse_class_id'),
+    ('land_area_class_id'),
     ('waterway_class'),
     ('intermittent'),
     ('water_class'),
@@ -455,7 +455,7 @@ WITH all_override_keys AS (
       AND (:review_batch_id = 0 OR t.review_batch_id = :review_batch_id)
     UNION ALL
     SELECT t.entity_family, t.id, kv.key
-    FROM import_review.landuse_candidates AS t
+    FROM import_review.land_area_candidates AS t
     CROSS JOIN LATERAL jsonb_each(t.review_overrides) AS kv(key, value)
     WHERE t.review_overrides <> '{}'::jsonb
       AND (:review_batch_id = 0 OR t.review_batch_id = :review_batch_id)
@@ -571,13 +571,13 @@ WHERE p.review_overrides ? 'category_id'
 UNION ALL
 
 SELECT
-  'landuse.landuse_class_id',
+  'landuse.land_area_class_id',
   count(*)::bigint
-FROM import_review.landuse_candidates AS l
-WHERE l.review_overrides ? 'landuse_class_id'
+FROM import_review.land_area_candidates AS l
+WHERE l.review_overrides ? 'land_area_class_id'
   AND (:review_batch_id = 0 OR l.review_batch_id = :review_batch_id)
-  AND nullif(trim(l.review_overrides->>'landuse_class_id'), '') IS NOT NULL
-  AND l.landuse_class_id IS DISTINCT FROM (l.review_overrides->>'landuse_class_id')::bigint;
+  AND nullif(trim(l.review_overrides->>'land_area_class_id'), '') IS NOT NULL
+  AND l.land_area_class_id IS DISTINCT FROM (l.review_overrides->>'land_area_class_id')::bigint;
 
 \echo ''
 \echo '=== Section 5b: Scalar disagreement samples (up to 10 per check) ==='
@@ -635,13 +635,13 @@ UNION ALL
       'landuse',
       l.id,
       l.review_batch_id,
-      l.landuse_class_id,
-      l.review_overrides->>'landuse_class_id'
-  FROM import_review.landuse_candidates AS l
-  WHERE l.review_overrides ? 'landuse_class_id'
+      l.land_area_class_id,
+      l.review_overrides->>'land_area_class_id'
+  FROM import_review.land_area_candidates AS l
+  WHERE l.review_overrides ? 'land_area_class_id'
     AND (:review_batch_id = 0 OR l.review_batch_id = :review_batch_id)
-    AND nullif(trim(l.review_overrides->>'landuse_class_id'), '') IS NOT NULL
-    AND l.landuse_class_id IS DISTINCT FROM (l.review_overrides->>'landuse_class_id')::bigint
+    AND nullif(trim(l.review_overrides->>'land_area_class_id'), '') IS NOT NULL
+    AND l.land_area_class_id IS DISTINCT FROM (l.review_overrides->>'land_area_class_id')::bigint
   ORDER BY l.id
   LIMIT 10
 );
@@ -686,7 +686,7 @@ WHERE wp.review_overrides ? 'water_class'
 
 UNION ALL
 SELECT 'landuse.admin_area_id', count(*)::bigint
-FROM import_review.landuse_candidates AS lu
+FROM import_review.land_area_candidates AS lu
 WHERE lu.review_overrides ? 'admin_area_id'
   AND (:review_batch_id = 0 OR lu.review_batch_id = :review_batch_id);
 
@@ -737,7 +737,7 @@ WITH all_override_keys AS (
       AND (:review_batch_id = 0 OR t.review_batch_id = :review_batch_id)
     UNION ALL
     SELECT kv.key
-    FROM import_review.landuse_candidates AS t
+    FROM import_review.land_area_candidates AS t
     CROSS JOIN LATERAL jsonb_each(t.review_overrides) AS kv(key, value)
     WHERE t.review_overrides <> '{}'::jsonb
       AND (:review_batch_id = 0 OR t.review_batch_id = :review_batch_id)

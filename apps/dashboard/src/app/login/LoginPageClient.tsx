@@ -10,6 +10,7 @@ import {
     logImportReviewAuthDecision,
     readImportReviewAuthDebugState,
 } from "@/src/lib/importReviewDevAccess";
+import { hasDashboardAccess, rolesFromJwtAccessToken } from "@/src/lib/jwtRoles";
 
 type LoginResponse = {
     accessToken: string;
@@ -134,6 +135,14 @@ export default function LoginPageClient() {
             return;
         }
 
+        if (!hasDashboardAccess(rolesFromJwtAccessToken(accessToken))) {
+            window.localStorage.removeItem("accessToken");
+            window.localStorage.removeItem("refreshToken");
+            setError("This account does not have dashboard access.");
+            setAuthChecked(true);
+            return;
+        }
+
         logImportReviewAuthDecision("LoginPageClient", "redirect-after-login", {
             ...readImportReviewAuthDebugState(pathname, false),
             hasAccessToken: true,
@@ -185,6 +194,11 @@ export default function LoginPageClient() {
 
             if (!data?.accessToken) {
                 throw new Error("Login failed");
+            }
+
+            const roles = data.user?.roles ?? rolesFromJwtAccessToken(data.accessToken);
+            if (!hasDashboardAccess(roles)) {
+                throw new Error("This account does not have dashboard access.");
             }
 
             window.localStorage.removeItem("token");

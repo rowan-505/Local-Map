@@ -50,7 +50,7 @@ from (
         ('road_candidates'),
         ('place_candidates'),
         ('building_candidates'),
-        ('landuse_candidates'),
+        ('land_area_candidates'),
         ('water_line_candidates'),
         ('water_polygon_candidates'),
         ('admin_area_candidates'),
@@ -340,10 +340,10 @@ where b.id = 3055;
 
 
 -- =============================================================================
--- 4) LANDUSE — import_review.landuse_candidates
+-- 4) LANDUSE — import_review.land_area_candidates
 -- =============================================================================
 -- Replace 4066 with your candidate id
--- Note: admin_area_id is not a typed column on landuse_candidates (direct PATCH drops it).
+-- Note: admin_area_id is not a typed column on land_area_candidates (direct PATCH drops it).
 
 select
     l.id,
@@ -352,7 +352,7 @@ select
     l.name_mm,
     l.name_en,
     l.class_code,
-    l.landuse_class_id,
+    l.land_area_class_id,
     l.review_note,
     l.updated_at,
     l.review_status,
@@ -364,7 +364,7 @@ select
     latest_edit.edit_type,
     latest_edit.edit_before_data,
     latest_edit.edit_after_data
-from import_review.landuse_candidates l
+from import_review.land_area_candidates l
 left join lateral (
     select
         e.id as edit_id,
@@ -373,7 +373,7 @@ left join lateral (
         e.before_data as edit_before_data,
         e.after_data as edit_after_data
     from import_review.review_candidate_edits e
-    where e.candidate_table = 'landuse_candidates'
+    where e.candidate_table = 'land_area_candidates'
       and e.candidate_id = l.id
     order by e.created_at desc, e.id desc
     limit 1
@@ -384,7 +384,7 @@ select
     l.id,
     l.review_overrides,
     md5(l.review_overrides::text) as review_overrides_md5
-from import_review.landuse_candidates l
+from import_review.land_area_candidates l
 where l.id = 4066;
 
 select
@@ -394,7 +394,7 @@ select
     e.before_data,
     e.after_data
 from import_review.review_candidate_edits e
-where e.candidate_table = 'landuse_candidates'
+where e.candidate_table = 'land_area_candidates'
   and e.candidate_id = 4066
 order by e.created_at desc, e.id desc
 limit 10;
@@ -402,10 +402,10 @@ limit 10;
 select
     l.id,
     l.class_code,
-    l.landuse_class_id,
+    l.land_area_class_id,
     l.name_en,
     l.updated_at
-from import_review.landuse_candidates l
+from import_review.land_area_candidates l
 where l.id = 4066;
 
 
@@ -700,7 +700,7 @@ where (e.candidate_table, e.candidate_id) in (
         ('road_candidates', 1021::bigint),
         ('place_candidates', 2042::bigint),
         ('building_candidates', 3055::bigint),
-        ('landuse_candidates', 4066::bigint),
+        ('land_area_candidates', 4066::bigint),
         ('water_line_candidates', 5077::bigint),
         ('water_polygon_candidates', 6088::bigint),
         ('admin_area_candidates', 7099::bigint),
@@ -718,8 +718,8 @@ union all
 select 'building_candidates', id, updated_at, updated_at >= now() - interval '1 hour'
 from import_review.building_candidates where id = 3055
 union all
-select 'landuse_candidates', id, updated_at, updated_at >= now() - interval '1 hour'
-from import_review.landuse_candidates where id = 4066
+select 'land_area_candidates', id, updated_at, updated_at >= now() - interval '1 hour'
+from import_review.land_area_candidates where id = 4066
 union all
 select 'water_line_candidates', id, updated_at, updated_at >= now() - interval '1 hour'
 from import_review.water_line_candidates where id = 5077
@@ -746,8 +746,8 @@ union all
 select 'building_candidates', id, review_overrides = '{}'::jsonb
 from import_review.building_candidates where id = 3055
 union all
-select 'landuse_candidates', id, review_overrides = '{}'::jsonb
-from import_review.landuse_candidates where id = 4066
+select 'land_area_candidates', id, review_overrides = '{}'::jsonb
+from import_review.land_area_candidates where id = 4066
 union all
 select 'water_line_candidates', id, review_overrides = '{}'::jsonb
 from import_review.water_line_candidates where id = 5077

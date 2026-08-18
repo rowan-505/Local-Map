@@ -47,9 +47,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS basemap_buildings_core_public_id_uidx
   WHERE core_public_id IS NOT NULL;
 
 COMMENT ON COLUMN basemap_source.buildings.core_id IS
-  'Supabase core.core_map_buildings.id when linked; one-time Core→basemap merge.';
+  'Supabase core.core_buildings.id when linked; one-time Core→basemap merge.';
 COMMENT ON COLUMN basemap_source.buildings.core_public_id IS
-  'Supabase core.core_map_buildings.public_id when linked.';
+  'Supabase core.core_buildings.public_id when linked.';
 COMMENT ON COLUMN basemap_source.buildings.is_managed_in_core IS
   'True when this footprint is represented in Supabase Core.';
 COMMENT ON COLUMN basemap_source.buildings.core_metadata IS

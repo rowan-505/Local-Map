@@ -47,7 +47,7 @@ BEGIN
         SELECT 1
         FROM information_schema.columns AS c
         WHERE c.table_schema = 'core'
-          AND c.table_name = 'core_map_buildings'
+          AND c.table_name = 'core_buildings'
           AND c.column_name = 'manual_override'
     )
     INTO v_has_manual_override;
@@ -56,7 +56,7 @@ BEGIN
         SELECT 1
         FROM information_schema.columns AS c
         WHERE c.table_schema = 'core'
-          AND c.table_name = 'core_map_buildings'
+          AND c.table_name = 'core_buildings'
           AND c.column_name = 'verification_status'
     )
     INTO v_has_verification_status;
@@ -65,7 +65,7 @@ BEGIN
         SELECT 1
         FROM information_schema.columns AS c
         WHERE c.table_schema = 'core'
-          AND c.table_name = 'core_map_buildings'
+          AND c.table_name = 'core_buildings'
           AND c.column_name = 'normalized_data'
     )
     INTO v_has_normalized_data;
@@ -98,7 +98,7 @@ BEGIN
                         ),
                         4326
                     )::geometry(Point, 4326) AS lookup_point
-                FROM core.core_map_buildings AS b
+                FROM core.core_buildings AS b
                 WHERE b.deleted_at IS NULL
                   AND coalesce(b.is_active, true) IS TRUE
                   AND b.geom IS NOT NULL
@@ -158,7 +158,7 @@ BEGIN
                         ),
                         4326
                     )::geometry(Point, 4326) AS lookup_point
-                FROM core.core_map_buildings AS b
+                FROM core.core_buildings AS b
                 WHERE b.deleted_at IS NULL
                   AND coalesce(b.is_active, true) IS TRUE
                   AND b.geom IS NOT NULL
@@ -239,7 +239,7 @@ BEGIN
         END IF;
 
         IF v_write_metadata AND v_has_normalized_data THEN
-            UPDATE core.core_map_buildings AS b
+            UPDATE core.core_buildings AS b
             SET
                 admin_area_id = c.new_admin_area_id,
                 normalized_data = core.merge_admin_area_repair_normalized_data(
@@ -255,7 +255,7 @@ BEGIN
             WHERE b.id = c.id
               AND b.admin_area_id IS DISTINCT FROM c.new_admin_area_id;
         ELSE
-            UPDATE core.core_map_buildings AS b
+            UPDATE core.core_buildings AS b
             SET
                 admin_area_id = c.new_admin_area_id,
                 updated_at = now()

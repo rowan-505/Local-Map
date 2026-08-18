@@ -19,22 +19,22 @@ SELECT 'buildings' AS family,
   count(*) FILTER (WHERE deleted_at IS NULL AND building_type_id IS NOT NULL
     AND NOT EXISTS (SELECT 1 FROM ref.ref_building_types t WHERE t.id = b.building_type_id)) AS bad_type,
   count(*) FILTER (WHERE deleted_at IS NULL AND geom IS NOT NULL AND NOT ST_IsValid(geom)) AS invalid_geom
-FROM core.core_map_buildings b;
+FROM core.core_buildings b;
 
 SELECT 'landuse' AS family,
   count(*) FILTER (WHERE deleted_at IS NULL) AS active,
   count(*) FILTER (WHERE deleted_at IS NULL AND admin_area_id IS NULL) AS missing_admin,
   count(*) FILTER (WHERE deleted_at IS NULL
-    AND class_code IS DISTINCT FROM (SELECT code FROM ref.ref_landuse_classes c WHERE c.id = l.landuse_class_id)) AS class_mismatch
-FROM core.core_map_landuse l;
+    AND class_code IS DISTINCT FROM (SELECT code FROM ref.ref_land_area_classes c WHERE c.id = l.land_area_class_id)) AS class_mismatch
+FROM core.core_land_areas l;
 
 SELECT 'water_lines' AS family, count(*) FILTER (WHERE deleted_at IS NULL) AS active,
   count(*) FILTER (WHERE deleted_at IS NULL AND geom IS NOT NULL AND NOT ST_IsValid(geom)) AS invalid_geom
-FROM core.core_map_water_lines
+FROM core.core_water_lines
 UNION ALL
 SELECT 'water_polygons', count(*) FILTER (WHERE deleted_at IS NULL),
   count(*) FILTER (WHERE deleted_at IS NULL AND geom IS NOT NULL AND NOT ST_IsValid(geom))
-FROM core.core_map_water_polygons;
+FROM core.core_water_polygons;
 
 SELECT 'stops' AS family, count(*) FILTER (WHERE deleted_at IS NULL) AS active,
   count(*) FILTER (WHERE deleted_at IS NULL AND admin_area_id IS NULL) AS missing_admin

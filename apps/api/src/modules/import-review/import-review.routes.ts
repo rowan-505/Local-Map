@@ -82,7 +82,7 @@ import {
 import {
     authenticateImportReview,
     isImportReviewHeaderTokenGuardEnabled,
-    requireImportReviewAdmin,
+    requireImportReviewRouteAccess,
 } from "./import-review-admin.guard.js";
 import { isImportReviewReady } from "./import-review-readiness.js";
 import { createImportReviewDataRepository } from "./import-review-repository.factory.js";
@@ -176,8 +176,8 @@ import {
 } from "./import-review-history.schema.js";
 import type { ZodError } from "zod";
 
-function importReviewAuthorizedPreHandlers(): [typeof requireImportReviewAdmin] {
-    return [requireImportReviewAdmin];
+function importReviewAuthorizedPreHandlers(): [typeof requireImportReviewRouteAccess] {
+    return [requireImportReviewRouteAccess];
 }
 
 type ImportReviewUserValidationIssue = {

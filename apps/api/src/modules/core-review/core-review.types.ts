@@ -4,7 +4,7 @@ export type CoreReviewEntitySlug =
     | "buildings"
     | "places"
     | "streets"
-    | "landuse"
+    | "land-areas"
     | "water-lines"
     | "water-polygons"
     | "addresses"
@@ -48,7 +48,7 @@ export type CoreReviewListQuery = {
     isPublic?: boolean;
     includeDeleted?: boolean;
     routeId?: string;
-    landuseClassId?: string;
+    landAreaClassId?: string;
     detailLevel?: "zone" | "parcel";
     cropCode?: string;
 };

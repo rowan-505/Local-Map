@@ -22,7 +22,7 @@ export const ELIGIBILITY_DETAILS_DISPLAY_NAME_COLUMNS: Record<
         "external_id",
     ],
     roads: ["canonical_name", "name", "road_name", "name_en", "name_mm", "external_id"],
-    landuse: ["name", "canonical_name", "class_code", "landuse_class", "external_id"],
+    land_areas: ["name", "canonical_name", "class_code", "land_area_class", "external_id"],
     water_lines: ["name", "canonical_name", "water_class", "class_code", "external_id"],
     water_polygons: ["name", "canonical_name", "water_class", "class_code", "external_id"],
     addresses: ["full_address", "address_text", "external_id"],
@@ -32,7 +32,7 @@ export const ELIGIBILITY_DETAILS_DISPLAY_NAME_COLUMNS: Record<
 
 /** Active-row predicate for core duplicate-exists checks (no generic is_active). */
 const CORE_TARGET_ACTIVE_WHERE: Record<string, Prisma.Sql> = {
-    "core.core_map_buildings": Prisma.sql`
+    "core.core_buildings": Prisma.sql`
         coalesce(core_row.is_active, true)
         AND core_row.deleted_at IS NULL
     `,
@@ -41,15 +41,15 @@ const CORE_TARGET_ACTIVE_WHERE: Record<string, Prisma.Sql> = {
         coalesce(core_row.is_active, true)
         AND core_row.deleted_at IS NULL
     `,
-    "core.core_map_landuse": Prisma.sql`
+    "core.core_land_areas": Prisma.sql`
         coalesce(core_row.is_active, true)
         AND core_row.deleted_at IS NULL
     `,
-    "core.core_map_water_lines": Prisma.sql`
+    "core.core_water_lines": Prisma.sql`
         coalesce(core_row.is_active, true)
         AND core_row.deleted_at IS NULL
     `,
-    "core.core_map_water_polygons": Prisma.sql`
+    "core.core_water_polygons": Prisma.sql`
         coalesce(core_row.is_active, true)
         AND core_row.deleted_at IS NULL
     `,
@@ -173,7 +173,7 @@ export function missingRequiredGeometrySql(
 ): Prisma.Sql {
     switch (family) {
         case "buildings":
-        case "landuse":
+        case "land_areas":
         case "water_lines":
         case "water_polygons":
         case "admin_areas":
@@ -264,13 +264,13 @@ export function missingRequiredTypeCategoryClassSql(
             }
             return Prisma.sql`(${Prisma.join(parts, " AND ")})`;
         }
-        case "landuse": {
+        case "land_areas": {
             const parts: Prisma.Sql[] = [
-                Prisma.sql`${optionalCandidateColumn(alias, columns, "landuse_class_id", "bigint")} IS NULL`,
+                Prisma.sql`${optionalCandidateColumn(alias, columns, "land_area_class_id", "bigint")} IS NULL`,
                 Prisma.sql`${trimmedTextExpr(alias, columns, "class_code")} IS NULL`,
             ];
             if (columns.has("normalized_data")) {
-                parts.push(Prisma.sql`${normalizedTextField(alias, "landuse_class_id")} IS NULL`);
+                parts.push(Prisma.sql`${normalizedTextField(alias, "land_area_class_id")} IS NULL`);
             }
             return Prisma.sql`(${Prisma.join(parts, " AND ")})`;
         }
@@ -298,9 +298,11 @@ export function missingRequiredTypeCategoryClassSql(
         case "water_lines":
         case "water_polygons": {
             const parts: Prisma.Sql[] = [
+                Prisma.sql`${optionalCandidateColumn(alias, columns, "water_class_id", "bigint")} IS NULL`,
                 Prisma.sql`${trimmedTextExpr(alias, columns, "class_code")} IS NULL`,
             ];
             if (columns.has("normalized_data")) {
+                parts.push(Prisma.sql`${normalizedTextField(alias, "water_class_id")} IS NULL`);
                 parts.push(Prisma.sql`${normalizedTextField(alias, "class_code")} IS NULL`);
             }
             return Prisma.sql`(${Prisma.join(parts, " AND ")})`;

@@ -1,8 +1,8 @@
-"use client";
+import { redirect } from "next/navigation";
 
-import CoreReviewEntityPage from "@/src/features/core-review/components/CoreReviewEntityPage";
-import { CORE_REVIEW_LANDUSE_CONFIG } from "@/src/features/core-review/config/entity-configs";
+import { coreReviewPath } from "@/src/lib/dashboardNavigation";
 
-export default function Page() {
-    return <CoreReviewEntityPage config={CORE_REVIEW_LANDUSE_CONFIG} />;
+/** Legacy URL → land-areas. */
+export default function LegacyLanduseCoreReviewRedirectPage() {
+    redirect(coreReviewPath("land-areas"));
 }

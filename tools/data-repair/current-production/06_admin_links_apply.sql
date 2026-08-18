@@ -38,15 +38,15 @@ COMMIT;
 BEGIN;
 INSERT INTO system.repair_admin_links_before_202607 (entity_family, entity_id, admin_area_id, updated_at)
 SELECT 'buildings', b.id, b.admin_area_id, b.updated_at
-FROM core.core_map_buildings b
+FROM core.core_buildings b
 WHERE b.deleted_at IS NULL AND b.admin_area_id IS NULL AND b.geom IS NOT NULL
 ON CONFLICT DO NOTHING;
 
-UPDATE core.core_map_buildings b
+UPDATE core.core_buildings b
 SET admin_area_id = x.township_id, updated_at = now()
 FROM (
   SELECT b2.id, core.find_admin_area_for_polygon(b2.geom, 'township') AS township_id
-  FROM core.core_map_buildings b2
+  FROM core.core_buildings b2
   WHERE b2.deleted_at IS NULL AND b2.admin_area_id IS NULL AND b2.geom IS NOT NULL
 ) x
 WHERE b.id = x.id AND x.township_id IS NOT NULL;
@@ -56,15 +56,15 @@ COMMIT;
 BEGIN;
 INSERT INTO system.repair_admin_links_before_202607 (entity_family, entity_id, admin_area_id, updated_at)
 SELECT 'landuse', l.id, l.admin_area_id, l.updated_at
-FROM core.core_map_landuse l
+FROM core.core_land_areas l
 WHERE l.deleted_at IS NULL AND l.admin_area_id IS NULL AND l.geom IS NOT NULL
 ON CONFLICT DO NOTHING;
 
-UPDATE core.core_map_landuse l
+UPDATE core.core_land_areas l
 SET admin_area_id = x.township_id, updated_at = now()
 FROM (
   SELECT l2.id, core.find_admin_area_for_polygon(l2.geom, 'township') AS township_id
-  FROM core.core_map_landuse l2
+  FROM core.core_land_areas l2
   WHERE l2.deleted_at IS NULL AND l2.admin_area_id IS NULL AND l2.geom IS NOT NULL
 ) x
 WHERE l.id = x.id AND x.township_id IS NOT NULL;

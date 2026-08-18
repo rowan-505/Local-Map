@@ -47,7 +47,7 @@ export type CoreReviewListDraft = {
     roadClassId: string;
     isPublic: string;
     routeId: string;
-    landuseClassId: string;
+    landAreaClassId: string;
     detailLevel: string;
     cropCode: string;
     boundaryStatus: string;
@@ -160,7 +160,7 @@ function readDraftFromSearchParams(
             searchParams.get("includeDeleted") === "true"
         ),
         routeId: searchParams.get("routeId")?.trim() ?? "",
-        landuseClassId: searchParams.get("landuseClassId")?.trim() ?? "",
+        landAreaClassId: searchParams.get("landAreaClassId")?.trim() ?? "",
         detailLevel: searchParams.get("detailLevel")?.trim() ?? "",
         cropCode: searchParams.get("cropCode")?.trim() ?? "",
         boundaryStatus: searchParams.get("boundaryStatus")?.trim() ?? "",
@@ -213,8 +213,8 @@ export function buildListParamsFromDraft(
     if (filterSupport.routeId && draft.routeId) {
         params.routeId = draft.routeId;
     }
-    if (filterSupport.landuseClassId && draft.landuseClassId) {
-        params.landuseClassId = draft.landuseClassId;
+    if (filterSupport.landAreaClassId && draft.landAreaClassId) {
+        params.landAreaClassId = draft.landAreaClassId;
     }
     if (filterSupport.detailLevel && draft.detailLevel) {
         params.detailLevel = draft.detailLevel as "zone" | "parcel";
@@ -288,7 +288,7 @@ function buildCoreReviewListQueryKey(input: {
     roadClassId: string;
     isPublic: string;
     routeId: string;
-    landuseClassId: string;
+    landAreaClassId: string;
     detailLevel: string;
     cropCode: string;
     boundaryStatus: string;
@@ -314,7 +314,7 @@ function buildCoreReviewListQueryKey(input: {
         input.roadClassId,
         input.isPublic,
         input.routeId,
-        input.landuseClassId,
+        input.landAreaClassId,
         input.detailLevel,
         input.cropCode,
         input.boundaryStatus,
@@ -363,8 +363,8 @@ function draftToUrlParams(
     if (draft.routeId) {
         p.routeId = draft.routeId;
     }
-    if (draft.landuseClassId) {
-        p.landuseClassId = draft.landuseClassId;
+    if (draft.landAreaClassId) {
+        p.landAreaClassId = draft.landAreaClassId;
     }
     if (draft.detailLevel) {
         p.detailLevel = draft.detailLevel;
@@ -449,7 +449,7 @@ export function useCoreReviewListState<T extends Record<string, unknown>>(option
             isPublic:
                 listParams.isPublic === true ? "true" : listParams.isPublic === false ? "false" : "",
             routeId: listParams.routeId?.trim() ?? "",
-            landuseClassId: listParams.landuseClassId?.trim() ?? "",
+            landAreaClassId: listParams.landAreaClassId?.trim() ?? "",
             detailLevel: listParams.detailLevel?.trim() ?? "",
             cropCode: listParams.cropCode?.trim() ?? "",
             boundaryStatus: listParams.boundaryStatus?.trim() ?? "",
@@ -480,7 +480,7 @@ export function useCoreReviewListState<T extends Record<string, unknown>>(option
         listParams.isOfficialBoundary,
         listParams.isPublic,
         listParams.verification_status,
-        listParams.landuseClassId,
+        listParams.landAreaClassId,
         listParams.page,
         listParams.pageSize,
         listParams.roadClassId,

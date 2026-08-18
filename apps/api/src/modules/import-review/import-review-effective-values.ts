@@ -35,7 +35,8 @@ export type EffectiveValuesRawRow = {
     class_code?: string | null;
     barrier_type?: string | null;
     category_id?: bigint | null;
-    landuse_class_id?: bigint | null;
+    land_area_class_id?: bigint | null;
+    water_class_id?: bigint | null;
     admin_area_id?: bigint | null;
     levels?: number | null;
     height_m?: unknown;
@@ -218,9 +219,15 @@ export const IMPORT_REVIEW_EFFECTIVE_FIELD_REGISTRY: Partial<
         BIGINT_FIELD("effective_admin_area_id", "admin_area_id"),
         STRING_FIELD("effective_class_code", "class_code"),
     ],
-    landuse: [STRING_FIELD("effective_class_code", "class_code"), BIGINT_FIELD("effective_landuse_class_id", "landuse_class_id")],
-    water_lines: [STRING_FIELD("effective_class_code", "class_code")],
-    water_polygons: [STRING_FIELD("effective_class_code", "class_code")],
+    land_areas: [STRING_FIELD("effective_class_code", "class_code"), BIGINT_FIELD("effective_land_area_class_id", "land_area_class_id")],
+    water_lines: [
+        STRING_FIELD("effective_class_code", "class_code"),
+        BIGINT_FIELD("effective_water_class_id", "water_class_id"),
+    ],
+    water_polygons: [
+        STRING_FIELD("effective_class_code", "class_code"),
+        BIGINT_FIELD("effective_water_class_id", "water_class_id"),
+    ],
     // addresses: composed full address from import_review.address_components (see import-review-address-responses.ts)
     admin_areas: [
         BIGINT_FIELD("effective_admin_level_id", "admin_level_id", "admin_area_id"),
@@ -257,7 +264,7 @@ function importedClassCodeFallbacks(
     const tagKeysByFamily: Partial<Record<ImportReviewEntityFamilySlug, readonly string[]>> = {
         water_lines: ["waterway"],
         water_polygons: ["water", "natural"],
-        landuse: ["landuse", "amenity", "natural"],
+        land_areas: ["landuse", "amenity", "natural"],
     };
     const keys = tagKeysByFamily[family] ?? [];
     const fallbacks: unknown[] = [];
@@ -321,7 +328,7 @@ const BILINGUAL_NAME_FAMILIES = new Set<ImportReviewEntityFamilySlug>([
     "buildings",
     "places",
     "roads",
-    "landuse",
+    "land_areas",
     "water_lines",
     "water_polygons",
     "admin_areas",

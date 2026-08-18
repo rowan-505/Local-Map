@@ -37,19 +37,19 @@ WITH entity_rows AS (
 
     UNION ALL
     SELECT
-        'core.core_map_buildings',
+        'core.core_buildings',
         'buildings',
         true,
         b.admin_area_id
-    FROM core.core_map_buildings AS b
+    FROM core.core_buildings AS b
 
     UNION ALL
     SELECT
-        'core.core_map_landuse',
+        'core.core_land_areas',
         'landuse',
         true,
         lu.admin_area_id
-    FROM core.core_map_landuse AS lu
+    FROM core.core_land_areas AS lu
 
     UNION ALL
     SELECT
@@ -162,9 +162,9 @@ WITH entity_rows AS (
     UNION ALL
     SELECT 'core.core_places', 'places', true, p.admin_area_id FROM core.core_places AS p
     UNION ALL
-    SELECT 'core.core_map_buildings', 'buildings', true, b.admin_area_id FROM core.core_map_buildings AS b
+    SELECT 'core.core_buildings', 'buildings', true, b.admin_area_id FROM core.core_buildings AS b
     UNION ALL
-    SELECT 'core.core_map_landuse', 'landuse', true, lu.admin_area_id FROM core.core_map_landuse AS lu
+    SELECT 'core.core_land_areas', 'landuse', true, lu.admin_area_id FROM core.core_land_areas AS lu
     UNION ALL
     SELECT 'core_transport.stops', 'bus-stops', true, bs.admin_area_id FROM core_transport.stops AS bs
     UNION ALL
@@ -275,9 +275,9 @@ WITH entity_rows AS (
     UNION ALL
     SELECT 'core.core_places', 'places', p.admin_area_id FROM core.core_places AS p
     UNION ALL
-    SELECT 'core.core_map_buildings', 'buildings', b.admin_area_id FROM core.core_map_buildings AS b
+    SELECT 'core.core_buildings', 'buildings', b.admin_area_id FROM core.core_buildings AS b
     UNION ALL
-    SELECT 'core.core_map_landuse', 'landuse', lu.admin_area_id FROM core.core_map_landuse AS lu
+    SELECT 'core.core_land_areas', 'landuse', lu.admin_area_id FROM core.core_land_areas AS lu
     UNION ALL
     SELECT 'core_transport.stops', 'bus-stops', bs.admin_area_id FROM core_transport.stops AS bs
 ),

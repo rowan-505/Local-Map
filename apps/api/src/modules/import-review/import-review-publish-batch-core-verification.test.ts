@@ -11,7 +11,7 @@ describe("publish batch core verification SQL", () => {
         assert.deepEqual(CORE_VERIFICATION_ENTITY_FAMILIES, [
             "buildings",
             "places",
-            "landuse",
+            "land_areas",
             "water_lines",
             "water_polygons",
             "roads",

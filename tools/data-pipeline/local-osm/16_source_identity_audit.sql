@@ -166,10 +166,10 @@ BEGIN
                 ('roads', 'core_streets', 'external_id column; unique index present in production'),
                 ('admin_areas', 'core_admin_areas', 'external_id column; unique index present in production'),
                 ('places', 'core_places', 'external_id column; index only (not unique)'),
-                ('buildings', 'core_map_buildings', 'external_id column; index only (not unique)'),
-                ('landuse', 'core_map_landuse', 'external_id column; index only (not unique)'),
-                ('water_lines', 'core_map_water_lines', 'external_id column; index only (not unique)'),
-                ('water_polygons', 'core_map_water_polygons', 'external_id column; index only (not unique)')
+                ('buildings', 'core_buildings', 'external_id column; index only (not unique)'),
+                ('landuse', 'core_land_areas', 'external_id column; index only (not unique)'),
+                ('water_lines', 'core_water_lines', 'external_id column; index only (not unique)'),
+                ('water_polygons', 'core_water_polygons', 'external_id column; index only (not unique)')
         ) AS t(family, table_name, notes)
     LOOP
         IF to_regclass(format('%I.%I', v_schema, r.table_name)) IS NULL THEN

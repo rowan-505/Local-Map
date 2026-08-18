@@ -121,8 +121,8 @@ BEGIN
         SELECT 1 FROM core.core_places WHERE deleted_at IS NULL AND admin_area_id = 6763
         UNION ALL SELECT 1 FROM core.core_streets WHERE deleted_at IS NULL AND admin_area_id = 6763
         UNION ALL SELECT 1 FROM core.core_addresses WHERE deleted_at IS NULL AND admin_area_id = 6763
-        UNION ALL SELECT 1 FROM core.core_map_buildings WHERE admin_area_id = 6763
-        UNION ALL SELECT 1 FROM core.core_map_landuse WHERE admin_area_id = 6763
+        UNION ALL SELECT 1 FROM core.core_buildings WHERE admin_area_id = 6763
+        UNION ALL SELECT 1 FROM core.core_land_areas WHERE admin_area_id = 6763
         UNION ALL SELECT 1 FROM transport.stops WHERE admin_area_id = 6763
         UNION ALL SELECT 1 FROM transport.terminals WHERE admin_area_id = 6763
         UNION ALL SELECT 1 FROM transport.infrastructure_lines WHERE admin_area_id = 6763
@@ -281,8 +281,8 @@ BEGIN
         SELECT admin_area_id AS id FROM core.core_places WHERE deleted_at IS NULL AND admin_area_id IN (6763, 6014)
         UNION ALL SELECT admin_area_id FROM core.core_streets WHERE deleted_at IS NULL AND admin_area_id IN (6763, 6014)
         UNION ALL SELECT admin_area_id FROM core.core_addresses WHERE deleted_at IS NULL AND admin_area_id IN (6763, 6014)
-        UNION ALL SELECT admin_area_id FROM core.core_map_buildings WHERE admin_area_id IN (6763, 6014)
-        UNION ALL SELECT admin_area_id FROM core.core_map_landuse WHERE admin_area_id IN (6763, 6014)
+        UNION ALL SELECT admin_area_id FROM core.core_buildings WHERE admin_area_id IN (6763, 6014)
+        UNION ALL SELECT admin_area_id FROM core.core_land_areas WHERE admin_area_id IN (6763, 6014)
         UNION ALL SELECT admin_area_id FROM transport.stops WHERE admin_area_id IN (6763, 6014)
         UNION ALL SELECT admin_area_id FROM transport.terminals WHERE admin_area_id IN (6763, 6014)
         UNION ALL SELECT admin_area_id FROM transport.infrastructure_lines WHERE admin_area_id IN (6763, 6014)

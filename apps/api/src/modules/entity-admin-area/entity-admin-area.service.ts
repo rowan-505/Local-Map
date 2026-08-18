@@ -95,7 +95,7 @@ export type EntityAdminAreaInferResult = {
     name_mm: string | null;
     name_en: string | null;
     geometry_contains: boolean;
-    /** Road/street and landuse infer audit — present when kind is street/road or landuse. */
+    /** Road/street and land area infer audit — present when kind is street/road or land_area. */
     status?: RoadAdminAreaInferStatus;
     message?: string | null;
     currentAdminArea?: RoadInferCurrentAdminArea | null;
@@ -160,8 +160,8 @@ export class EntityAdminAreaService {
 
         if (isRoadEntityAdminAreaKind(input.kind)) {
             result = await this.inferRoadTownship(input);
-        } else if (input.kind === "landuse") {
-            result = await this.inferLanduseTownship(input);
+        } else if (input.kind === "land_area") {
+            result = await this.inferLandAreaTownship(input);
         } else if (input.kind === "bus_stop") {
             result = await this.inferBusStopTownship(input);
         } else {
@@ -203,7 +203,7 @@ export class EntityAdminAreaService {
         return false;
     }
 
-    private isValidLandusePolygonGeometry(
+    private isValidLandAreaPolygonGeometry(
         geometry: EntityAdminAreaInferInput["geometry"],
     ): geometry is NonNullable<EntityAdminAreaInferInput["geometry"]> {
         if (!geometry) {
@@ -233,11 +233,11 @@ export class EntityAdminAreaService {
         return false;
     }
 
-    private async inferLanduseTownship(input: EntityAdminAreaInferInput): Promise<EntityAdminAreaInferResult> {
-        const geometryValid = this.isValidLandusePolygonGeometry(input.geometry);
+    private async inferLandAreaTownship(input: EntityAdminAreaInferInput): Promise<EntityAdminAreaInferResult> {
+        const geometryValid = this.isValidLandAreaPolygonGeometry(input.geometry);
 
         if (!geometryValid) {
-            return this.buildLanduseInferAuditResult({
+            return this.buildLandAreaInferAuditResult({
                 input,
                 inferredId: null,
                 inferredSummary: null,
@@ -261,7 +261,7 @@ export class EntityAdminAreaService {
                     (await this.geometryMatches(input, inferredId));
             }
         } catch {
-            return this.buildLanduseInferAuditResult({
+            return this.buildLandAreaInferAuditResult({
                 input,
                 inferredId: null,
                 inferredSummary: null,
@@ -271,7 +271,7 @@ export class EntityAdminAreaService {
             });
         }
 
-        return this.buildLanduseInferAuditResult({
+        return this.buildLandAreaInferAuditResult({
             input,
             inferredId,
             inferredSummary,
@@ -281,7 +281,7 @@ export class EntityAdminAreaService {
         });
     }
 
-    private async buildLanduseInferAuditResult(args: {
+    private async buildLandAreaInferAuditResult(args: {
         input: EntityAdminAreaInferInput;
         inferredId: bigint | null;
         inferredSummary: EntityAdminAreaSummaryRow | null;
@@ -327,10 +327,10 @@ export class EntityAdminAreaService {
                     ? `Current township is valid: ${current.currentAdminArea.name}.`
                     : "Current township is valid."
                 : status === "invalid_geometry"
-                  ? "Landuse polygon geometry is missing or invalid."
+                  ? "Land area polygon geometry is missing or invalid."
                   : recommendedTownship?.canonical_name
                     ? `Recommended township: ${recommendedTownship.canonical_name}.`
-                    : "No township match for this landuse polygon.";
+                    : "No township match for this land area polygon.";
 
         const base: EntityAdminAreaInferResult = {
             ...emptyEntityAdminAreaInferResult(),
@@ -879,7 +879,7 @@ export class EntityAdminAreaService {
         if (input.kind === "street") {
             return this.repo.inferAdminAreaIdForLineGeoJson(geojsonText);
         }
-        if (input.kind === "building" || input.kind === "landuse") {
+        if (input.kind === "building" || input.kind === "land_area") {
             return this.repo.inferAdminAreaIdForPolygonGeoJson(geojsonText);
         }
         return null;
@@ -908,7 +908,7 @@ export class EntityAdminAreaService {
 
         const geojsonText = JSON.stringify(input.geometry);
         const polygonKind =
-            input.kind === "landuse" ? "landuse" : input.kind === "building" ? "building" : "street";
+            input.kind === "land_area" ? "land_area" : input.kind === "building" ? "building" : "street";
         return this.repo.geometryMatchesTownshipAdminArea(adminAreaId, polygonKind, { geojsonText });
     }
 

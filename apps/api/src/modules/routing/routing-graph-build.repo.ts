@@ -249,7 +249,7 @@ export class RoutingGraphBuildRepository {
                 s.id AS core_street_id,
                 s.geom AS raw_geom,
                 s.road_class_id,
-                coalesce(nullif(trim(s.road_class), ''), rc.code, 'unknown') AS road_class_code,
+                coalesce(rc.code, 'unknown') AS road_class_code,
                 s.is_oneway,
                 s.source_refs,
                 s.canonical_name,
@@ -263,7 +263,7 @@ export class RoutingGraphBuildRepository {
               AND ST_IsValid(s.geom)
               AND NOT ST_IsEmpty(s.geom)
               AND coalesce(rc.is_public, true) = true
-              AND coalesce(nullif(trim(s.road_class), ''), rc.code, 'unknown') NOT IN (${Prisma.join(
+              AND coalesce(rc.code, 'unknown') NOT IN (${Prisma.join(
                   NON_ROUTABLE_LIST.map((c) => Prisma.sql`${c}`)
               )})
               AND (${publishBatchText}::text IS NULL OR s.source_refs->>'publish_batch_id' = ${publishBatchText})

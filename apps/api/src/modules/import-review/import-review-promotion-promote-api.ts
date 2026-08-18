@@ -174,7 +174,7 @@ export function promotionStageLabelForFamily(family: PromotablePublishEntityFami
     const labels: Record<PromotablePublishEntityFamily, string> = {
         buildings: "Promote buildings",
         places: "Promote places",
-        landuse: "Promote landuse",
+        land_areas: "Promote land areas",
         water_lines: "Promote water lines",
         water_polygons: "Promote water polygons",
         roads: "Promote roads",

@@ -88,7 +88,7 @@ docker exec -i geo-postgis pg_restore -U postgres -d geo_core \
 
 ## One-time Core → basemap merge
 
-Merges Supabase `core.core_map_buildings` lineage into local `basemap_source.buildings`:
+Merges Supabase `core.core_buildings` lineage into local `basemap_source.buildings`:
 
 - update existing OSM matches with Core metadata (`MERGED_EXISTING_OSM`)
 - insert Core-only managed rows without inventing OSM ids (`INSERTED_COREMAP_MANAGED`)

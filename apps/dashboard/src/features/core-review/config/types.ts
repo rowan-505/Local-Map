@@ -93,6 +93,10 @@ export type CoreReviewMapFeatureRow = {
     externalId: string | null;
     name: string | null;
     classCode: string | null;
+    waterClassId?: string | null;
+    waterClassCode?: string | null;
+    waterClassNameEn?: string | null;
+    waterClassNameMm?: string | null;
     verificationStatus?: string | null;
     isActive: boolean;
     isVerified: boolean;
@@ -102,7 +106,7 @@ export type CoreReviewMapFeatureRow = {
     geometry: ImportReviewGeoJson | null;
 };
 
-export type CoreReviewLanduseRow = {
+export type CoreReviewLandAreaRow = {
     id: string;
     publicId: string;
     externalId: string | null;
@@ -111,10 +115,10 @@ export type CoreReviewLanduseRow = {
     nameEn: string | null;
     nameUnd: string | null;
     classCode: string | null;
-    landuseClassId: string | null;
-    landuseClassCode: string | null;
-    landuseClassNameEn: string | null;
-    landuseClassNameMm: string | null;
+    landAreaClassId: string | null;
+    landAreaClassCode: string | null;
+    landAreaClassNameEn: string | null;
+    landAreaClassNameMm: string | null;
     adminAreaId: string | null;
     adminAreaName: string | null;
     detailLevel: string | null;
@@ -135,7 +139,6 @@ export type CoreReviewLanduseRow = {
     sourceTags?: unknown;
     normalizedData?: unknown;
     sourceRefs?: unknown;
-    sourceStagingId?: string | null;
 };
 
 export type CoreReviewWaterLineRow = CoreReviewMapFeatureRow;
@@ -229,7 +232,7 @@ export type CoreReviewRowBySlug = {
     buildings: CoreReviewBuildingRow;
     places: CoreReviewPlaceRow;
     streets: CoreReviewStreetRow;
-    landuse: CoreReviewLanduseRow;
+    "land-areas": CoreReviewLandAreaRow;
     "water-lines": CoreReviewWaterLineRow;
     "water-polygons": CoreReviewWaterPolygonRow;
     addresses: CoreReviewAddressRow;

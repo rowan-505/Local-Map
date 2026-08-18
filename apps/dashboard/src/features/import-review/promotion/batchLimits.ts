@@ -99,6 +99,6 @@ export const IMPORT_REVIEW_PROMOTION_FIRST_TEST_RECOMMENDATIONS = [
     "1 building (selected mode)",
     "5 buildings (selected mode)",
     "Places only (small count)",
-    "Landuse or water lines/polygons separately",
+    "Land areas or water lines/polygons separately",
     "Roads only — separate batch with high-risk confirmation",
 ] as const;

@@ -834,7 +834,7 @@ function searchResultTypeMeta(type: SearchResultType): {
     case 'water_line':
     case 'water_polygon':
       return { badge: 'W', label: 'Water', labelMy: 'ရေ', className: 'bg-sky-50 text-sky-700' };
-    case 'landuse':
+    case 'land_area':
       return { badge: 'L', label: 'Land use', labelMy: 'မြေအသုံးပြုမှု', className: 'bg-lime-50 text-lime-700' };
     case 'plus_code':
       return { badge: '+', label: 'Plus Code', labelMy: 'Plus Code', className: 'bg-indigo-50 text-indigo-700' };

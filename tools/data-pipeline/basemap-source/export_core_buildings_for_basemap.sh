@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Read-only Supabase export of core.core_map_buildings for local basemap merge.
+# Read-only Supabase export of core.core_buildings for local basemap merge.
 # Writes CSV (+ checksum) under artifacts/. Never writes to Supabase.
 set -euo pipefail
 

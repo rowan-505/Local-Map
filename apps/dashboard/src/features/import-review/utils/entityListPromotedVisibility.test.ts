@@ -13,7 +13,7 @@ const ENTITY_SLUGS = [
     "buildings",
     "places",
     "roads",
-    "landuse",
+    "land-areas",
     "water-lines",
     "water-polygons",
     "admin-areas",

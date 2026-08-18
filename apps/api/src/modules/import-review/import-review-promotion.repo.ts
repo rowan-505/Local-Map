@@ -41,7 +41,7 @@ import { reconcileRoadDuplicateExternalIds } from "./import-review-promotion-roa
 import { requireValidPublishStageStatus } from "./import-review-promotion-stage-status.js";
 
 const BUILDING_CANDIDATE_TABLE = "import_review.building_candidates";
-const TARGET_TABLE = "core.core_map_buildings";
+const TARGET_TABLE = "core.core_buildings";
 
 export type PublishBatchRowDb = {
     id: bigint;

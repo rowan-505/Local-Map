@@ -19,8 +19,6 @@ import {
     postPlacesSchema,
 } from "./places.openapi.js";
 
-const EDIT_PLACE_ROLES = new Set(["admin", "editor"]);
-
 const IS_PLACES_DEV_DEBUG = process.env.NODE_ENV !== "production";
 
 function sanitizePlaceCreateBody(body: unknown) {
@@ -59,7 +57,7 @@ const placesRoutes: FastifyPluginAsync = async (app) => {
     app.get(
         "/places",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardAccess],
             schema: getPlacesSchema,
         },
         async (request, reply) => {
@@ -80,7 +78,7 @@ const placesRoutes: FastifyPluginAsync = async (app) => {
     app.get(
         "/place-form-options",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardAccess],
             schema: getPlaceFormOptionsSchema,
         },
         async (_request, reply) => {
@@ -92,7 +90,7 @@ const placesRoutes: FastifyPluginAsync = async (app) => {
     app.get(
         "/places/:id",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardAccess],
             schema: getPlaceByIdSchema,
         },
         async (request, reply) => {
@@ -123,7 +121,7 @@ const placesRoutes: FastifyPluginAsync = async (app) => {
     app.post(
         "/places",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardWrite],
             schema: postPlacesSchema,
         },
         async (request, reply) => {
@@ -147,14 +145,6 @@ const placesRoutes: FastifyPluginAsync = async (app) => {
                 });
             }
 
-            const canCreatePlace = request.user.roles.some((role) => EDIT_PLACE_ROLES.has(role));
-
-            if (!canCreatePlace) {
-                return reply.code(403).send({
-                    message: "Admin or editor role required",
-                });
-            }
-
             try {
                 const createdPlace = await placesService.createPlace(parsed.data, request.user);
                 return reply.code(201).send(createdPlace);
@@ -173,7 +163,7 @@ const placesRoutes: FastifyPluginAsync = async (app) => {
     app.patch(
         "/places/:id",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardWrite],
             schema: patchPlaceSchema,
         },
         async (request, reply) => {
@@ -202,14 +192,6 @@ const placesRoutes: FastifyPluginAsync = async (app) => {
                 return reply.code(400).send({
                     message: "Invalid place payload",
                     issues: bodyParsed.error.flatten(),
-                });
-            }
-
-            const canEditPlace = request.user.roles.some((role) => EDIT_PLACE_ROLES.has(role));
-
-            if (!canEditPlace) {
-                return reply.code(403).send({
-                    message: "Admin or editor role required",
                 });
             }
 
@@ -242,7 +224,7 @@ const placesRoutes: FastifyPluginAsync = async (app) => {
     app.delete(
         "/places/:id",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardWrite],
             schema: deletePlaceSchema,
         },
         async (request, reply) => {
@@ -252,14 +234,6 @@ const placesRoutes: FastifyPluginAsync = async (app) => {
                 return reply.code(400).send({
                     message: "Invalid place id",
                     issues: parsed.error.flatten(),
-                });
-            }
-
-            const canDeletePlace = request.user.roles.some((role) => EDIT_PLACE_ROLES.has(role));
-
-            if (!canDeletePlace) {
-                return reply.code(403).send({
-                    message: "Admin or editor role required",
                 });
             }
 

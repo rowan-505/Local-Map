@@ -79,7 +79,7 @@ const STATIC_CANDIDATE_COLUMNS: Record<string, readonly string[]> = {
         "matched_core_id",
         "matched_core_data",
     ],
-    "import_review.landuse_candidates": [
+    "import_review.land_area_candidates": [
         "id",
         "external_id",
         "local_staging_id",
@@ -88,7 +88,7 @@ const STATIC_CANDIDATE_COLUMNS: Record<string, readonly string[]> = {
         "geom",
         "centroid",
         "class_code",
-        "landuse_class_id",
+        "land_area_class_id",
         "name_mm",
         "name_en",
         "name",
@@ -111,6 +111,7 @@ const STATIC_CANDIDATE_COLUMNS: Record<string, readonly string[]> = {
         "normalized_data",
         "geom",
         "class_code",
+        "water_class_id",
         "name_mm",
         "name_en",
         "name",
@@ -134,6 +135,7 @@ const STATIC_CANDIDATE_COLUMNS: Record<string, readonly string[]> = {
         "geom",
         "centroid",
         "class_code",
+        "water_class_id",
         "name_mm",
         "name_en",
         "name",
@@ -251,7 +253,7 @@ const STATIC_CANDIDATE_COLUMNS: Record<string, readonly string[]> = {
 
 export type CandidateColumnCapabilities = {
     hasAdminAreaIdColumn: boolean;
-    hasLanduseClassIdColumn: boolean;
+    hasLandAreaClassIdColumn: boolean;
     hasBuildingTypeIdColumn: boolean;
     hasCategoryIdColumn: boolean;
 };
@@ -324,7 +326,7 @@ export class ImportReviewCandidateColumnRegistry {
         const columns = await this.getColumns(candidateTable);
         return {
             hasAdminAreaIdColumn: columns.has("admin_area_id"),
-            hasLanduseClassIdColumn: columns.has("landuse_class_id"),
+            hasLandAreaClassIdColumn: columns.has("land_area_class_id"),
             hasBuildingTypeIdColumn: columns.has("building_type_id"),
             hasCategoryIdColumn: columns.has("category_id"),
         };
@@ -347,33 +349,33 @@ export function effectiveAdminAreaIdExpr(
     return Prisma.sql`coalesce(${a}.admin_area_id, ${fromNormalized})`;
 }
 
-export function landuseEffectiveClassIdRawExpr(
+export function landAreaEffectiveClassIdRawExpr(
     alias: string,
-    options: { hasLanduseClassIdColumn: boolean }
+    options: { hasLandAreaClassIdColumn: boolean }
 ): Prisma.Sql {
     const a = Prisma.raw(alias);
     const fromNormalized = Prisma.sql`
-        CASE WHEN (${a}.normalized_data->>'landuse_class_id') ~ '^[0-9]+$'
-            THEN (${a}.normalized_data->>'landuse_class_id')::bigint
+        CASE WHEN (${a}.normalized_data->>'land_area_class_id') ~ '^[0-9]+$'
+            THEN (${a}.normalized_data->>'land_area_class_id')::bigint
         END
     `;
-    if (!options.hasLanduseClassIdColumn) {
+    if (!options.hasLandAreaClassIdColumn) {
         return fromNormalized;
     }
-    return Prisma.sql`coalesce(${a}.landuse_class_id, ${fromNormalized})`;
+    return Prisma.sql`coalesce(${a}.land_area_class_id, ${fromNormalized})`;
 }
 
-/** Effective landuse_class_id when it exists in ref.ref_landuse_classes. */
-export function landuseClassIdExpr(
+/** Effective land_area_class_id when it exists in ref.ref_land_area_classes. */
+export function landAreaClassIdExpr(
     alias: string,
-    options: { hasLanduseClassIdColumn: boolean } = { hasLanduseClassIdColumn: true }
+    options: { hasLandAreaClassIdColumn: boolean } = { hasLandAreaClassIdColumn: true }
 ): Prisma.Sql {
-    const raw = landuseEffectiveClassIdRawExpr(alias, options);
+    const raw = landAreaEffectiveClassIdRawExpr(alias, options);
     return Prisma.sql`
         CASE
             WHEN ${raw} IS NULL THEN NULL::bigint
             WHEN EXISTS (
-                SELECT 1 FROM ref.ref_landuse_classes AS lc
+                SELECT 1 FROM ref.ref_land_area_classes AS lc
                 WHERE lc.id = ${raw}
                   AND coalesce(lc.is_active, true)
             ) THEN ${raw}
@@ -382,7 +384,7 @@ export function landuseClassIdExpr(
     `;
 }
 
-export function landuseClassCodeEffectiveExpr(alias: string): Prisma.Sql {
+export function landAreaClassCodeEffectiveExpr(alias: string): Prisma.Sql {
     const a = Prisma.raw(alias);
     return Prisma.sql`
         nullif(trim(coalesce(

@@ -5,7 +5,7 @@ const SEGMENT_TO_ENTITY_KEY: Record<string, CoreEntityKey> = {
     buildings: "buildings",
     places: "places",
     roads: "streets",
-    landuse: "landuse",
+    "land-areas": "land-areas",
     "water-lines": "water-lines",
     "water-polygons": "water-polygons",
     addresses: "addresses",

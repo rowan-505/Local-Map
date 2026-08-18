@@ -38,4 +38,8 @@ raw → staging → core → tiles views → PMTiles
 2. Never point a write pipeline at prod by accident — see [data-pipeline](data-pipeline.md).
 3. All schema changes = migration files in git.
 
+## Core coastline
+
+Processed Myanmar coastline MultiLineString lives in `core.core_coastlines` (migration 157). See [`infrastructure/database/docs/core_coastlines.md`](../infrastructure/database/docs/core_coastlines.md). Overview PMTiles still use Natural Earth coastline until a Core-backed rebuild is scheduled.
+
 More detail next to code: [`infrastructure/database/README.md`](../infrastructure/database/README.md).

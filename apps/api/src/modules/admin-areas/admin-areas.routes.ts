@@ -12,7 +12,7 @@ const adminAreasRoutes: FastifyPluginAsync = async (app) => {
     app.get(
         "/admin-areas",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardAccess],
             schema: getAdminAreasSchema,
         },
         async (request, reply) => {
@@ -33,7 +33,7 @@ const adminAreasRoutes: FastifyPluginAsync = async (app) => {
     app.get(
         "/admin-areas/options",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardAccess],
             schema: getAdminAreaOptionsSchema,
         },
         async (request, reply) => {
@@ -58,7 +58,7 @@ const adminAreasRoutes: FastifyPluginAsync = async (app) => {
     app.get(
         "/admin-areas/road-township-options",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardAccess],
             schema: getRoadTownshipAdminAreaOptionsSchema,
         },
         async (request, reply) => {

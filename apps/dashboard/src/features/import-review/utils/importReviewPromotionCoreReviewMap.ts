@@ -11,7 +11,7 @@ const IMPORT_REVIEW_FAMILY_TO_CORE_REVIEW_SLUG: Readonly<
 > = {
     buildings: "buildings",
     places: "places",
-    landuse: "landuse",
+    "land-areas": "land-areas",
     water_lines: "water-lines",
     water_polygons: "water-polygons",
     roads: "streets",

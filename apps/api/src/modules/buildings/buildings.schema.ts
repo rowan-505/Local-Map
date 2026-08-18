@@ -163,8 +163,8 @@ export const createBuildingBodySchema = z
     .object({
         geometry: buildingGeometrySchema,
         /**
-         * Deprecated write field. Not stored on core_map_buildings.name.
-         * Prefer name_mm / name_en (synced to core_map_building_names).
+         * Deprecated write field. Not stored on core_buildings.name.
+         * Prefer name_mm / name_en (synced to core_building_names).
          */
         name: optionalNameSchema,
         name_mm: optionalNameSchema,
@@ -237,7 +237,7 @@ export type BuildingValidationIssue = {
     message: string;
 };
 
-/** Canonical building name row from core.core_map_building_names. */
+/** Canonical building name row from core.core_building_names. */
 export const buildingNameEntrySchema = z
     .object({
         id: z.number().int().optional(),
@@ -254,7 +254,7 @@ export type BuildingNameEntry = z.infer<typeof buildingNameEntrySchema>;
 
 /**
  * Response name contract:
- * - `names` = canonical rows from core_map_building_names
+ * - `names` = canonical rows from core_building_names
  * - `name_mm` / `name_en` = derived primary labels (dashboard compat)
  * - `name` = derived display name (priority coalesce)
  */

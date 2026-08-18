@@ -161,7 +161,7 @@ Canonical names below match **Supabase `import_review` candidate columns** and t
 | `normalized_data` | `normalized_data` (jsonb, default `{}`) | `normalized_data NOT NULL` default `{}` | |
 | `review_batch_id` | Same as `remote_review_batch_id` on **package** after K | `review_batch_id NOT NULL` FK | Not a column on package **items**; join via package or remote row. |
 | `matched_core_id` | `matched_core_id` | `matched_core_id` | Optional until a core match exists. |
-| `matched_core_table` | `matched_core_table` | `matched_core_table` | Expected slugs from Stage J: **`core_map_buildings`**, **`core_places`**, **`core_streets`**. |
+| `matched_core_table` | `matched_core_table` | `matched_core_table` | Expected slugs from Stage J: **`core_buildings`**, **`core_places`**, **`core_streets`**. |
 | `matched_core_data` | `matched_core_data` | `matched_core_data` | F2 / mirror payload; may be null. |
 | `f2_comparison` | `f2_comparison` | `f2_comparison` | Often null when no diff row; counted as **WARN** in Stage 14. |
 
@@ -178,12 +178,12 @@ Stage J also writes **redundant mirrors** into each item **`payload`** JSON for 
 
 | Concept | Staging (local) | Local package | Supabase `import_review` | Intended `core.*` target(s) |
 |---------|-----------------|---------------|--------------------------|-------------------------------|
-| Buildings | `staging.staging_building_candidates` | `_items` (`buildings`) | `import_review.building_candidates` | `core.core_map_buildings` |
+| Buildings | `staging.staging_building_candidates` | `_items` (`buildings`) | `import_review.building_candidates` | `core.core_buildings` |
 | Places | `staging.staging_place_candidates` | `_items` (`places`) | `import_review.place_candidates` | `core.core_places` (+ child names in `normalized_data`) |
 | Roads | `staging.staging_road_candidates` | `_items` (`roads`) | `import_review.road_candidates` | `core.core_streets` |
-| Landuse | `staging.staging_landuse_candidates` | `_items` (`landuse`) | `import_review.landuse_candidates` | `core.core_map_landuse` |
-| Water lines | `staging.staging_water_line_candidates` | `_items` (`water_lines`) | `import_review.water_line_candidates` | `core.core_map_water_lines` |
-| Water polygons | `staging.staging_water_polygon_candidates` | `_items` (`water_polygons`) | `import_review.water_polygon_candidates` | `core.core_map_water_polygons` |
+| Landuse | `staging.staging_landuse_candidates` | `_items` (`landuse`) | `import_review.land_area_candidates` | `core.core_land_areas` |
+| Water lines | `staging.staging_water_line_candidates` | `_items` (`water_lines`) | `import_review.water_line_candidates` | `core.core_water_lines` |
+| Water polygons | `staging.staging_water_polygon_candidates` | `_items` (`water_polygons`) | `import_review.water_polygon_candidates` | `core.core_water_polygons` |
 | Addresses | `staging.staging_address_candidates` | `_items` (`addresses`) | `import_review.address_candidates` | `core.core_addresses` (+ `address_components` in `normalized_data`) |
 | Admin areas | `staging.staging_admin_area_candidates` | `_items` (`admin_areas`) | `import_review.admin_area_candidates` | `core.core_admin_areas` (+ `names` in `normalized_data`) |
 | Routing barriers | `staging.staging_routing_barrier_candidates` | `_items` (`routing_barriers`) | `import_review.routing_barrier_candidates` | (no core DDL yet) |
@@ -218,7 +218,7 @@ Align **`REMOTE_REVIEW_ENTITY_FAMILY`** with **`ENTITY_FAMILIES`** in the import
 
 Promotion is **future work**; preserve at minimum:
 
-- `source_staging_id` **or** `review_candidate_id` (workflow key)
+- `review_candidate_id` (import-review workflow key; not durable Core lineage)
 - `external_id`, `source_refs`, `normalized_data`
 - `source_snapshot_version` as a column **or** embedded in `source_refs` / `normalized_data`
 - **`confidence_score`** on **0–100** (matching `import_review` check constraints)

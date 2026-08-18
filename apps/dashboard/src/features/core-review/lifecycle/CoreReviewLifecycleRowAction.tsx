@@ -1,6 +1,7 @@
 "use client";
 
 import type { CoreReviewEntitySlug } from "@/src/lib/api";
+import { useDashboardRoleAccess } from "@/src/hooks/useDashboardRoleAccess";
 
 import CoreReviewRestoreButton from "./CoreReviewRestoreButton";
 import CoreReviewSoftDeleteButton from "./CoreReviewSoftDeleteButton";
@@ -24,8 +25,9 @@ export default function CoreReviewLifecycleRowAction({
     onSuccess?: (message: string) => void;
     onError?: (message: string) => void;
 }) {
+    const dashboardAccess = useDashboardRoleAccess();
     const action = coreReviewRowLifecycleAction(row, listStatus);
-    if (!action) {
+    if (!dashboardAccess.canWrite || !action) {
         return <span className="text-xs text-slate-400">—</span>;
     }
 

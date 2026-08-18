@@ -50,7 +50,7 @@ export const UNIFIED_SEARCH_ENTITY_TYPE_WEIGHTS = {
     transport_stop: 2,
     bus_stop: 2,
     building: 0,
-    landuse: -2,
+    land_area: -2,
     water_line: -2,
     water_polygon: -2,
 } as const;
@@ -527,7 +527,7 @@ export function buildUnifiedSearchScoreSql(params: BuildUnifiedSearchScoreSqlPar
             WHEN 'bus_route' THEN ${UNIFIED_SEARCH_ENTITY_TYPE_WEIGHTS.bus_route}
             WHEN 'bus_route_variant' THEN ${UNIFIED_SEARCH_ENTITY_TYPE_WEIGHTS.bus_route_variant}
             WHEN 'building' THEN ${UNIFIED_SEARCH_ENTITY_TYPE_WEIGHTS.building}
-            WHEN 'landuse' THEN ${UNIFIED_SEARCH_ENTITY_TYPE_WEIGHTS.landuse}
+            WHEN 'land_area' THEN ${UNIFIED_SEARCH_ENTITY_TYPE_WEIGHTS.land_area}
             WHEN 'water_line' THEN ${UNIFIED_SEARCH_ENTITY_TYPE_WEIGHTS.water_line}
             WHEN 'water_polygon' THEN ${UNIFIED_SEARCH_ENTITY_TYPE_WEIGHTS.water_polygon}
             WHEN 'transport_stop' THEN CASE

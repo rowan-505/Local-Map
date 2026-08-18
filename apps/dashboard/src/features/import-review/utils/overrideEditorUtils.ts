@@ -61,16 +61,32 @@ function readRoadClassImportedId(row: ImportReviewBuildingListItem): string {
     return "";
 }
 
-function readLanduseClassImportedId(row: ImportReviewBuildingListItem): string {
-    const fromColumn = row.landuse_class_id?.trim();
+function readLandAreaClassImportedId(row: ImportReviewBuildingListItem): string {
+    const fromColumn = row.land_area_class_id?.trim();
     if (fromColumn) {
         return fromColumn;
     }
-    const fromEffective = row.effective_landuse_class_id?.trim();
+    const fromEffective = row.effective_land_area_class_id?.trim();
     if (fromEffective) {
         return fromEffective;
     }
-    const fromNorm = normPick(row.normalized_data, "landuse_class_id");
+    const fromNorm = normPick(row.normalized_data, "land_area_class_id");
+    if (fromNorm !== null && fromNorm !== undefined) {
+        return String(fromNorm).trim();
+    }
+    return "";
+}
+
+function readWaterClassImportedId(row: ImportReviewBuildingListItem): string {
+    const fromColumn = row.water_class_id?.trim();
+    if (fromColumn) {
+        return fromColumn;
+    }
+    const fromEffective = (row as { effective_water_class_id?: string | null }).effective_water_class_id?.trim();
+    if (fromEffective) {
+        return fromEffective;
+    }
+    const fromNorm = normPick(row.normalized_data, "water_class_id");
     if (fromNorm !== null && fromNorm !== undefined) {
         return String(fromNorm).trim();
     }
@@ -85,8 +101,11 @@ export function readImportedValue(
     if (def.configKey === "building_type_id") {
         return readBuildingTypeImportedId(row);
     }
-    if (def.patchKey === "landuse_class_id") {
-        return readLanduseClassImportedId(row);
+    if (def.patchKey === "land_area_class_id") {
+        return readLandAreaClassImportedId(row);
+    }
+    if (def.patchKey === "water_class_id") {
+        return readWaterClassImportedId(row);
     }
     if (def.patchKey === "road_class_id") {
         return readRoadClassImportedId(row);
@@ -187,8 +206,11 @@ export function readColumnDraftValue(
     if (def.configKey === "building_type_id") {
         return row.building_type_id?.trim() ?? "";
     }
-    if (def.patchKey === "landuse_class_id") {
-        return row.landuse_class_id?.trim() ?? "";
+    if (def.patchKey === "land_area_class_id") {
+        return row.land_area_class_id?.trim() ?? "";
+    }
+    if (def.patchKey === "water_class_id") {
+        return row.water_class_id?.trim() ?? "";
     }
     if (def.patchKey === "road_class_id") {
         const rawRoad = (row as Record<string, unknown>).road_class_id;
@@ -269,12 +291,19 @@ export function readOverrideDraftValue(
     if (def.patchKey === "class_code" && apiFamily) {
         return readEffectiveClassCode(row, apiFamily);
     }
-    if (def.patchKey === "landuse_class_id") {
+    if (def.patchKey === "land_area_class_id") {
         const ov = typedColumnFields(row);
-        if (Object.prototype.hasOwnProperty.call(ov, "landuse_class_id")) {
-            return formatOverrideValue(ov.landuse_class_id);
+        if (Object.prototype.hasOwnProperty.call(ov, "land_area_class_id")) {
+            return formatOverrideValue(ov.land_area_class_id);
         }
-        return row.landuse_class_id ?? row.effective_landuse_class_id ?? "";
+        return row.land_area_class_id ?? row.effective_land_area_class_id ?? "";
+    }
+    if (def.patchKey === "water_class_id") {
+        const ov = typedColumnFields(row);
+        if (Object.prototype.hasOwnProperty.call(ov, "water_class_id")) {
+            return formatOverrideValue(ov.water_class_id);
+        }
+        return row.water_class_id ?? row.effective_water_class_id ?? "";
     }
     if (def.patchKey === "admin_level_id") {
         return readEffectiveAdminLevelId(row);
@@ -611,12 +640,12 @@ function essentialRulesForApiFamily(apiFamily: string): readonly DashboardEssent
             ];
         case "roads":
             return [{ kind: "geometry" }];
-        case "landuse":
-            return [{ kind: "field", key: "landuse_class_id" }, { kind: "geometry" }];
+        case "land_areas":
+            return [{ kind: "field", key: "land_area_class_id" }, { kind: "geometry" }];
         case "water_lines":
-            return [{ kind: "field", key: "class_code" }, { kind: "geometry" }];
+            return [{ kind: "field", key: "water_class_id" }, { kind: "geometry" }];
         case "water_polygons":
-            return [{ kind: "field", key: "class_code" }, { kind: "geometry" }];
+            return [{ kind: "field", key: "water_class_id" }, { kind: "geometry" }];
         default:
             return [];
     }

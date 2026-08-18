@@ -102,23 +102,31 @@ valhalla_require_built_tiles() {
 valhalla_prepare_custom_files() {
     mkdir -p "${VALHALLA_DATA_DIR}"
 
-    local data_dir_abs pbf_abs pbf_dest
+    local data_dir_abs pbf_dest
     data_dir_abs="$(cd "${VALHALLA_DATA_DIR}" && pwd)"
-    pbf_abs="$(cd "$(dirname "${VALHALLA_PBF_PATH}")" && pwd)/$(basename "${VALHALLA_PBF_PATH}")"
     pbf_dest="${data_dir_abs}/${VALHALLA_PBF_BASENAME}"
 
     # Docker bind-mounts only VALHALLA_DATA_DIR to /custom_files. A symlink whose
     # target is outside that dir resolves to a dangling link inside the container
     # ("Unable to open: /custom_files/<pbf>"), so the PBF must be a real file here.
-    if [[ "${pbf_abs}" != "${pbf_dest}" ]]; then
-        # Drop any stale symlink left by older script versions.
-        if [[ -L "${pbf_dest}" ]]; then
-            rm -f "${pbf_dest}"
+    # Start can skip this when tiles already exist and the OSM extract is absent.
+    if [[ -f "${VALHALLA_PBF_PATH}" ]]; then
+        local pbf_abs
+        pbf_abs="$(cd "$(dirname "${VALHALLA_PBF_PATH}")" && pwd)/$(basename "${VALHALLA_PBF_PATH}")"
+        if [[ "${pbf_abs}" != "${pbf_dest}" ]]; then
+            # Drop any stale symlink left by older script versions.
+            if [[ -L "${pbf_dest}" ]]; then
+                rm -f "${pbf_dest}"
+            fi
+            if [[ ! -f "${pbf_dest}" ]] || [[ "${pbf_abs}" -nt "${pbf_dest}" ]]; then
+                echo "info: copying PBF into ${VALHALLA_DATA_DIR} (Docker mount /custom_files)..."
+                cp -f "${pbf_abs}" "${pbf_dest}"
+            fi
         fi
-        if [[ ! -f "${pbf_dest}" ]] || [[ "${pbf_abs}" -nt "${pbf_dest}" ]]; then
-            echo "info: copying PBF into ${VALHALLA_DATA_DIR} (Docker mount /custom_files)..."
-            cp -f "${pbf_abs}" "${pbf_dest}"
-        fi
+    elif valhalla_has_built_tiles; then
+        echo "info: OSM PBF not found; using existing tiles in ${VALHALLA_DATA_DIR}"
+    else
+        valhalla_fail_missing_pbf
     fi
 
     local config_dest="${data_dir_abs}/valhalla.json"

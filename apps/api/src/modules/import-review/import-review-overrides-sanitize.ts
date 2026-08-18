@@ -23,7 +23,8 @@ const DISPLAY_ONLY_OVERRIDE_KEYS = new Set(["admin_area", "effective_admin_area_
 const ID_PATCH_KEYS = new Set([
     "admin_area_id",
     "building_type_id",
-    "landuse_class_id",
+    "land_area_class_id",
+    "water_class_id",
     "category_id",
     "road_class_id",
     "admin_level_id",

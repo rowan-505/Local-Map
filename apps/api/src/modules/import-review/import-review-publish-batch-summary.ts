@@ -4,7 +4,7 @@ import { coreVerificationExistsUnionSql } from "./import-review-publish-batch-co
 
 const BUILDING_CANDIDATE_TABLE = "import_review.building_candidates";
 const PLACE_CANDIDATE_TABLE = "import_review.place_candidates";
-const LANDUSE_CANDIDATE_TABLE = "import_review.landuse_candidates";
+const LANDUSE_CANDIDATE_TABLE = "import_review.land_area_candidates";
 const WATER_LINE_CANDIDATE_TABLE = "import_review.water_line_candidates";
 const WATER_POLYGON_CANDIDATE_TABLE = "import_review.water_polygon_candidates";
 const ROAD_CANDIDATE_TABLE = "import_review.road_candidates";
@@ -766,7 +766,7 @@ export class ImportReviewPublishBatchSummaryRepository {
                 UNION ALL
                 SELECT spi.id
                 FROM system.system_publish_items AS spi
-                INNER JOIN import_review.landuse_candidates AS lu
+                INNER JOIN import_review.land_area_candidates AS lu
                     ON lu.id = spi.review_candidate_id
                    AND spi.review_candidate_table = ${LANDUSE_CANDIDATE_TABLE}
                 WHERE spi.publish_batch_id = ${batchId}

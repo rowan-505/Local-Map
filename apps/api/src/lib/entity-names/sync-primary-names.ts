@@ -115,7 +115,7 @@ export async function syncPrimaryOfficialNames(
 }
 
 export const BUILDING_NAMES_CONFIG = (buildingId: bigint): EntityNamesTableConfig => ({
-    namesTable: "core.core_map_building_names",
+    namesTable: "core.core_building_names",
     fkColumn: "building_id",
     entityId: buildingId,
     myanmarScriptCode: "MYMR",
@@ -130,19 +130,19 @@ export async function syncBuildingPrimaryNames(
     await syncPrimaryOfficialNames(tx, BUILDING_NAMES_CONFIG(buildingId), slots);
 }
 
-export const LANDUSE_NAMES_CONFIG = (landuseId: bigint): EntityNamesTableConfig => ({
-    namesTable: "core.core_map_landuse_names",
-    fkColumn: "landuse_id",
-    entityId: landuseId,
+export const LAND_AREA_NAMES_CONFIG = (landAreaId: bigint): EntityNamesTableConfig => ({
+    namesTable: "core.core_land_area_names",
+    fkColumn: "land_area_id",
+    entityId: landAreaId,
     myanmarScriptCode: "MYMR",
     englishScriptCode: "LATN",
 });
 
-export type LanduseFeatureNameSlots = PrimaryNameSlots & {
+export type LandAreaFeatureNameSlots = PrimaryNameSlots & {
     name_und?: string | null | undefined;
 };
 
-/** Upserts primary official my/en/und feature names for one landuse polygon. */
+/** Upserts primary official my/en/und feature names for one land area polygon. */
 export const ADMIN_AREA_NAMES_CONFIG = (adminAreaId: bigint): EntityNamesTableConfig => ({
     namesTable: "core.core_admin_area_names",
     fkColumn: "admin_area_id",
@@ -159,12 +159,12 @@ export async function syncAdminAreaPrimaryNames(
     await syncPrimaryOfficialNames(tx, ADMIN_AREA_NAMES_CONFIG(adminAreaId), slots);
 }
 
-export async function syncLanduseFeatureNames(
+export async function syncLandAreaFeatureNames(
     tx: DbClient,
-    landuseId: bigint,
-    slots: LanduseFeatureNameSlots
+    landAreaId: bigint,
+    slots: LandAreaFeatureNameSlots
 ): Promise<void> {
-    await syncPrimaryOfficialNames(tx, LANDUSE_NAMES_CONFIG(landuseId), {
+    await syncPrimaryOfficialNames(tx, LAND_AREA_NAMES_CONFIG(landAreaId), {
         name_mm: slots.name_mm,
         name_en: slots.name_en,
     });
@@ -174,8 +174,8 @@ export async function syncLanduseFeatureNames(
     }
 
     await tx.$executeRaw(Prisma.sql`
-        DELETE FROM core.core_map_landuse_names AS n
-        WHERE n.landuse_id = ${landuseId}
+        DELETE FROM core.core_land_area_names AS n
+        WHERE n.land_area_id = ${landAreaId}
           AND n.name_type = 'official'
           AND n.is_primary IS TRUE
           AND lower(trim(n.language_code)) = 'und'
@@ -184,11 +184,11 @@ export async function syncLanduseFeatureNames(
     const und = trimName(slots.name_und);
     if (und) {
         await tx.$executeRaw(Prisma.sql`
-            INSERT INTO core.core_map_landuse_names (
-                landuse_id, name, language_code, script_code, name_type, is_primary, search_weight
+            INSERT INTO core.core_land_area_names (
+                land_area_id, name, language_code, script_code, name_type, is_primary, search_weight
             )
             VALUES (
-                ${landuseId},
+                ${landAreaId},
                 ${und},
                 'und',
                 NULL,

@@ -68,10 +68,11 @@ export const IMPORT_REVIEW_OVERRIDE_ALLOWLIST: Record<string, readonly string[]>
         "confidence_score",
         "geom",
     ],
-    landuse: ["name_mm", "name_en", "landuse_class_id", "admin_area_id", "confidence_score", "geom"],
+    land_areas: ["name_mm", "name_en", "land_area_class_id", "admin_area_id", "confidence_score", "geom"],
     water_lines: [
         "name_mm",
         "name_en",
+        "water_class_id",
         "class_code",
         "waterway_class",
         "intermittent",
@@ -81,6 +82,7 @@ export const IMPORT_REVIEW_OVERRIDE_ALLOWLIST: Record<string, readonly string[]>
     water_polygons: [
         "name_mm",
         "name_en",
+        "water_class_id",
         "class_code",
         "water_class",
         "intermittent",

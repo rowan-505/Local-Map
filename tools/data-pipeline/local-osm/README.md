@@ -43,6 +43,25 @@ Import boundaries live in `system.system_import_boundaries` and are linked from 
 
 Promotion to `core` and sync to production are **out of scope** here.
 
+### OSM category normalization (land / water / coastline)
+
+Stage **05** normalizes raw OSM tags to **CoreMap ref CODEs** before staging:
+
+| Route | OSM tags | Staging target |
+|-------|----------|----------------|
+| Coastline | `natural=coastline` | `staging_coastline_candidates` |
+| Water polygon | `natural=water` / `water=*` / `waterway=riverbank` | `staging_water_polygon_candidates` + `water_class_id` |
+| Water line | `waterway=*` (not coastline) | `staging_water_line_candidates` + `water_class_id` |
+| Land area | wetland / recognized landuse / natural cover / leisure(park/garden) | `staging_landuse_candidates` + `land_area_class_id` |
+| Protected area | `boundary=protected_area\|national_park` / `leisure=nature_reserve` | `staging_protected_area_candidates` + `protected_area_class_id` |
+
+- Maps live in version-controlled `pipeline_osm_category_normalize.sql` (+ TS mirror `osm-category-normalize.ts`).
+- Resolve numeric IDs with `JOIN … ON code` — never hardcode ref IDs.
+- Unrecognized values are **skipped** from Core staging and recorded in `staging.staging_osm_unmapped_tags`.
+- Recognized land/water classes are **Direct-Core** candidates (`eligible_for_core`); Stage **11** still packages **conflicts only**, so ordinary residential/farmland do not flood manual review.
+- Protected areas are an **overlay** family (not land cover). Ordinary `leisure=park` is **not** extracted here.
+- Local prerequisite: `infrastructure/database/migrations/local/020_osm_category_normalize_staging.sql` (+ `017_protected_area_staging.sql` for protected areas).
+
 ---
 
 ## Pipeline flow (stages 00–15)
@@ -186,7 +205,7 @@ Use `ENTITY_FAMILIES` in your import env to limit extraction, diff, review packa
 | `buildings` | `staging_building_candidates` | `import_review.building_candidates` |
 | `roads` | `staging_road_candidates` | `import_review.road_candidates` |
 | `admin_areas` | `staging_admin_area_candidates` | `import_review.admin_area_candidates` |
-| `landuse` | `staging_landuse_candidates` | `import_review.landuse_candidates` |
+| `landuse` | `staging_landuse_candidates` | `import_review.land_area_candidates` |
 | `water_lines` | `staging_water_line_candidates` | `import_review.water_line_candidates` |
 | `water_polygons` | `staging_water_polygon_candidates` | `import_review.water_polygon_candidates` |
 | `routing_barriers` | `staging_routing_barrier_candidates` | `import_review.routing_barrier_candidates` |

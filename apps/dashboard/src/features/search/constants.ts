@@ -18,7 +18,7 @@ export const SEARCH_ALIAS_ENTITY_TYPES = [
     "transport_route",
     "transport_route_variant",
     "building",
-    "landuse",
+    "land_area",
     "water_line",
     "water_polygon",
 ] as const;
@@ -43,7 +43,7 @@ const ENTITY_TYPE_LABELS: Record<string, string> = {
     transport_route: "Transport route",
     transport_route_variant: "Route variant",
     building: "Building",
-    landuse: "Landuse",
+    land_area: "Land area",
     water_line: "Water line",
     water_polygon: "Water polygon",
 };
@@ -175,7 +175,7 @@ const INDEX_FAMILY_LABELS: Record<string, string> = {
     transport_routes: "Transport routes",
     transport_route_variants: "Route variants",
     buildings: "Buildings",
-    landuse: "Landuse",
+    land_area: "Land area",
     water_lines: "Water lines",
     water_polygons: "Water polygons",
 };

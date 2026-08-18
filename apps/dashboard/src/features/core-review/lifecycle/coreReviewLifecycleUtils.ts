@@ -9,7 +9,7 @@ export const CORE_REVIEW_ENTITY_LABELS: Record<CoreReviewEntitySlug, string> = {
     "bus-stops": "bus stop",
     "bus-routes": "bus route",
     "bus-route-variants": "bus route variant",
-    landuse: "landuse area",
+    "land-areas": "land area",
     "water-lines": "water line",
     "water-polygons": "water polygon",
     addresses: "address",

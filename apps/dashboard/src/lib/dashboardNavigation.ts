@@ -182,7 +182,7 @@ export const coreReviewTabs: readonly FamilyNavTab[] = [
     { label: "Buildings", segment: "buildings" },
     { label: "Places", segment: "places" },
     { label: "Roads", segment: "roads" },
-    { label: "Landuse", segment: "landuse" },
+    { label: "Land areas", segment: "land-areas" },
     { label: "Water lines", segment: "water-lines" },
     { label: "Water polygons", segment: "water-polygons" },
     { label: "Addresses", segment: "addresses" },

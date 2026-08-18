@@ -261,7 +261,7 @@ WHERE s.deleted_at IS NULL
 SELECT
     'buildings_null_admin_area_id' AS metric,
     count(*)::bigint AS value
-FROM core.core_map_buildings AS b
+FROM core.core_buildings AS b
 WHERE b.deleted_at IS NULL
   AND coalesce(b.is_active, true) IS TRUE
   AND b.admin_area_id IS NULL;
@@ -269,7 +269,7 @@ WHERE b.deleted_at IS NULL
 SELECT
     'buildings_rep_point_outside_assigned_admin_geom' AS metric,
     count(*)::bigint AS value
-FROM core.core_map_buildings AS b
+FROM core.core_buildings AS b
 INNER JOIN core.core_admin_areas AS aa ON aa.id = b.admin_area_id
 CROSS JOIN LATERAL (
     SELECT st_setsrid(
@@ -307,7 +307,7 @@ WHERE b.deleted_at IS NULL
 SELECT
     'buildings_invalid_admin_fk' AS metric,
     count(*)::bigint AS value
-FROM core.core_map_buildings AS b
+FROM core.core_buildings AS b
 LEFT JOIN core.core_admin_areas AS aa ON aa.id = b.admin_area_id
 WHERE b.deleted_at IS NULL
   AND coalesce(b.is_active, true) IS TRUE
@@ -537,7 +537,7 @@ UNION ALL
         b.admin_area_id,
         NULL::text AS admin_level_code,
         NULL::text AS admin_canonical_name
-    FROM core.core_map_buildings AS b
+    FROM core.core_buildings AS b
     WHERE b.deleted_at IS NULL
       AND coalesce(b.is_active, true) IS TRUE
       AND b.admin_area_id IS NULL
@@ -554,7 +554,7 @@ UNION ALL
         b.admin_area_id,
         al.code,
         aa.canonical_name
-    FROM core.core_map_buildings AS b
+    FROM core.core_buildings AS b
     INNER JOIN core.core_admin_areas AS aa ON aa.id = b.admin_area_id
     LEFT JOIN ref.ref_admin_levels AS al ON al.id = aa.admin_level_id
     CROSS JOIN LATERAL (

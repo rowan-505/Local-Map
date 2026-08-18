@@ -45,7 +45,7 @@ const LIGHT_VIEWS = [
     "buildings",
     "water_lines",
     "water_polygons",
-    "landuse",
+    "land_area",
 ] as const;
 
 /** Grouped roads only (search.v_search_street_groups_source). */

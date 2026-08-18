@@ -315,8 +315,20 @@ export type BuildingMultiPolygonGeometry = {
 
 export type BuildingGeometry = BuildingPolygonGeometry | BuildingMultiPolygonGeometry;
 
-/** Row from ref.ref_landuse_classes (GET /admin/ref/landuse-classes). */
-export type RefLanduseClass = {
+/** Row from ref.ref_land_area_classes (GET /admin/ref/land-area-classes). */
+export type RefLandAreaClass = {
+    id: string;
+    code: string;
+    name_en: string;
+    name_mm: string | null;
+    parent_id: string | null;
+    sort_order: number | null;
+    min_zoom: number | null;
+    is_active: boolean;
+};
+
+/** Row from ref.ref_water_classes (GET /admin/ref/water-classes). */
+export type RefWaterClass = {
     id: string;
     code: string;
     name_en: string;
@@ -385,14 +397,13 @@ export type BuildingNameEntry = {
 export type Building = {
     id: string;
     public_id: string;
-    source_staging_id: string | null;
     external_id: string | null;
     name_mm?: string | null;
     name_en?: string | null;
     fallback_name?: string | null;
     /** Coalesced display label from names table priority. */
     name: string | null;
-    /** Canonical multilingual names from core_map_building_names. */
+    /** Canonical multilingual names from core_building_names. */
     names?: BuildingNameEntry[];
     /** FK to ref.ref_building_types (when exposed by API). */
     building_type_id?: string | null;
@@ -760,10 +771,12 @@ export type ImportReviewBuildingListItem = {
     building_type_id: string | null;
     building_type_code?: string | null;
     building_type_name?: string | null;
-    landuse_class_id?: string | null;
-    landuse_class_code?: string | null;
-    landuse_class_name?: string | null;
-    landuse_class_name_mm?: string | null;
+    land_area_class_id?: string | null;
+    land_area_class_code?: string | null;
+    land_area_class_name?: string | null;
+    land_area_class_name_mm?: string | null;
+    water_class_id?: string | null;
+    effective_water_class_id?: string | null;
     admin_area_id: string | null;
     levels: number | null;
     height_m: number | null;
@@ -827,7 +840,7 @@ export type ImportReviewBuildingListItem = {
     effective_stop_code?: string | null;
     effective_canonical_name?: string | null;
     effective_class_code?: string | null;
-    effective_landuse_class_id?: string | null;
+    effective_land_area_class_id?: string | null;
     effective_admin_area_id?: string | null;
     effective_admin_area_name?: string | null;
     effective_levels?: number | null;
@@ -1132,7 +1145,7 @@ export type PatchPlaceBuildingResponse = LinkPlaceBuildingResponse;
 /** POST/PATCH bodies — snake_case matches API JSON */
 export type CreateBuildingPayload = {
     geometry: BuildingGeometry;
-    /** Fallback/imported label (core_map_buildings.name). */
+    /** Fallback/imported label (core_buildings.name). */
     name?: string | null;
     name_mm?: string | null;
     name_en?: string | null;
@@ -1722,7 +1735,7 @@ export function searchRoadTownshipAdminAreaOptions(params: { q: string; limit?: 
     });
 }
 
-export type EntityAdminAreaKind = "place" | "street" | "building" | "landuse" | "bus_stop";
+export type EntityAdminAreaKind = "place" | "street" | "building" | "land_area" | "bus_stop";
 
 export type RoadAdminAreaInferStatus =
     | "valid_existing"
@@ -1781,7 +1794,7 @@ export type EntityAdminAreaInferResult = {
     name_mm: string | null;
     name_en: string | null;
     geometry_contains: boolean;
-    /** Road/street, landuse, and bus_stop infer audit — returned for recommend/apply kinds. */
+    /** Road/street, land_area, and bus_stop infer audit — returned for recommend/apply kinds. */
     status?: RoadAdminAreaInferStatus;
     message?: string | null;
     currentAdminArea?: RoadInferCurrentAdminArea | null;
@@ -1809,9 +1822,9 @@ export function inferEntityAdminArea(
         lat?: number;
         lng?: number;
         geometry?: { type: string; coordinates: unknown };
-        /** Road/landuse edit audit: stored admin_area_id from DB. */
+        /** Road/land area edit audit: stored admin_area_id from DB. */
         current_admin_area_id?: string;
-        /** Road/landuse edit audit logging only. */
+        /** Road/land area edit audit logging only. */
         entity_public_id?: string;
     },
     fetchInit?: Pick<RequestInit, "signal">,
@@ -1944,7 +1957,7 @@ export type ImportReviewReferenceOptionsResponse = {
     ref_poi_categories: ImportReviewReferenceOptionDto[];
     ref_road_classes: ImportReviewReferenceOptionDto[];
     ref_building_types: ImportReviewReferenceOptionDto[];
-    ref_landuse_classes: ImportReviewReferenceOptionDto[];
+    ref_land_area_classes: ImportReviewReferenceOptionDto[];
     ref_admin_levels: ImportReviewReferenceOptionDto[];
     ref_address_component_types: ImportReviewReferenceOptionDto[];
     ref_source_types: ImportReviewReferenceOptionDto[];
@@ -1975,7 +1988,7 @@ export type ImportReviewFormOptionsResponse = {
     road_classes: ImportReviewFormOption[];
     poi_categories: ImportReviewFormOption[];
     building_types: ImportReviewFormOption[];
-    landuse_classes: ImportReviewFormOption[];
+    land_area_classes: ImportReviewFormOption[];
     waterway_classes: ImportReviewFormOption[];
     water_classes: ImportReviewFormOption[];
     barrier_types: ImportReviewFormOption[];
@@ -4281,8 +4294,12 @@ export function getBuildingTypes(fetchInit?: Pick<RequestInit, "signal">) {
     return apiFetch<RefBuildingType[]>("/building-types", { method: "GET", ...fetchInit });
 }
 
-export function getRefLanduseClasses(fetchInit?: Pick<RequestInit, "signal">) {
-    return apiFetch<RefLanduseClass[]>("/admin/ref/landuse-classes", { method: "GET", ...fetchInit });
+export function getRefLandAreaClasses(fetchInit?: Pick<RequestInit, "signal">) {
+    return apiFetch<RefLandAreaClass[]>("/admin/ref/land-area-classes", { method: "GET", ...fetchInit });
+}
+
+export function getRefWaterClasses(fetchInit?: Pick<RequestInit, "signal">) {
+    return apiFetch<RefWaterClass[]>("/admin/ref/water-classes", { method: "GET", ...fetchInit });
 }
 
 export function getRefBoundaryStatuses(fetchInit?: Pick<RequestInit, "signal">) {
@@ -4685,7 +4702,7 @@ export type CoreReviewEntitySlug =
     | "bus-stops"
     | "bus-routes"
     | "bus-route-variants"
-    | "landuse"
+    | "land-areas"
     | "water-lines"
     | "water-polygons"
     | "addresses"
@@ -4733,7 +4750,7 @@ export type CoreReviewListParams = {
     includeDeleted?: boolean;
     status?: CoreReviewListStatus;
     routeId?: string;
-    landuseClassId?: string;
+    landAreaClassId?: string;
     detailLevel?: "zone" | "parcel";
     cropCode?: string;
     boundaryStatus?: string;

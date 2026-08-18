@@ -45,6 +45,7 @@ export function coreVerificationFamilyRedirectTarget(familyPathSegment: string):
         return coreReviewPath();
     }
 
+    const coreReviewSegment = segment === "landuse" ? "land-areas" : segment;
     const params = new URLSearchParams({ verification_status: "unverified" });
-    return `${coreReviewPath(segment)}?${params.toString()}`;
+    return `${coreReviewPath(coreReviewSegment)}?${params.toString()}`;
 }

@@ -7,7 +7,7 @@ export function coreVerificationExistsSql(entityFamily: string): Prisma.Sql {
             return Prisma.sql`
                 spi.entity_family = 'buildings'
                 AND EXISTS (
-                    SELECT 1 FROM core.core_map_buildings AS c
+                    SELECT 1 FROM core.core_buildings AS c
                     WHERE c.id = spi.target_id
                       AND coalesce(c.is_active, true)
                       AND c.deleted_at IS NULL
@@ -36,11 +36,11 @@ export function coreVerificationExistsSql(entityFamily: string): Prisma.Sql {
                       )
                 )
             `;
-        case "landuse":
+        case "land_areas":
             return Prisma.sql`
-                spi.entity_family = 'landuse'
+                spi.entity_family IN ('land_areas', 'landuse')
                 AND EXISTS (
-                    SELECT 1 FROM core.core_map_landuse AS c
+                    SELECT 1 FROM core.core_land_areas AS c
                     WHERE c.id = spi.target_id
                       AND coalesce(c.is_active, true)
                       AND c.geom IS NOT NULL
@@ -54,7 +54,7 @@ export function coreVerificationExistsSql(entityFamily: string): Prisma.Sql {
             return Prisma.sql`
                 spi.entity_family = 'water_lines'
                 AND EXISTS (
-                    SELECT 1 FROM core.core_map_water_lines AS c
+                    SELECT 1 FROM core.core_water_lines AS c
                     WHERE c.id = spi.target_id
                       AND coalesce(c.is_active, true)
                       AND c.geom IS NOT NULL
@@ -68,7 +68,7 @@ export function coreVerificationExistsSql(entityFamily: string): Prisma.Sql {
             return Prisma.sql`
                 spi.entity_family = 'water_polygons'
                 AND EXISTS (
-                    SELECT 1 FROM core.core_map_water_polygons AS c
+                    SELECT 1 FROM core.core_water_polygons AS c
                     WHERE c.id = spi.target_id
                       AND coalesce(c.is_active, true)
                       AND c.geom IS NOT NULL
@@ -145,7 +145,7 @@ export function coreVerificationExistsSql(entityFamily: string): Prisma.Sql {
 export const CORE_VERIFICATION_ENTITY_FAMILIES = [
     "buildings",
     "places",
-    "landuse",
+    "land_areas",
     "water_lines",
     "water_polygons",
     "roads",

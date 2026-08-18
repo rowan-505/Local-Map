@@ -1,6 +1,6 @@
 # Local Map API
 
-> **Generated:** 2026-06-25T02:17:33.361Z (UTC)  
+> **Generated:** 2026-08-18T12:12:50.756Z (UTC)  
 > **OpenAPI:** This file is produced from `buildApp().swagger()` in `scripts/generate-api-docs.ts` — the same JSON as `GET /openapi.json` when the server is running.
 
 ## Base URLs
@@ -373,7 +373,9 @@ Creates a public account with role `user`. Admin / super_admin accounts cannot b
 {
   "email": "user@example.com",
   "displayName": "string",
-  "password": "string"
+  "password": "string",
+  "preferredLanguage": "my",
+  "primaryRegionId": 0
 }
 ```
 
@@ -389,6 +391,7 @@ Creates a public account with role `user`. Admin / super_admin accounts cannot b
       "public_id": "00000000-0000-4000-8000-000000000000",
       "email": "user@example.com",
       "display_name": "string",
+      "phone": "string",
       "roles": [
         "string"
       ],
@@ -453,6 +456,7 @@ Returns the authenticated user's full profile (roles, email_verified, account_st
     "public_id": "00000000-0000-4000-8000-000000000000",
     "email": "user@example.com",
     "display_name": "string",
+    "phone": "string",
     "roles": [
       "string"
     ],
@@ -562,6 +566,77 @@ Returns the authenticated user's point summary (cache of the ledger).
   }
   ```
 
+#### `PATCH` `/me/profile`
+
+**Summary:** Update current user profile
+
+Self-service edit of the authenticated user's profile. Editable: displayName, phone, preferredLanguage, primaryRegionId. Email, roles, verification, and points are read-only here.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+**Request body** (`application/json`)
+
+```json
+{
+  "displayName": "string",
+  "phone": "string",
+  "preferredLanguage": "my",
+  "primaryRegionId": 0
+}
+```
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "id": "string",
+    "public_id": "00000000-0000-4000-8000-000000000000",
+    "email": "user@example.com",
+    "display_name": "string",
+    "phone": "string",
+    "roles": [
+      "string"
+    ],
+    "email_verified": false,
+    "account_status": "string",
+    "primary_region_id": "string",
+    "preferred_language": "string",
+    "total_points": 0
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
 #### `GET` `/me/saved-places`
 
 **Summary:** List saved places
@@ -578,12 +653,18 @@ Returns the authenticated user's saved places (newest first).
   [
     {
       "id": "string",
-      "place_id": "string",
+      "entity_type": "place",
+      "entity_id": "string",
       "display_name": "string",
+      "custom_name": "string",
       "category": {
         "code": "string",
         "name": "string"
       },
+      "address_line": "string",
+      "plus_code": "string",
+      "latitude": 0,
+      "longitude": 0,
       "admin_area_id": "string",
       "created_at": "2026-01-01T00:00:00.000Z"
     }
@@ -600,9 +681,9 @@ Returns the authenticated user's saved places (newest first).
 
 #### `POST` `/me/saved-places`
 
-**Summary:** Save a place
+**Summary:** Save a place or map point
 
-Saves a public, non-deleted place for the authenticated user. MVP supports only `entityType: "place"`. Duplicate saves return 409.
+Saves an item for the authenticated user. `entityType: "place"` references a public, non-deleted core place (duplicate saves return 409). `entityType: "map_point"` stores an arbitrary clicked location (latitude/longitude required).
 
 **Security:** Bearer JWT (`Authorization: Bearer …`)
 
@@ -622,12 +703,18 @@ Saves a public, non-deleted place for the authenticated user. MVP supports only 
   ```json
   {
     "id": "string",
-    "place_id": "string",
+    "entity_type": "place",
+    "entity_id": "string",
     "display_name": "string",
+    "custom_name": "string",
     "category": {
       "code": "string",
       "name": "string"
     },
+    "address_line": "string",
+    "plus_code": "string",
+    "latitude": 0,
+    "longitude": 0,
     "admin_area_id": "string",
     "created_at": "2026-01-01T00:00:00.000Z"
   }
@@ -1085,6 +1172,105 @@ Server-side search for active township-level admin areas only (roads). Matches i
     "message": "string",
     "can_save_without_override": false
   }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+#### `GET` `/public/admin-areas/{id}`
+
+**Summary:** Get one admin area (public)
+
+Public, read-only lookup of a single active admin area by id (region picker prefill).
+
+**Security:** None
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| id | Path | yes | string |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "id": "string",
+    "name": "string",
+    "name_my": "string",
+    "name_en": "string",
+    "admin_level": "string",
+    "admin_level_code": "string",
+    "parent_name": "string",
+    "display_name": "string"
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/public/admin-areas/search`
+
+**Summary:** Search admin areas (public)
+
+Public, read-only search over active admin areas for the profile region picker. Matches Myanmar/English names, canonical name, and slug.
+
+**Security:** None
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| q | Query | no | string |
+| limit | Query | no | integer |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  [
+    {
+      "id": "string",
+      "name": "string",
+      "name_my": "string",
+      "name_en": "string",
+      "admin_level": "string",
+      "admin_level_code": "string",
+      "parent_name": "string",
+      "display_name": "string"
+    }
+  ]
   ```
 
 - **`400`**
@@ -3268,9 +3454,19 @@ Returns ref.ref_building_types where is_active = true and parent_id IS NULL (16 
     {
       "id": "string",
       "public_id": "00000000-0000-4000-8000-000000000000",
-      "source_staging_id": "string",
       "external_id": "string",
       "name": "string",
+      "names": [
+        {
+          "name": "string",
+          "languageCode": "my",
+          "nameType": "official",
+          "isPrimary": false,
+          "searchWeight": 0,
+          "id": 0,
+          "scriptCode": "string"
+        }
+      ],
       "building_type_id": "string",
       "building_type": {
         "id": "string",
@@ -3386,9 +3582,19 @@ Returns ref.ref_building_types where is_active = true and parent_id IS NULL (16 
   {
     "id": "string",
     "public_id": "00000000-0000-4000-8000-000000000000",
-    "source_staging_id": "string",
     "external_id": "string",
     "name": "string",
+    "names": [
+      {
+        "name": "string",
+        "languageCode": "my",
+        "nameType": "official",
+        "isPrimary": false,
+        "searchWeight": 0,
+        "id": 0,
+        "scriptCode": "string"
+      }
+    ],
     "building_type_id": "string",
     "building_type": {
       "id": "string",
@@ -3491,9 +3697,19 @@ Returns ref.ref_building_types where is_active = true and parent_id IS NULL (16 
   {
     "id": "string",
     "public_id": "00000000-0000-4000-8000-000000000000",
-    "source_staging_id": "string",
     "external_id": "string",
     "name": "string",
+    "names": [
+      {
+        "name": "string",
+        "languageCode": "my",
+        "nameType": "official",
+        "isPrimary": false,
+        "searchWeight": 0,
+        "id": 0,
+        "scriptCode": "string"
+      }
+    ],
     "building_type_id": "string",
     "building_type": {
       "id": "string",
@@ -3623,9 +3839,19 @@ Returns ref.ref_building_types where is_active = true and parent_id IS NULL (16 
   {
     "id": "string",
     "public_id": "00000000-0000-4000-8000-000000000000",
-    "source_staging_id": "string",
     "external_id": "string",
     "name": "string",
+    "names": [
+      {
+        "name": "string",
+        "languageCode": "my",
+        "nameType": "official",
+        "isPrimary": false,
+        "searchWeight": 0,
+        "id": 0,
+        "scriptCode": "string"
+      }
+    ],
     "building_type_id": "string",
     "building_type": {
       "id": "string",
@@ -5153,6 +5379,226 @@ Bus stops and routes (GeoJSON).
   }
   ```
 
+#### `GET` `/public/transport/stops/{id}`
+
+**Summary:** Get public transport stop
+
+Unauthenticated stop detail for the public web map. Lookup accepts uuid public_id or internal numeric id. Names resolve from transport.stop_names primary rows (my/en/und) with optional ?lang=my|en|und for display_name. Includes routes serving the stop and a short downstream stop preview per route variant (no route geometry).
+
+**Security:** None
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| lang | Query | no | string |
+| id | Path | yes | string |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "id": "string",
+    "publicId": "00000000-0000-4000-8000-000000000000",
+    "public_id": "00000000-0000-4000-8000-000000000000",
+    "name": "string",
+    "myanmar_name": "string",
+    "english_name": "string",
+    "name_mm": "string",
+    "name_en": "string",
+    "display_name": "string",
+    "primary_name": "string",
+    "stop_code": "string",
+    "mode": "string",
+    "stop_type": "bus_stop",
+    "admin_area_name": "string",
+    "lat": 0,
+    "lng": 0,
+    "coordinates": [
+      0
+    ],
+    "isVerified": false,
+    "verification_status": "string",
+    "status_label": "string",
+    "confidenceScore": 0,
+    "route_count": 0,
+    "routes_serving_this_stop": [
+      {
+        "route_id": "string",
+        "route_public_id": "00000000-0000-4000-8000-000000000000",
+        "route_code": "string",
+        "public_name": "string",
+        "variant_id": "string",
+        "variant_public_id": "00000000-0000-4000-8000-000000000000",
+        "variant_code": "string",
+        "direction_name": "string",
+        "origin_name": "string",
+        "destination_name": "string",
+        "stop_sequence": 0
+      }
+    ],
+    "next_stops_preview": [
+      {
+        "route_id": "string",
+        "route_public_id": "00000000-0000-4000-8000-000000000000",
+        "route_code": "string",
+        "public_name": "string",
+        "variant_id": "string",
+        "variant_public_id": "00000000-0000-4000-8000-000000000000",
+        "variant_code": "string",
+        "direction_name": "string",
+        "destination_name": "string",
+        "current_stop_sequence": 0,
+        "stop_sequence": 0,
+        "next_stops": [
+          {
+            "stop_sequence": 0,
+            "id": "string",
+            "public_id": "00000000-0000-4000-8000-000000000000",
+            "display_name": "string",
+            "name": "string",
+            "name_mm": "string",
+            "name_en": "string",
+            "lat": 0,
+            "lng": 0
+          }
+        ],
+        "stops": [
+          {
+            "stop_sequence": 0,
+            "id": "string",
+            "public_id": "00000000-0000-4000-8000-000000000000",
+            "display_name": "string",
+            "name": "string",
+            "name_mm": "string",
+            "name_en": "string",
+            "lat": 0,
+            "lng": 0
+          }
+        ]
+      }
+    ],
+    "name_my": "string",
+    "name_und": "string",
+    "canonical_name": "string",
+    "address_line": "string",
+    "…": "(more fields — see OpenAPI spec)"
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/public/transport/terminals/{id}`
+
+**Summary:** Get public transport terminal
+
+Unauthenticated terminal detail for the public web map. Lookup accepts uuid public_id or internal numeric id. Names resolve from terminal name fields with optional ?lang=my|en|und for display_name. Includes routes serving the linked stop when available (no route geometry).
+
+**Security:** None
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| lang | Query | no | string |
+| id | Path | yes | string |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "id": "string",
+    "publicId": "00000000-0000-4000-8000-000000000000",
+    "public_id": "00000000-0000-4000-8000-000000000000",
+    "entity_type": "terminal",
+    "name": "string",
+    "myanmar_name": "string",
+    "english_name": "string",
+    "name_mm": "string",
+    "name_en": "string",
+    "display_name": "string",
+    "primary_name": "string",
+    "terminal_code": "string",
+    "terminal_role": "string",
+    "mode": "string",
+    "admin_area_name": "string",
+    "lat": 0,
+    "lng": 0,
+    "coordinates": [
+      0
+    ],
+    "isVerified": false,
+    "verification_status": "string",
+    "status_label": "string",
+    "confidenceScore": 0,
+    "route_count": 0,
+    "routes_serving_this_stop": [
+      {
+        "route_id": "string",
+        "route_public_id": "00000000-0000-4000-8000-000000000000",
+        "route_code": "string",
+        "public_name": "string",
+        "variant_id": "string",
+        "variant_public_id": "00000000-0000-4000-8000-000000000000",
+        "variant_code": "string",
+        "direction_name": "string",
+        "origin_name": "string",
+        "destination_name": "string",
+        "stop_sequence": 0
+      }
+    ],
+    "name_my": "string",
+    "name_und": "string",
+    "canonical_name": "string",
+    "address_line": "string",
+    "…": "(more fields — see OpenAPI spec)"
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
 ### Search
 
 Public text search for the map client.
@@ -5273,16 +5719,27 @@ Queries generated search.address_index rows (not core tables directly). Supports
   }
   ```
 
-#### `GET` `/public/search`
+#### `GET` `/admin/search/aliases`
 
-**Summary:** Public search
+**Summary:** Admin: list search aliases
 
-**Security:** None
+Admin/super_admin. Paginated list of search-only aliases with optional filters and indexed entity context.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
 
 | Name | In | Required | Schema |
 | --- | --- | --- | --- |
-| q | Query | yes | string |
-| limit | Query | no | integer |
+| q | Query | no | string |
+| entity_type | Query | no | string |
+| language_code | Query | no | string |
+| alias_type | Query | no | string |
+| is_active | Query | no | boolean |
+| entity_id | Query | no | string |
+| has_indexed_entity | Query | no | boolean |
+| page | Query | no | integer |
+| pageSize | Query | no | integer |
+| sort | Query | no | string |
+| order | Query | no | string |
 
 
 **Responses**
@@ -5290,31 +5747,1917 @@ Queries generated search.address_index rows (not core tables directly). Supports
 - **`200`**
 
   ```json
-  [
-    {
-      "id": "string",
-      "type": "string",
-      "myanmar_name": "string",
-      "english_name": "string",
-      "name_mm": "string",
-      "name_en": "string",
+  {
+    "items": [
+      {
+        "id": "string",
+        "entity_type": "string",
+        "entity_id": "string",
+        "alias_text": "string",
+        "normalized_alias": "string",
+        "language_code": "string",
+        "alias_type": "common_name",
+        "source": "string",
+        "is_active": false,
+        "created_by": "string",
+        "created_at": "2026-01-01T00:00:00.000Z",
+        "updated_at": "2026-01-01T00:00:00.000Z",
+        "indexed_entity": {
+          "display_name": "string",
+          "public_id": "string"
+        },
+        "index_sync": {
+          "ok": false,
+          "names_added": 0,
+          "names_removed": 0,
+          "documents_updated": 0,
+          "error": "string"
+        }
+      }
+    ],
+    "total": 0,
+    "page": 0,
+    "pageSize": 0,
+    "sort": "alias_text",
+    "order": "asc"
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `POST` `/admin/search/aliases`
+
+**Summary:** Admin: create search alias
+
+Admin/super_admin. Creates a search-only alias for an indexed entity and refreshes folded aliases for that entity.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+**Request body** (`application/json`)
+
+```json
+{
+  "entity_type": "place",
+  "entity_id": "string",
+  "alias_text": "string",
+  "alias_type": "common_name",
+  "language_code": "string",
+  "source": "string",
+  "is_active": false
+}
+```
+
+**Responses**
+
+- **`201`**
+
+  ```json
+  {
+    "id": "string",
+    "entity_type": "string",
+    "entity_id": "string",
+    "alias_text": "string",
+    "normalized_alias": "string",
+    "language_code": "string",
+    "alias_type": "common_name",
+    "source": "string",
+    "is_active": false,
+    "created_by": "string",
+    "created_at": "2026-01-01T00:00:00.000Z",
+    "updated_at": "2026-01-01T00:00:00.000Z",
+    "indexed_entity": {
       "display_name": "string",
-      "primary_name": "string",
-      "canonical_name": "string",
-      "subtitle": "string",
-      "categoryName": "string",
-      "lat": 0,
-      "lng": 0,
-      "cameraTarget": {
-        "type": "point",
+      "public_id": "string"
+    },
+    "index_sync": {
+      "ok": false,
+      "names_added": 0,
+      "names_removed": 0,
+      "documents_updated": 0,
+      "error": "string"
+    }
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `PATCH` `/admin/search/aliases/{id}`
+
+**Summary:** Admin: update search alias
+
+Admin/super_admin. Updates alias fields and refreshes folded aliases for the linked entity.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| id | Path | yes | string |
+
+
+**Request body** (`application/json`)
+
+```json
+{
+  "alias_text": "string",
+  "alias_type": "common_name",
+  "language_code": "string",
+  "source": "string",
+  "is_active": false
+}
+```
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "id": "string",
+    "entity_type": "string",
+    "entity_id": "string",
+    "alias_text": "string",
+    "normalized_alias": "string",
+    "language_code": "string",
+    "alias_type": "common_name",
+    "source": "string",
+    "is_active": false,
+    "created_by": "string",
+    "created_at": "2026-01-01T00:00:00.000Z",
+    "updated_at": "2026-01-01T00:00:00.000Z",
+    "indexed_entity": {
+      "display_name": "string",
+      "public_id": "string"
+    },
+    "index_sync": {
+      "ok": false,
+      "names_added": 0,
+      "names_removed": 0,
+      "documents_updated": 0,
+      "error": "string"
+    }
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `DELETE` `/admin/search/aliases/{id}`
+
+**Summary:** Admin: disable search alias
+
+Admin/super_admin. Soft-disables an alias (is_active=false) and refreshes folded aliases for the linked entity.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| id | Path | yes | string |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "id": "string",
+    "entity_type": "string",
+    "entity_id": "string",
+    "alias_text": "string",
+    "normalized_alias": "string",
+    "language_code": "string",
+    "alias_type": "common_name",
+    "source": "string",
+    "is_active": false,
+    "created_by": "string",
+    "created_at": "2026-01-01T00:00:00.000Z",
+    "updated_at": "2026-01-01T00:00:00.000Z",
+    "indexed_entity": {
+      "display_name": "string",
+      "public_id": "string"
+    },
+    "index_sync": {
+      "ok": false,
+      "names_added": 0,
+      "names_removed": 0,
+      "documents_updated": 0,
+      "error": "string"
+    }
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/admin/search/analytics`
+
+**Summary:** Aggregated public search analytics dashboard
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| period | Query | no | string |
+| from | Query | no | string, date-time |
+| to | Query | no | string, date-time |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "range": {
+      "period": "string",
+      "from": "2026-01-01T00:00:00.000Z",
+      "to": "2026-01-01T00:00:00.000Z",
+      "previous_from": "2026-01-01T00:00:00.000Z",
+      "previous_to": "2026-01-01T00:00:00.000Z",
+      "timeseries_bucket": "hour"
+    },
+    "summary": {
+      "total_searches": 0,
+      "zero_result_count": 0,
+      "zero_result_rate": 0,
+      "searches_with_click": 0,
+      "click_through_rate": 0,
+      "no_click_rate": 0,
+      "latency_p50_ms": 0,
+      "latency_p95_ms": 0
+    },
+    "timeseries": [
+      {
+        "bucket": "2026-01-01T00:00:00.000Z",
+        "searches": 0,
+        "zero_result_rate": 0,
+        "latency_p50_ms": 0,
+        "latency_p95_ms": 0,
+        "click_count": 0
+      }
+    ],
+    "top_searches": [
+      {
+        "normalized_query": "string",
+        "search_count": 0,
+        "zero_result_count": 0,
+        "zero_result_rate": 0,
+        "click_count": 0
+      }
+    ],
+    "top_failed_searches": [
+      {
+        "normalized_query": "string",
+        "search_count": 0,
+        "zero_result_count": 0,
+        "zero_result_rate": 0,
+        "click_count": 0
+      }
+    ],
+    "trending_queries": [
+      {
+        "normalized_query": "string",
+        "current_count": 0,
+        "previous_count": 0,
+        "growth": 0
+      }
+    ],
+    "top_clicked_entities": [
+      {
+        "entity_type": "string",
+        "entity_id": "string",
+        "display_name": "string",
+        "click_count": 0,
+        "label": "string"
+      }
+    ],
+    "by_language": [
+      {
+        "key": "string",
+        "count": 0
+      }
+    ],
+    "by_category": [
+      {
+        "key": "string",
+        "count": 0
+      }
+    ]
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/admin/search/documents`
+
+**Summary:** Admin: list search documents
+
+Admin/super_admin. Paginated inspection of unified search index rows with sync state, alias counts, and server-side filters/sorting.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| q | Query | no | string |
+| entity_type | Query | no | string |
+| transport_mode | Query | no | string |
+| review_status | Query | no | string |
+| is_verified | Query | no | boolean |
+| is_public | Query | no | boolean |
+| is_active | Query | no | boolean |
+| has_alias | Query | no | boolean |
+| sync_state | Query | no | string |
+| language | Query | no | string |
+| sort | Query | no | string |
+| order | Query | no | string |
+| page | Query | no | integer |
+| pageSize | Query | no | integer |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "items": [
+      {
+        "search_document_id": "string",
+        "entity_type": "string",
+        "entity_id": "string",
+        "public_id": "string",
+        "display_name": "string",
+        "primary_name_my": "string",
+        "primary_name_en": "string",
+        "primary_name_und": "string",
+        "transport_mode": "string",
+        "review_status": "string",
+        "is_verified": false,
+        "is_public": false,
+        "is_active": false,
+        "importance_score": 0,
+        "confidence_score": 0,
+        "indexed_at": "2026-01-01T00:00:00.000Z",
+        "source_updated_at": "2026-01-01T00:00:00.000Z",
+        "canonical_source_updated_at": "2026-01-01T00:00:00.000Z",
+        "alias_count": 0,
+        "sync_state": "current"
+      }
+    ],
+    "total": 0,
+    "page": 0,
+    "pageSize": 0,
+    "sort": "name",
+    "order": "asc"
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/admin/search/failed-searches`
+
+**Summary:** List failed / zero-result search logs
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| q | Query | no | string |
+| lang | Query | no | string |
+| resolved | Query | no | boolean |
+| last_seen_from | Query | no | string, date-time |
+| last_seen_to | Query | no | string, date-time |
+| min_occurrence | Query | no | integer |
+| sort | Query | no | string |
+| order | Query | no | string |
+| page | Query | no | integer |
+| pageSize | Query | no | integer |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "items": [
+      {
+        "id": "string",
+        "query": "string",
+        "normalized_query": "string",
+        "language": "string",
+        "category": "string",
+        "transport_type": "string",
+        "transport_mode": "string",
+        "entity_types_key": "string",
+        "types": [
+          "string"
+        ],
+        "area_context_key": "string",
+        "result_count": 0,
+        "occurrence_count": 0,
+        "first_seen_at": "2026-01-01T00:00:00.000Z",
+        "last_seen_at": "2026-01-01T00:00:00.000Z",
+        "is_resolved": false,
+        "resolved_at": "2026-01-01T00:00:00.000Z",
+        "resolution_type": "alias",
+        "linked_alias": {
+          "id": "string",
+          "alias_text": "string"
+        },
+        "linked_entity": {
+          "entity_type": "string",
+          "entity_id": "string",
+          "display_name": "string",
+          "public_id": "string"
+        }
+      }
+    ],
+    "total": 0,
+    "page": 0,
+    "pageSize": 0,
+    "sort": "string",
+    "order": "asc"
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/admin/search/failed-searches/{id}`
+
+**Summary:** Get a failed search log by id
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| id | Path | yes | string |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "id": "string",
+    "query": "string",
+    "normalized_query": "string",
+    "language": "string",
+    "category": "string",
+    "transport_type": "string",
+    "transport_mode": "string",
+    "entity_types_key": "string",
+    "types": [
+      "string"
+    ],
+    "area_context_key": "string",
+    "result_count": 0,
+    "occurrence_count": 0,
+    "first_seen_at": "2026-01-01T00:00:00.000Z",
+    "last_seen_at": "2026-01-01T00:00:00.000Z",
+    "is_resolved": false,
+    "resolved_at": "2026-01-01T00:00:00.000Z",
+    "resolution_type": "alias",
+    "linked_alias": {
+      "id": "string",
+      "alias_text": "string"
+    },
+    "linked_entity": {
+      "entity_type": "string",
+      "entity_id": "string",
+      "display_name": "string",
+      "public_id": "string"
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `PATCH` `/admin/search/failed-searches/{id}`
+
+**Summary:** Resolve or reopen a failed search log
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| id | Path | yes | string |
+
+
+**Request body** (`application/json`)
+
+```json
+{
+  "action": "resolve",
+  "resolution_type": "alias",
+  "linked_alias_id": "string"
+}
+```
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "id": "string",
+    "query": "string",
+    "normalized_query": "string",
+    "language": "string",
+    "category": "string",
+    "transport_type": "string",
+    "transport_mode": "string",
+    "entity_types_key": "string",
+    "types": [
+      "string"
+    ],
+    "area_context_key": "string",
+    "result_count": 0,
+    "occurrence_count": 0,
+    "first_seen_at": "2026-01-01T00:00:00.000Z",
+    "last_seen_at": "2026-01-01T00:00:00.000Z",
+    "is_resolved": false,
+    "resolved_at": "2026-01-01T00:00:00.000Z",
+    "resolution_type": "alias",
+    "linked_alias": {
+      "id": "string",
+      "alias_text": "string"
+    },
+    "linked_entity": {
+      "entity_type": "string",
+      "entity_id": "string",
+      "display_name": "string",
+      "public_id": "string"
+    }
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/admin/search/index-health`
+
+**Summary:** Read-only unified search index health report
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "overall_status": "healthy",
+    "overall_severity": "healthy",
+    "overall_severity_reasons": [
+      "string"
+    ],
+    "health_query_ok": false,
+    "health_query_error": "string",
+    "totals": {
+      "expected_searchable_count": 0,
+      "canonical_count": 0,
+      "indexed_count": 0,
+      "missing_count": 0,
+      "ghost_count": 0,
+      "stale_count": 0
+    },
+    "families": [
+      {
+        "entity_family": "string",
+        "search_entity_type": "string",
+        "expected_searchable_count": 0,
+        "canonical_count": 0,
+        "indexed_count": 0,
+        "missing_count": 0,
+        "ghost_count": 0,
+        "stale_count": 0,
+        "latest_indexed_at": "2026-01-01T00:00:00.000Z",
+        "latest_source_updated_at": "2026-01-01T00:00:00.000Z",
+        "severity": "healthy",
+        "severity_reasons": [
+          "string"
+        ],
+        "status": "healthy"
+      }
+    ],
+    "last_rebuild_run": {
+      "id": "string",
+      "status": "string",
+      "started_at": "2026-01-01T00:00:00.000Z",
+      "finished_at": "2026-01-01T00:00:00.000Z",
+      "entity_counts": null
+    },
+    "last_successful_run": {
+      "id": "string",
+      "status": "string",
+      "started_at": "2026-01-01T00:00:00.000Z",
+      "finished_at": "2026-01-01T00:00:00.000Z",
+      "entity_counts": null
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `POST` `/admin/search/index-health/check`
+
+**Summary:** Run unified search index health check (admin)
+
+Admin/super_admin. Re-runs the health SQL and returns before/after snapshots (identical for read-only check).
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "operation": "health_check",
+    "status": "success",
+    "duration_ms": 0,
+    "affected_families": [
+      "string"
+    ],
+    "entity_family": "string",
+    "entity_type": "string",
+    "entity_id": "string",
+    "rebuild_views": [
+      "string"
+    ],
+    "rebuild_run_id": "string",
+    "rows_rebuilt": 0,
+    "message": "string",
+    "health_before": {
+      "overall_status": "healthy",
+      "overall_severity": "healthy",
+      "overall_severity_reasons": [
+        "string"
+      ],
+      "health_query_ok": false,
+      "health_query_error": "string",
+      "totals": {
+        "expected_searchable_count": 0,
+        "canonical_count": 0,
+        "indexed_count": 0,
+        "missing_count": 0,
+        "ghost_count": 0,
+        "stale_count": 0
+      },
+      "families": [
+        {
+          "entity_family": "string",
+          "search_entity_type": "string",
+          "expected_searchable_count": 0,
+          "canonical_count": 0,
+          "indexed_count": 0,
+          "missing_count": 0,
+          "ghost_count": 0,
+          "stale_count": 0,
+          "latest_indexed_at": "2026-01-01T00:00:00.000Z",
+          "latest_source_updated_at": "2026-01-01T00:00:00.000Z",
+          "severity": "healthy",
+          "severity_reasons": [
+            "string"
+          ],
+          "status": "healthy"
+        }
+      ],
+      "last_rebuild_run": {
+        "id": "string",
+        "status": "string",
+        "started_at": "2026-01-01T00:00:00.000Z",
+        "finished_at": "2026-01-01T00:00:00.000Z",
+        "entity_counts": null
+      },
+      "last_successful_run": {
+        "id": "string",
+        "status": "string",
+        "started_at": "2026-01-01T00:00:00.000Z",
+        "finished_at": "2026-01-01T00:00:00.000Z",
+        "entity_counts": null
+      }
+    },
+    "health_after": {
+      "overall_status": "healthy",
+      "overall_severity": "healthy",
+      "overall_severity_reasons": [
+        "string"
+      ],
+      "health_query_ok": false,
+      "health_query_error": "string",
+      "totals": {
+        "expected_searchable_count": 0,
+        "canonical_count": 0,
+        "indexed_count": 0,
+        "missing_count": 0,
+        "ghost_count": 0,
+        "stale_count": 0
+      },
+      "families": [
+        {
+          "entity_family": "string",
+          "search_entity_type": "string",
+          "expected_searchable_count": 0,
+          "canonical_count": 0,
+          "indexed_count": 0,
+          "missing_count": 0,
+          "ghost_count": 0,
+          "stale_count": 0,
+          "latest_indexed_at": "2026-01-01T00:00:00.000Z",
+          "latest_source_updated_at": "2026-01-01T00:00:00.000Z",
+          "severity": "healthy",
+          "severity_reasons": [
+            "string"
+          ],
+          "status": "healthy"
+        }
+      ],
+      "last_rebuild_run": {
+        "id": "string",
+        "status": "string",
+        "started_at": "2026-01-01T00:00:00.000Z",
+        "finished_at": "2026-01-01T00:00:00.000Z",
+        "entity_counts": null
+      },
+      "last_successful_run": {
+        "id": "string",
+        "status": "string",
+        "started_at": "2026-01-01T00:00:00.000Z",
+        "finished_at": "2026-01-01T00:00:00.000Z",
+        "entity_counts": null
+      }
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `POST` `/admin/search/index-health/reindex-entity`
+
+**Summary:** Incrementally reindex one searchable entity
+
+Super_admin only. Uses search.sync_search_documents for supported entity types (places, admin areas, street groups, transport).
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+**Request body** (`application/json`)
+
+```json
+{
+  "entity_type": "string",
+  "entity_id": "string"
+}
+```
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "operation": "health_check",
+    "status": "success",
+    "duration_ms": 0,
+    "affected_families": [
+      "string"
+    ],
+    "entity_family": "string",
+    "entity_type": "string",
+    "entity_id": "string",
+    "rebuild_views": [
+      "string"
+    ],
+    "rebuild_run_id": "string",
+    "rows_rebuilt": 0,
+    "message": "string",
+    "health_before": {
+      "overall_status": "healthy",
+      "overall_severity": "healthy",
+      "overall_severity_reasons": [
+        "string"
+      ],
+      "health_query_ok": false,
+      "health_query_error": "string",
+      "totals": {
+        "expected_searchable_count": 0,
+        "canonical_count": 0,
+        "indexed_count": 0,
+        "missing_count": 0,
+        "ghost_count": 0,
+        "stale_count": 0
+      },
+      "families": [
+        {
+          "entity_family": "string",
+          "search_entity_type": "string",
+          "expected_searchable_count": 0,
+          "canonical_count": 0,
+          "indexed_count": 0,
+          "missing_count": 0,
+          "ghost_count": 0,
+          "stale_count": 0,
+          "latest_indexed_at": "2026-01-01T00:00:00.000Z",
+          "latest_source_updated_at": "2026-01-01T00:00:00.000Z",
+          "severity": "healthy",
+          "severity_reasons": [
+            "string"
+          ],
+          "status": "healthy"
+        }
+      ],
+      "last_rebuild_run": {
+        "id": "string",
+        "status": "string",
+        "started_at": "2026-01-01T00:00:00.000Z",
+        "finished_at": "2026-01-01T00:00:00.000Z",
+        "entity_counts": null
+      },
+      "last_successful_run": {
+        "id": "string",
+        "status": "string",
+        "started_at": "2026-01-01T00:00:00.000Z",
+        "finished_at": "2026-01-01T00:00:00.000Z",
+        "entity_counts": null
+      }
+    },
+    "health_after": {
+      "overall_status": "healthy",
+      "overall_severity": "healthy",
+      "overall_severity_reasons": [
+        "string"
+      ],
+      "health_query_ok": false,
+      "health_query_error": "string",
+      "totals": {
+        "expected_searchable_count": 0,
+        "canonical_count": 0,
+        "indexed_count": 0,
+        "missing_count": 0,
+        "ghost_count": 0,
+        "stale_count": 0
+      },
+      "families": [
+        {
+          "entity_family": "string",
+          "search_entity_type": "string",
+          "expected_searchable_count": 0,
+          "canonical_count": 0,
+          "indexed_count": 0,
+          "missing_count": 0,
+          "ghost_count": 0,
+          "stale_count": 0,
+          "latest_indexed_at": "2026-01-01T00:00:00.000Z",
+          "latest_source_updated_at": "2026-01-01T00:00:00.000Z",
+          "severity": "healthy",
+          "severity_reasons": [
+            "string"
+          ],
+          "status": "healthy"
+        }
+      ],
+      "last_rebuild_run": {
+        "id": "string",
+        "status": "string",
+        "started_at": "2026-01-01T00:00:00.000Z",
+        "finished_at": "2026-01-01T00:00:00.000Z",
+        "entity_counts": null
+      },
+      "last_successful_run": {
+        "id": "string",
+        "status": "string",
+        "started_at": "2026-01-01T00:00:00.000Z",
+        "finished_at": "2026-01-01T00:00:00.000Z",
+        "entity_counts": null
+      }
+    }
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`500`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `POST` `/admin/search/index-health/reindex-family`
+
+**Summary:** Rebuild one allowlisted search index family
+
+Super_admin only. Rebuilds the mapped source view via search.rebuild_search_documents.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+**Request body** (`application/json`)
+
+```json
+{
+  "entity_family": "string"
+}
+```
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "operation": "health_check",
+    "status": "success",
+    "duration_ms": 0,
+    "affected_families": [
+      "string"
+    ],
+    "entity_family": "string",
+    "entity_type": "string",
+    "entity_id": "string",
+    "rebuild_views": [
+      "string"
+    ],
+    "rebuild_run_id": "string",
+    "rows_rebuilt": 0,
+    "message": "string",
+    "health_before": {
+      "overall_status": "healthy",
+      "overall_severity": "healthy",
+      "overall_severity_reasons": [
+        "string"
+      ],
+      "health_query_ok": false,
+      "health_query_error": "string",
+      "totals": {
+        "expected_searchable_count": 0,
+        "canonical_count": 0,
+        "indexed_count": 0,
+        "missing_count": 0,
+        "ghost_count": 0,
+        "stale_count": 0
+      },
+      "families": [
+        {
+          "entity_family": "string",
+          "search_entity_type": "string",
+          "expected_searchable_count": 0,
+          "canonical_count": 0,
+          "indexed_count": 0,
+          "missing_count": 0,
+          "ghost_count": 0,
+          "stale_count": 0,
+          "latest_indexed_at": "2026-01-01T00:00:00.000Z",
+          "latest_source_updated_at": "2026-01-01T00:00:00.000Z",
+          "severity": "healthy",
+          "severity_reasons": [
+            "string"
+          ],
+          "status": "healthy"
+        }
+      ],
+      "last_rebuild_run": {
+        "id": "string",
+        "status": "string",
+        "started_at": "2026-01-01T00:00:00.000Z",
+        "finished_at": "2026-01-01T00:00:00.000Z",
+        "entity_counts": null
+      },
+      "last_successful_run": {
+        "id": "string",
+        "status": "string",
+        "started_at": "2026-01-01T00:00:00.000Z",
+        "finished_at": "2026-01-01T00:00:00.000Z",
+        "entity_counts": null
+      }
+    },
+    "health_after": {
+      "overall_status": "healthy",
+      "overall_severity": "healthy",
+      "overall_severity_reasons": [
+        "string"
+      ],
+      "health_query_ok": false,
+      "health_query_error": "string",
+      "totals": {
+        "expected_searchable_count": 0,
+        "canonical_count": 0,
+        "indexed_count": 0,
+        "missing_count": 0,
+        "ghost_count": 0,
+        "stale_count": 0
+      },
+      "families": [
+        {
+          "entity_family": "string",
+          "search_entity_type": "string",
+          "expected_searchable_count": 0,
+          "canonical_count": 0,
+          "indexed_count": 0,
+          "missing_count": 0,
+          "ghost_count": 0,
+          "stale_count": 0,
+          "latest_indexed_at": "2026-01-01T00:00:00.000Z",
+          "latest_source_updated_at": "2026-01-01T00:00:00.000Z",
+          "severity": "healthy",
+          "severity_reasons": [
+            "string"
+          ],
+          "status": "healthy"
+        }
+      ],
+      "last_rebuild_run": {
+        "id": "string",
+        "status": "string",
+        "started_at": "2026-01-01T00:00:00.000Z",
+        "finished_at": "2026-01-01T00:00:00.000Z",
+        "entity_counts": null
+      },
+      "last_successful_run": {
+        "id": "string",
+        "status": "string",
+        "started_at": "2026-01-01T00:00:00.000Z",
+        "finished_at": "2026-01-01T00:00:00.000Z",
+        "entity_counts": null
+      }
+    }
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `POST` `/admin/search/index-health/repair`
+
+**Summary:** Repair all unhealthy search index families
+
+Super_admin only. Rebuilds only unhealthy families (same logic as search:reconcile --repair).
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "operation": "health_check",
+    "status": "success",
+    "duration_ms": 0,
+    "affected_families": [
+      "string"
+    ],
+    "entity_family": "string",
+    "entity_type": "string",
+    "entity_id": "string",
+    "rebuild_views": [
+      "string"
+    ],
+    "rebuild_run_id": "string",
+    "rows_rebuilt": 0,
+    "message": "string",
+    "health_before": {
+      "overall_status": "healthy",
+      "overall_severity": "healthy",
+      "overall_severity_reasons": [
+        "string"
+      ],
+      "health_query_ok": false,
+      "health_query_error": "string",
+      "totals": {
+        "expected_searchable_count": 0,
+        "canonical_count": 0,
+        "indexed_count": 0,
+        "missing_count": 0,
+        "ghost_count": 0,
+        "stale_count": 0
+      },
+      "families": [
+        {
+          "entity_family": "string",
+          "search_entity_type": "string",
+          "expected_searchable_count": 0,
+          "canonical_count": 0,
+          "indexed_count": 0,
+          "missing_count": 0,
+          "ghost_count": 0,
+          "stale_count": 0,
+          "latest_indexed_at": "2026-01-01T00:00:00.000Z",
+          "latest_source_updated_at": "2026-01-01T00:00:00.000Z",
+          "severity": "healthy",
+          "severity_reasons": [
+            "string"
+          ],
+          "status": "healthy"
+        }
+      ],
+      "last_rebuild_run": {
+        "id": "string",
+        "status": "string",
+        "started_at": "2026-01-01T00:00:00.000Z",
+        "finished_at": "2026-01-01T00:00:00.000Z",
+        "entity_counts": null
+      },
+      "last_successful_run": {
+        "id": "string",
+        "status": "string",
+        "started_at": "2026-01-01T00:00:00.000Z",
+        "finished_at": "2026-01-01T00:00:00.000Z",
+        "entity_counts": null
+      }
+    },
+    "health_after": {
+      "overall_status": "healthy",
+      "overall_severity": "healthy",
+      "overall_severity_reasons": [
+        "string"
+      ],
+      "health_query_ok": false,
+      "health_query_error": "string",
+      "totals": {
+        "expected_searchable_count": 0,
+        "canonical_count": 0,
+        "indexed_count": 0,
+        "missing_count": 0,
+        "ghost_count": 0,
+        "stale_count": 0
+      },
+      "families": [
+        {
+          "entity_family": "string",
+          "search_entity_type": "string",
+          "expected_searchable_count": 0,
+          "canonical_count": 0,
+          "indexed_count": 0,
+          "missing_count": 0,
+          "ghost_count": 0,
+          "stale_count": 0,
+          "latest_indexed_at": "2026-01-01T00:00:00.000Z",
+          "latest_source_updated_at": "2026-01-01T00:00:00.000Z",
+          "severity": "healthy",
+          "severity_reasons": [
+            "string"
+          ],
+          "status": "healthy"
+        }
+      ],
+      "last_rebuild_run": {
+        "id": "string",
+        "status": "string",
+        "started_at": "2026-01-01T00:00:00.000Z",
+        "finished_at": "2026-01-01T00:00:00.000Z",
+        "entity_counts": null
+      },
+      "last_successful_run": {
+        "id": "string",
+        "status": "string",
+        "started_at": "2026-01-01T00:00:00.000Z",
+        "finished_at": "2026-01-01T00:00:00.000Z",
+        "entity_counts": null
+      }
+    }
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/admin/search/overview`
+
+**Summary:** Admin: search overview metrics
+
+Admin/super_admin. Lightweight summary counts for the Search dashboard overview.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "total_search_documents": 0,
+    "total_aliases": 0,
+    "active_aliases": 0,
+    "unresolved_failed_searches": 0,
+    "today_searches": 0,
+    "overall_index_health_severity": "healthy"
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/public/search`
+
+**Summary:** Public search
+
+Unified public search over the search index (search.search_documents). Matches places, grouped streets (street_group), admin areas, addresses, bus stops/routes, buildings, water and land areas. Streets are returned as one logical road per result, not per segment. A Plus Code query is decoded to a point; a short Plus Code requires lat/lng (map center or user location) to expand, otherwise referenceRequired is returned.
+
+**Security:** None
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| q | Query | yes | string |
+| limit | Query | no | integer |
+| cursor | Query | no | string |
+| category | Query | no | string |
+| transportType | Query | no | string |
+| mode | Query | no | string |
+| lat | Query | no | number |
+| lng | Query | no | number |
+| lang | Query | no | string |
+| types | Query | no | string |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "items": [
+      {
+        "id": "string",
+        "entityType": "string",
+        "type": "string",
+        "displayName": "string",
+        "hasGeometry": false,
+        "score": 0,
+        "verification": {
+          "isVerified": false,
+          "confidenceScore": 0,
+          "boundaryConfidenceScore": 0,
+          "reviewStatus": "string",
+          "verificationStatus": "string"
+        },
+        "entityId": "string",
+        "publicId": "string",
+        "subtitle": "string",
+        "primaryNameMy": "string",
+        "primaryNameEn": "string",
+        "lat": 0,
+        "lng": 0,
         "center": [
           0
         ],
-        "zoom": 0
+        "bbox": [
+          0
+        ],
+        "geometryType": "string",
+        "category": {
+          "code": "string",
+          "name": "string"
+        },
+        "transport": {
+          "mode": "string",
+          "stopType": "string",
+          "routeCode": "string",
+          "parentRoutePublicId": "string",
+          "variantCode": "string",
+          "headsign": "string",
+          "directionName": "string",
+          "originName": "string",
+          "destinationName": "string"
+        },
+        "cameraTarget": {
+          "type": "point",
+          "center": [
+            0
+          ],
+          "zoom": 0
+        },
+        "plusCode": {
+          "code": "string",
+          "referenceRequired": false,
+          "outsideServiceArea": false,
+          "reason": "string"
+        },
+        "coordinate": {
+          "outsideServiceArea": false
+        },
+        "reverse": {
+          "nearbyName": "string",
+          "nearbyType": "string",
+          "nearbyDistanceM": 0,
+          "township": "string",
+          "district": "string",
+          "regionState": "string",
+          "country": "string",
+          "confidence": "string"
+        }
+      }
+    ],
+    "nextCursor": "string",
+    "hasMore": false,
+    "analytics": {
+      "eventId": "00000000-0000-4000-8000-000000000000"
+    }
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+#### `GET` `/public/search/{entityType}/{entityId}/geometry`
+
+**Summary:** Selected search-result geometry
+
+Returns the full GeoJSON geometry for a single search result, fetched on click (the search list only carries centroid/bbox). Large line/polygon geometries are optionally simplified via ?zoom=. Points are never simplified.
+
+**Security:** None
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| zoom | Query | no | number |
+| entityType | Path | yes | string |
+| entityId | Path | yes | string |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "entityType": "string",
+    "entityId": "string",
+    "geometryType": "string",
+    "bbox": [
+      0
+    ],
+    "feature": {
+      "type": "Feature",
+      "geometry": {
+        "type": "string",
+        "coordinates": null,
+        "bbox": [
+          0
+        ]
+      },
+      "properties": {
+        "entityType": "string",
+        "entityId": "string"
       }
     }
-  ]
+  }
   ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/public/search/{entityType}/{entityId}/map-preview`
+
+**Summary:** Transport route map preview
+
+Returns a lightweight map overlay for a selected transport route: one simplified path, variant summaries, and optional endpoint stops. Parent routes use the focus/primary variant only (no multi-variant geometry collect).
+
+**Security:** None
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| zoom | Query | no | number |
+| entityType | Path | yes | string |
+| entityId | Path | yes | string |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "entityType": "transport_route",
+    "entityId": "string",
+    "bbox": [
+      0
+    ],
+    "path": {
+      "type": "Feature",
+      "geometry": {
+        "type": "string",
+        "coordinates": null,
+        "bbox": [
+          0
+        ]
+      },
+      "properties": {
+        "entityType": "string",
+        "entityId": "string"
+      }
+    },
+    "variants": [
+      {
+        "entityId": "string",
+        "publicId": "string",
+        "variantCode": "string",
+        "headsign": "string",
+        "directionName": "string",
+        "isPrimary": false
+      }
+    ],
+    "importantStops": [
+      {
+        "publicId": "string",
+        "displayName": "string",
+        "sequence": 0,
+        "lat": 0,
+        "lng": 0
+      }
+    ]
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `POST` `/public/search/analytics/clicks`
+
+**Summary:** Record search result click analytics
+
+Best-effort telemetry when a user selects a search result. Use eventId from GET /public/search analytics field. Never blocks user flows.
+
+**Security:** None
+
+**Request body** (`application/json`)
+
+```json
+{
+  "event_id": "00000000-0000-4000-8000-000000000000",
+  "entity_type": "string",
+  "entity_id": "string",
+  "clicked_rank": 0,
+  "time_to_click_ms": 0
+}
+```
+
+**Responses**
+
+- **`204`**
+  - Accepted
 
 - **`400`**
 
@@ -5373,6 +7716,1235 @@ Resolves a lat/lng to a single human-readable address line (nearest public place
   ```
 
 - **`500`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+### Reports
+
+User report / contribution flow (signed-in and anonymous), admin review, status lifecycle, follow-ups, and manual point rewards.
+
+#### `GET` `/admin/reports`
+
+**Summary:** List reports (admin)
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| status | Query | no | string |
+| type | Query | no | string |
+| adminAreaId | Query | no | integer |
+| targetEntityType | Query | no | string |
+| anonymous | Query | no | string |
+| createdFrom | Query | no | string, date |
+| createdTo | Query | no | string, date |
+| page | Query | no | integer |
+| pageSize | Query | no | integer |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "items": [
+      {
+        "public_id": "00000000-0000-4000-8000-000000000000",
+        "is_anonymous": false,
+        "eligible_for_points": false,
+        "report_type": {
+          "code": "string",
+          "name": "string"
+        },
+        "status": {
+          "code": "string",
+          "name": "string"
+        },
+        "description": "string",
+        "priority": "string",
+        "confidence_score": 0,
+        "created_at": "2026-01-01T00:00:00.000Z",
+        "updated_at": "2026-01-01T00:00:00.000Z",
+        "anonymous_id": "string",
+        "author": {
+          "public_id": "string",
+          "display_name": "string",
+          "email": "string"
+        },
+        "reason_code": "string",
+        "target_entity_type": "string",
+        "target_entity_id": "string",
+        "target_public_id": "string",
+        "title": "string",
+        "latitude": 0,
+        "longitude": 0,
+        "admin_area_id": "string",
+        "admin_note": "string",
+        "reviewed_at": "2026-01-01T00:00:00.000Z",
+        "reward_granted_at": "2026-01-01T00:00:00.000Z"
+      }
+    ],
+    "total": 0,
+    "page": 0,
+    "pageSize": 0
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/admin/reports/{id}`
+
+**Summary:** Get a report (admin)
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| id | Path | yes | string, uuid |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "public_id": "00000000-0000-4000-8000-000000000000",
+    "is_anonymous": false,
+    "eligible_for_points": false,
+    "report_type": {
+      "code": "string",
+      "name": "string"
+    },
+    "status": {
+      "code": "string",
+      "name": "string"
+    },
+    "description": "string",
+    "priority": "string",
+    "confidence_score": 0,
+    "created_at": "2026-01-01T00:00:00.000Z",
+    "updated_at": "2026-01-01T00:00:00.000Z",
+    "anonymous_id": "string",
+    "author": {
+      "public_id": "string",
+      "display_name": "string",
+      "email": "string"
+    },
+    "followups": [
+      {
+        "actor_type": "admin",
+        "message": "string",
+        "created_at": "2026-01-01T00:00:00.000Z",
+        "actor_display_name": "string"
+      }
+    ],
+    "status_events": [
+      {
+        "old_status_code": "string",
+        "new_status_code": "string",
+        "created_at": "2026-01-01T00:00:00.000Z",
+        "actor_display_name": "string",
+        "note": "string"
+      }
+    ],
+    "reason_code": "string",
+    "target_entity_type": "string",
+    "target_entity_id": "string",
+    "target_public_id": "string",
+    "title": "string",
+    "latitude": 0,
+    "longitude": 0,
+    "admin_area_id": "string",
+    "admin_note": "string",
+    "reviewed_at": "2026-01-01T00:00:00.000Z",
+    "reward_granted_at": "2026-01-01T00:00:00.000Z"
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `PATCH` `/admin/reports/{id}/admin-note`
+
+**Summary:** Update admin note (admin)
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| id | Path | yes | string, uuid |
+
+
+**Request body** (`application/json`)
+
+```json
+{
+  "adminNote": "string"
+}
+```
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "public_id": "00000000-0000-4000-8000-000000000000",
+    "is_anonymous": false,
+    "eligible_for_points": false,
+    "report_type": {
+      "code": "string",
+      "name": "string"
+    },
+    "status": {
+      "code": "string",
+      "name": "string"
+    },
+    "description": "string",
+    "priority": "string",
+    "confidence_score": 0,
+    "created_at": "2026-01-01T00:00:00.000Z",
+    "updated_at": "2026-01-01T00:00:00.000Z",
+    "anonymous_id": "string",
+    "author": {
+      "public_id": "string",
+      "display_name": "string",
+      "email": "string"
+    },
+    "reason_code": "string",
+    "target_entity_type": "string",
+    "target_entity_id": "string",
+    "target_public_id": "string",
+    "title": "string",
+    "latitude": 0,
+    "longitude": 0,
+    "admin_area_id": "string",
+    "admin_note": "string",
+    "reviewed_at": "2026-01-01T00:00:00.000Z",
+    "reward_granted_at": "2026-01-01T00:00:00.000Z"
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `POST` `/admin/reports/{id}/request-info`
+
+**Summary:** Request more info (admin)
+
+Adds an admin follow-up message and moves the report to 'needs_more_info' without creating a new report. Not allowed for anonymous reports.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| id | Path | yes | string, uuid |
+
+
+**Request body** (`application/json`)
+
+```json
+{
+  "message": "string"
+}
+```
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "public_id": "00000000-0000-4000-8000-000000000000",
+    "is_anonymous": false,
+    "eligible_for_points": false,
+    "report_type": {
+      "code": "string",
+      "name": "string"
+    },
+    "status": {
+      "code": "string",
+      "name": "string"
+    },
+    "description": "string",
+    "priority": "string",
+    "confidence_score": 0,
+    "created_at": "2026-01-01T00:00:00.000Z",
+    "updated_at": "2026-01-01T00:00:00.000Z",
+    "anonymous_id": "string",
+    "author": {
+      "public_id": "string",
+      "display_name": "string",
+      "email": "string"
+    },
+    "followups": [
+      {
+        "actor_type": "admin",
+        "message": "string",
+        "created_at": "2026-01-01T00:00:00.000Z",
+        "actor_display_name": "string"
+      }
+    ],
+    "reason_code": "string",
+    "target_entity_type": "string",
+    "target_entity_id": "string",
+    "target_public_id": "string",
+    "title": "string",
+    "latitude": 0,
+    "longitude": 0,
+    "admin_area_id": "string",
+    "admin_note": "string",
+    "reviewed_at": "2026-01-01T00:00:00.000Z",
+    "reward_granted_at": "2026-01-01T00:00:00.000Z"
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `POST` `/admin/reports/{id}/reward-points`
+
+**Summary:** Reward points for a report (admin)
+
+Manually grants points to the author of an ACCEPTED report via the append-only point ledger, updates the point summary, and links the ledger row to the report. Points are never granted automatically. Rejected when the report is not accepted, anonymous, ineligible, or already rewarded. Positive pointsDelta rewards; negative is allowed for penalty/reversal reason codes.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| id | Path | yes | string, uuid |
+
+
+**Request body** (`application/json`)
+
+```json
+{
+  "pointsDelta": 0,
+  "reasonCode": "valid_report",
+  "note": "string"
+}
+```
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "report": {
+      "public_id": "00000000-0000-4000-8000-000000000000",
+      "is_anonymous": false,
+      "eligible_for_points": false,
+      "report_type": {
+        "code": "string",
+        "name": "string"
+      },
+      "status": {
+        "code": "string",
+        "name": "string"
+      },
+      "description": "string",
+      "priority": "string",
+      "confidence_score": 0,
+      "created_at": "2026-01-01T00:00:00.000Z",
+      "updated_at": "2026-01-01T00:00:00.000Z",
+      "anonymous_id": "string",
+      "author": {
+        "public_id": "string",
+        "display_name": "string",
+        "email": "string"
+      },
+      "reason_code": "string",
+      "target_entity_type": "string",
+      "target_entity_id": "string",
+      "target_public_id": "string",
+      "title": "string",
+      "latitude": 0,
+      "longitude": 0,
+      "admin_area_id": "string",
+      "admin_note": "string",
+      "reviewed_at": "2026-01-01T00:00:00.000Z",
+      "reward_granted_at": "2026-01-01T00:00:00.000Z"
+    },
+    "summary": {
+      "total_points": 0,
+      "lifetime_points_earned": 0,
+      "lifetime_points_removed": 0,
+      "updated_at": "2026-01-01T00:00:00.000Z"
+    }
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `PATCH` `/admin/reports/{id}/status`
+
+**Summary:** Change report status (admin)
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| id | Path | yes | string, uuid |
+
+
+**Request body** (`application/json`)
+
+```json
+{
+  "statusCode": "submitted",
+  "note": "string"
+}
+```
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "public_id": "00000000-0000-4000-8000-000000000000",
+    "is_anonymous": false,
+    "eligible_for_points": false,
+    "report_type": {
+      "code": "string",
+      "name": "string"
+    },
+    "status": {
+      "code": "string",
+      "name": "string"
+    },
+    "description": "string",
+    "priority": "string",
+    "confidence_score": 0,
+    "created_at": "2026-01-01T00:00:00.000Z",
+    "updated_at": "2026-01-01T00:00:00.000Z",
+    "anonymous_id": "string",
+    "author": {
+      "public_id": "string",
+      "display_name": "string",
+      "email": "string"
+    },
+    "reason_code": "string",
+    "target_entity_type": "string",
+    "target_entity_id": "string",
+    "target_public_id": "string",
+    "title": "string",
+    "latitude": 0,
+    "longitude": 0,
+    "admin_area_id": "string",
+    "admin_note": "string",
+    "reviewed_at": "2026-01-01T00:00:00.000Z",
+    "reward_granted_at": "2026-01-01T00:00:00.000Z"
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/admin/reports/analytics/anonymous-vs-logged-in`
+
+**Summary:** Anonymous vs logged-in reports (admin)
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "anonymous": 0,
+    "logged_in": 0
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/admin/reports/analytics/by-region`
+
+**Summary:** Reports by region (admin)
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  [
+    {
+      "region_id": "string",
+      "region_name": "string",
+      "count": 0
+    }
+  ]
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/admin/reports/analytics/by-status`
+
+**Summary:** Reports by status (admin)
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  [
+    {
+      "code": "string",
+      "name": "string",
+      "count": 0
+    }
+  ]
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/admin/reports/analytics/by-type`
+
+**Summary:** Reports by type (admin)
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  [
+    {
+      "code": "string",
+      "name": "string",
+      "count": 0
+    }
+  ]
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/admin/reports/analytics/summary`
+
+**Summary:** Report analytics summary (admin)
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "total": 0,
+    "submitted": 0,
+    "in_review": 0,
+    "needs_more_info": 0,
+    "accepted": 0,
+    "rejected": 0,
+    "duplicate": 0,
+    "anonymous": 0,
+    "logged_in": 0,
+    "this_week": 0,
+    "this_month": 0
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/me/reports`
+
+**Summary:** List my reports
+
+Returns the authenticated user's reports (newest first).
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| limit | Query | no | integer |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  [
+    {
+      "public_id": "00000000-0000-4000-8000-000000000000",
+      "is_anonymous": false,
+      "eligible_for_points": false,
+      "report_type": {
+        "code": "string",
+        "name": "string"
+      },
+      "status": {
+        "code": "string",
+        "name": "string"
+      },
+      "description": "string",
+      "priority": "string",
+      "confidence_score": 0,
+      "created_at": "2026-01-01T00:00:00.000Z",
+      "updated_at": "2026-01-01T00:00:00.000Z",
+      "reason_code": "string",
+      "target_entity_type": "string",
+      "target_entity_id": "string",
+      "target_public_id": "string",
+      "title": "string",
+      "latitude": 0,
+      "longitude": 0,
+      "admin_area_id": "string",
+      "admin_note": "string",
+      "reviewed_at": "2026-01-01T00:00:00.000Z",
+      "reward_granted_at": "2026-01-01T00:00:00.000Z"
+    }
+  ]
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `POST` `/reports`
+
+**Summary:** Submit a report
+
+Creates a report. Works for signed-in users (created_by set, point-eligible) and anonymous users (anonymous_id required via body or the x-anonymous-id header; not point-eligible). Returns 201 on creation, or 200 with duplicate_warning=true when a recent duplicate from the same submitter already exists. DB-based rate limits return 429.
+
+**Security:** None
+
+**Request body** (`application/json`)
+
+```json
+{
+  "reportTypeCode": "wrong_info",
+  "description": "string",
+  "targetEntityType": "place",
+  "reasonCode": "string",
+  "title": "string",
+  "targetEntityId": 0,
+  "targetPublicId": "00000000-0000-4000-8000-000000000000",
+  "latitude": 0,
+  "longitude": 0,
+  "anonymousId": "string"
+}
+```
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "public_id": "00000000-0000-4000-8000-000000000000",
+    "is_anonymous": false,
+    "eligible_for_points": false,
+    "report_type": {
+      "code": "string",
+      "name": "string"
+    },
+    "status": {
+      "code": "string",
+      "name": "string"
+    },
+    "description": "string",
+    "priority": "string",
+    "confidence_score": 0,
+    "created_at": "2026-01-01T00:00:00.000Z",
+    "updated_at": "2026-01-01T00:00:00.000Z",
+    "duplicate_warning": false,
+    "reason_code": "string",
+    "target_entity_type": "string",
+    "target_entity_id": "string",
+    "target_public_id": "string",
+    "title": "string",
+    "latitude": 0,
+    "longitude": 0,
+    "admin_area_id": "string",
+    "admin_note": "string",
+    "reviewed_at": "2026-01-01T00:00:00.000Z",
+    "reward_granted_at": "2026-01-01T00:00:00.000Z",
+    "message": "string"
+  }
+  ```
+
+- **`201`**
+
+  ```json
+  {
+    "public_id": "00000000-0000-4000-8000-000000000000",
+    "is_anonymous": false,
+    "eligible_for_points": false,
+    "report_type": {
+      "code": "string",
+      "name": "string"
+    },
+    "status": {
+      "code": "string",
+      "name": "string"
+    },
+    "description": "string",
+    "priority": "string",
+    "confidence_score": 0,
+    "created_at": "2026-01-01T00:00:00.000Z",
+    "updated_at": "2026-01-01T00:00:00.000Z",
+    "duplicate_warning": false,
+    "reason_code": "string",
+    "target_entity_type": "string",
+    "target_entity_id": "string",
+    "target_public_id": "string",
+    "title": "string",
+    "latitude": 0,
+    "longitude": 0,
+    "admin_area_id": "string",
+    "admin_note": "string",
+    "reviewed_at": "2026-01-01T00:00:00.000Z",
+    "reward_granted_at": "2026-01-01T00:00:00.000Z",
+    "message": "string"
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`429`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/reports/{publicId}`
+
+**Summary:** Get a report
+
+Returns a single report. Authored reports require the owner; anonymous reports require a matching x-anonymous-id header.
+
+**Security:** None
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| publicId | Path | yes | string, uuid |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "public_id": "00000000-0000-4000-8000-000000000000",
+    "is_anonymous": false,
+    "eligible_for_points": false,
+    "report_type": {
+      "code": "string",
+      "name": "string"
+    },
+    "status": {
+      "code": "string",
+      "name": "string"
+    },
+    "description": "string",
+    "priority": "string",
+    "confidence_score": 0,
+    "created_at": "2026-01-01T00:00:00.000Z",
+    "updated_at": "2026-01-01T00:00:00.000Z",
+    "followups": [
+      {
+        "actor_type": "admin",
+        "message": "string",
+        "created_at": "2026-01-01T00:00:00.000Z",
+        "actor_display_name": "string"
+      }
+    ],
+    "status_events": [
+      {
+        "old_status_code": "string",
+        "new_status_code": "string",
+        "created_at": "2026-01-01T00:00:00.000Z",
+        "actor_display_name": "string",
+        "note": "string"
+      }
+    ],
+    "reason_code": "string",
+    "target_entity_type": "string",
+    "target_entity_id": "string",
+    "target_public_id": "string",
+    "title": "string",
+    "latitude": 0,
+    "longitude": 0,
+    "admin_area_id": "string",
+    "admin_note": "string",
+    "reviewed_at": "2026-01-01T00:00:00.000Z",
+    "reward_granted_at": "2026-01-01T00:00:00.000Z"
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `POST` `/reports/{publicId}/followups`
+
+**Summary:** Reply to a report
+
+Adds a follow-up message from the report owner and moves the report back to 'submitted'. Anonymous reports cannot use follow-ups.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| publicId | Path | yes | string, uuid |
+
+
+**Request body** (`application/json`)
+
+```json
+{
+  "message": "string"
+}
+```
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "public_id": "00000000-0000-4000-8000-000000000000",
+    "is_anonymous": false,
+    "eligible_for_points": false,
+    "report_type": {
+      "code": "string",
+      "name": "string"
+    },
+    "status": {
+      "code": "string",
+      "name": "string"
+    },
+    "description": "string",
+    "priority": "string",
+    "confidence_score": 0,
+    "created_at": "2026-01-01T00:00:00.000Z",
+    "updated_at": "2026-01-01T00:00:00.000Z",
+    "followups": [
+      {
+        "actor_type": "admin",
+        "message": "string",
+        "created_at": "2026-01-01T00:00:00.000Z",
+        "actor_display_name": "string"
+      }
+    ],
+    "reason_code": "string",
+    "target_entity_type": "string",
+    "target_entity_id": "string",
+    "target_public_id": "string",
+    "title": "string",
+    "latitude": 0,
+    "longitude": 0,
+    "admin_area_id": "string",
+    "admin_note": "string",
+    "reviewed_at": "2026-01-01T00:00:00.000Z",
+    "reward_granted_at": "2026-01-01T00:00:00.000Z"
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
 
   ```json
   {
@@ -8526,7 +12098,7 @@ Permanently deletes eligible import_review candidate rows only when ENABLE_IMPOR
         "parent_id": "string"
       }
     ],
-    "landuse_classes": [
+    "land_area_classes": [
       {
         "value": "string",
         "label": "string",
@@ -10779,7 +14351,7 @@ Checks pending ready items for insert/update targets. Persists summary.dry_run_r
 
 **Summary:** Promote validated publish batch to core (buildings and places)
 
-Writes approved building and place candidates to core.core_map_buildings and core.core_places (including place names and sources). Returns 202 immediately; poll progress and logs endpoints.
+Writes approved building and place candidates to core.core_buildings and core.core_places (including place names and sources). Returns 202 immediately; poll progress and logs endpoints.
 
 **Security:** Bearer JWT (`Authorization: Bearer …`)
 
@@ -14261,6 +17833,113 @@ Grouped counts over `import_review.*` candidates for the resolved review batch (
 
 - **`200`**
 
+#### `GET` `/health/db`
+
+**Security:** None
+
+**Responses**
+
+- **`200`**
+
+#### `GET` `/health/import-review`
+
+**Security:** None
+
+**Responses**
+
+- **`200`**
+
+#### `POST` `/transport/route-paths/{id}/review-action`
+
+**Security:** None
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| id | Path | yes | string |
+
+
+**Responses**
+
+- **`200`**
+
+#### `PATCH` `/transport/route-stops/{id}/replace-stop`
+
+**Security:** None
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| id | Path | yes | string |
+
+
+**Responses**
+
+- **`200`**
+
+#### `POST` `/transport/routes/{publicId}/review-action`
+
+**Security:** None
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| publicId | Path | yes | string |
+
+
+**Responses**
+
+- **`200`**
+
+#### `GET` `/transport/routes/{publicId}/review-readiness`
+
+**Security:** None
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| publicId | Path | yes | string |
+
+
+**Responses**
+
+- **`200`**
+
+#### `GET` `/transport/routes/{routeCode}/stops`
+
+**Security:** None
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| routeCode | Path | yes | string |
+
+
+**Responses**
+
+- **`200`**
+
+#### `POST` `/transport/stops/{publicId}/merge`
+
+**Security:** None
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| publicId | Path | yes | string |
+
+
+**Responses**
+
+- **`200`**
+
+#### `POST` `/transport/stops/{publicId}/review-action`
+
+**Security:** None
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| publicId | Path | yes | string |
+
+
+**Responses**
+
+- **`200`**
+
 ### Reference Data
 
 #### `GET` `/admin/ref/address-usage-types`
@@ -14348,9 +18027,91 @@ Grouped counts over `import_review.*` candidates for the resolved review batch (
   }
   ```
 
+#### `GET` `/admin/ref/land-area-classes`
+
+**Summary:** List active land area classes
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  [
+    {
+      "id": "string",
+      "code": "string",
+      "name_en": "string",
+      "name_mm": "string",
+      "parent_id": "string",
+      "sort_order": 0,
+      "min_zoom": 0,
+      "is_active": false
+    }
+  ]
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`500`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
 #### `GET` `/admin/ref/landuse-classes`
 
-**Summary:** List active landuse classes
+**Summary:** List active land area classes
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  [
+    {
+      "id": "string",
+      "code": "string",
+      "name_en": "string",
+      "name_mm": "string",
+      "parent_id": "string",
+      "sort_order": 0,
+      "min_zoom": 0,
+      "is_active": false
+    }
+  ]
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`500`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/admin/ref/water-classes`
+
+**Summary:** List active water classes
 
 **Security:** Bearer JWT (`Authorization: Bearer …`)
 
@@ -15119,6 +18880,120 @@ Road directions via Valhalla adapter (walk, car, motorcycle). Requires ROUTING_E
   }
   ```
 
+### Share
+
+#### `POST` `/share/links`
+
+**Summary:** Create a share link
+
+Creates a CoreMap-only short share link for a map point or a core place. Existing links for the same target are reused (dedup). No authentication required.
+
+**Security:** None
+
+**Request body** (`application/json`)
+
+```json
+{
+  "target_type": "point",
+  "lat": 0,
+  "lng": 0,
+  "zoom": 0,
+  "address_line": "string",
+  "plus_code": "string"
+}
+```
+
+**Responses**
+
+- **`201`**
+
+  ```json
+  {
+    "code": "string",
+    "url": "string"
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`500`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/share/links/{code}`
+
+**Summary:** Resolve a share link
+
+Resolves a share code to its target. Point links return a stored coordinate snapshot (no reverse geocode); place links return the place public id.
+
+**Security:** None
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| code | Path | yes | string |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "target_type": "point",
+    "lat": 0,
+    "lng": 0,
+    "zoom": 0,
+    "address_line": "string",
+    "plus_code": "string"
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
 ### Transport
 
 #### `GET` `/transport/data-quality/queues`
@@ -15681,11 +19556,56 @@ Aggregate counts by entity, review status, and mode plus an import-health summar
   }
   ```
 
+#### `GET` `/transport/quality-summary`
+
+**Summary:** Transport quality summary by mode (admin)
+
+Read-only per-mode counts (routes, variants, variants missing stops/path/direction, routes missing variants) to help admins triage what to fix first. Admin only.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "items": [
+      {
+        "mode": "string",
+        "routes": 0,
+        "variants": 0,
+        "variants_without_stops": 0,
+        "variants_without_path": 0,
+        "variants_unknown_direction": 0,
+        "routes_without_variants": 0
+      }
+    ],
+    "schemaAvailable": false
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
 #### `PATCH` `/transport/route-stops/{id}`
 
-**Summary:** Update route stop flags (admin)
+**Summary:** Update route stop membership flags (admin)
 
-Update pickup_type, drop_off_type, or is_timing_point for a route_stops row. stop_sequence is not editable here (use the move endpoint).
+Update pickup_type, drop_off_type, and is_timing_point for a route_stops row. stop_sequence is not editable here (use the move endpoint). Imported source_time_text / source_time_type and timetable offsets are read-only via this route; use PATCH /transport/route-stops/:id/timing for travel/waiting edits and PATCH /transport/route-variants/:publicId/departure-time for the variant departure anchor.
 
 **Security:** Bearer JWT (`Authorization: Bearer …`)
 
@@ -15716,6 +19636,12 @@ Update pickup_type, drop_off_type, or is_timing_point for a route_stops row. sto
     "drop_off_type": 0,
     "is_timing_point": false,
     "distance_from_start_m": 0,
+    "source_time_text": "string",
+    "source_time_type": "string",
+    "travel_time_from_previous_seconds": 0,
+    "waiting_time_seconds": 0,
+    "arrival_offset_seconds": 0,
+    "departure_offset_seconds": 0,
     "stop": {
       "public_id": "00000000-0000-4000-8000-000000000000",
       "name": "string",
@@ -15776,7 +19702,7 @@ Update pickup_type, drop_off_type, or is_timing_point for a route_stops row. sto
 
 **Summary:** Remove a stop from a route variant (admin)
 
-Deletes the route_stops membership row only. The stop record itself is never deleted. After removal the remaining route_stops are resequenced to a gap-free 1..N. Accepts an optional JSON body `{ reason }` recorded in the removal audit log. Returns the updated ordered stops list (same shape as GET variant stops) plus backward-compatible `deleted` / `variantPublicId` fields.
+Deletes the route_stops membership row only. The stop record itself is never deleted. After removal the remaining route_stops are resequenced to a gap-free 1..N. Accepts an optional JSON body `{ reason }` recorded in the removal audit log. Returns the updated ordered stops (lightweight shape) plus route_stop_count, has_verified_path, and deleted=true so the client can update locally without a refetch.
 
 **Security:** Bearer JWT (`Authorization: Bearer …`)
 
@@ -15791,47 +19717,50 @@ Deletes the route_stops membership row only. The stop record itself is never del
 
   ```json
   {
-    "items": [
+    "variant_public_id": "string",
+    "ordered_stops": [
       {
-        "id": "string",
+        "route_stop_id": "string",
+        "stop_public_id": "00000000-0000-4000-8000-000000000000",
         "stop_sequence": 0,
+        "display_name": "string",
+        "name_mm": "string",
+        "name_en": "string",
+        "mode": "string",
+        "stop_type": "string",
+        "longitude": 0,
+        "latitude": 0,
+        "actual_longitude": 0,
+        "actual_latitude": 0,
+        "geometry_source": "route_stop_review_geom",
         "pickup_type": 0,
         "drop_off_type": 0,
         "is_timing_point": false,
-        "distance_from_start_m": 0,
-        "stop": {
-          "public_id": "00000000-0000-4000-8000-000000000000",
-          "name": "string",
-          "name_mm": "string",
-          "name_en": "string",
-          "mode": "string",
-          "stop_type": "string",
-          "geometry": {
-            "type": "string",
-            "coordinates": null,
-            "bbox": [
-              0
-            ]
-          }
-        }
+        "is_loop_closure": false,
+        "review_status": "string",
+        "source_time_text": "string",
+        "source_time_type": "string",
+        "travel_time_from_previous_seconds": 0,
+        "waiting_time_seconds": 0,
+        "arrival_offset_seconds": 0,
+        "departure_offset_seconds": 0
       }
     ],
-    "total": 0,
-    "limit": 0,
-    "offset": 0,
-    "path": {
-      "path_kind": "string",
-      "distance_m": 0,
-      "geometry": {
-        "type": "string",
-        "coordinates": null,
-        "bbox": [
-          0
-        ]
-      }
+    "route_stop_count": 0,
+    "has_verified_path": false,
+    "has_review_placeholder_path": false,
+    "created_stop": {
+      "route_stop_id": "string",
+      "public_id": "00000000-0000-4000-8000-000000000000",
+      "display_name": "string",
+      "name_mm": "string",
+      "name_en": "string",
+      "mode": "string",
+      "stop_type": "string",
+      "longitude": 0,
+      "latitude": 0
     },
-    "deleted": false,
-    "variantPublicId": "string"
+    "deleted": false
   }
   ```
 
@@ -15902,6 +19831,119 @@ Swap a route stop's sequence with its adjacent neighbor in the same variant. Aff
   {
     "moved": false,
     "variantPublicId": "string"
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `PATCH` `/transport/route-stops/{id}/timing`
+
+**Summary:** Update route stop timetable inputs (admin)
+
+Update editable travel/waiting seconds on one route_stops row, recalculate arrival/departure offsets for the whole variant in one transaction, and return the refreshed ordered stop list. Does not change stop_id, stop geometry, stop_sequence, or imported source_time_text / source_time_type.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| id | Path | yes | string |
+
+
+**Request body** (`application/json`)
+
+```json
+{
+  "travelTimeFromPreviousSeconds": 0,
+  "waitingTimeSeconds": 0
+}
+```
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "variant_public_id": "string",
+    "ordered_stops": [
+      {
+        "route_stop_id": "string",
+        "stop_public_id": "00000000-0000-4000-8000-000000000000",
+        "stop_sequence": 0,
+        "display_name": "string",
+        "name_mm": "string",
+        "name_en": "string",
+        "mode": "string",
+        "stop_type": "string",
+        "longitude": 0,
+        "latitude": 0,
+        "actual_longitude": 0,
+        "actual_latitude": 0,
+        "geometry_source": "route_stop_review_geom",
+        "pickup_type": 0,
+        "drop_off_type": 0,
+        "is_timing_point": false,
+        "is_loop_closure": false,
+        "review_status": "string",
+        "source_time_text": "string",
+        "source_time_type": "string",
+        "travel_time_from_previous_seconds": 0,
+        "waiting_time_seconds": 0,
+        "arrival_offset_seconds": 0,
+        "departure_offset_seconds": 0
+      }
+    ],
+    "route_stop_count": 0,
+    "has_verified_path": false,
+    "has_review_placeholder_path": false,
+    "created_stop": {
+      "route_stop_id": "string",
+      "public_id": "00000000-0000-4000-8000-000000000000",
+      "display_name": "string",
+      "name_mm": "string",
+      "name_en": "string",
+      "mode": "string",
+      "stop_type": "string",
+      "longitude": 0,
+      "latitude": 0
+    },
+    "deleted": false
   }
   ```
 
@@ -16035,6 +20077,290 @@ Partial update of editable variant fields. Cannot edit source_refs or normalized
   }
   ```
 
+#### `PATCH` `/transport/route-variants/{publicId}/departure-time`
+
+**Summary:** Update variant departure time (admin)
+
+Stores departure_time_text on the variant normalized_data blob, recalculates timetable offsets for all ordered stops in one transaction, and returns the refreshed ordered stop list.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| publicId | Path | yes | string, uuid |
+
+
+**Request body** (`application/json`)
+
+```json
+{
+  "departureTimeText": "string"
+}
+```
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "variant_public_id": "string",
+    "ordered_stops": [
+      {
+        "route_stop_id": "string",
+        "stop_public_id": "00000000-0000-4000-8000-000000000000",
+        "stop_sequence": 0,
+        "display_name": "string",
+        "name_mm": "string",
+        "name_en": "string",
+        "mode": "string",
+        "stop_type": "string",
+        "longitude": 0,
+        "latitude": 0,
+        "actual_longitude": 0,
+        "actual_latitude": 0,
+        "geometry_source": "route_stop_review_geom",
+        "pickup_type": 0,
+        "drop_off_type": 0,
+        "is_timing_point": false,
+        "is_loop_closure": false,
+        "review_status": "string",
+        "source_time_text": "string",
+        "source_time_type": "string",
+        "travel_time_from_previous_seconds": 0,
+        "waiting_time_seconds": 0,
+        "arrival_offset_seconds": 0,
+        "departure_offset_seconds": 0
+      }
+    ],
+    "route_stop_count": 0,
+    "has_verified_path": false,
+    "has_review_placeholder_path": false,
+    "created_stop": {
+      "route_stop_id": "string",
+      "public_id": "00000000-0000-4000-8000-000000000000",
+      "display_name": "string",
+      "name_mm": "string",
+      "name_en": "string",
+      "mode": "string",
+      "stop_type": "string",
+      "longitude": 0,
+      "latitude": 0
+    },
+    "deleted": false
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `POST` `/transport/route-variants/{publicId}/generate-path-from-stops`
+
+**Summary:** Generate a road-following path from ordered stops (admin)
+
+Builds a Valhalla-snapped route path through the variant's ordered stop coordinates (all route_stop occurrences, including circular loop closure), replaces the active route_paths row for this variant, and returns the new geometry.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| routePublicId | Path | yes | string, uuid |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "route_path_id": "00000000-0000-4000-8000-000000000000",
+    "path_kind": "string",
+    "review_status": "string",
+    "geometry": {
+      "type": "string",
+      "coordinates": null,
+      "bbox": [
+        0
+      ]
+    },
+    "warnings": [
+      "string"
+    ],
+    "distance_m": 0
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`501`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/transport/route-variants/{publicId}/ordered-stops`
+
+**Summary:** List lightweight ordered stops for a route variant (admin)
+
+Lightweight ordered-stops read for the Route Detail ordered-stop panel + map markers. Joins only route_stops + stops, filters route_variant_id and non-deleted stops, orders by stop_sequence. Returns the flat stop shape (no path geometry, no source_refs/normalized_data, no route detail/list) plus route_stop_count and has_verified_path. Fetch the verified path overlay separately only when has_verified_path is true.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| publicId | Path | yes | string, uuid |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "variant_public_id": "string",
+    "ordered_stops": [
+      {
+        "route_stop_id": "string",
+        "stop_public_id": "00000000-0000-4000-8000-000000000000",
+        "stop_sequence": 0,
+        "display_name": "string",
+        "name_mm": "string",
+        "name_en": "string",
+        "mode": "string",
+        "stop_type": "string",
+        "longitude": 0,
+        "latitude": 0,
+        "actual_longitude": 0,
+        "actual_latitude": 0,
+        "geometry_source": "route_stop_review_geom",
+        "pickup_type": 0,
+        "drop_off_type": 0,
+        "is_timing_point": false,
+        "is_loop_closure": false,
+        "review_status": "string",
+        "source_time_text": "string",
+        "source_time_type": "string",
+        "travel_time_from_previous_seconds": 0,
+        "waiting_time_seconds": 0,
+        "arrival_offset_seconds": 0,
+        "departure_offset_seconds": 0
+      }
+    ],
+    "route_stop_count": 0,
+    "has_verified_path": false,
+    "has_review_placeholder_path": false,
+    "created_stop": {
+      "route_stop_id": "string",
+      "public_id": "00000000-0000-4000-8000-000000000000",
+      "display_name": "string",
+      "name_mm": "string",
+      "name_en": "string",
+      "mode": "string",
+      "stop_type": "string",
+      "longitude": 0,
+      "latitude": 0
+    },
+    "deleted": false
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
 #### `GET` `/transport/route-variants/{publicId}/stops`
 
 **Summary:** List ordered stops for a route variant (admin)
@@ -16065,6 +20391,12 @@ Stops ordered by stop_sequence with stop GeoJSON points. Pass includePath=true t
         "drop_off_type": 0,
         "is_timing_point": false,
         "distance_from_start_m": 0,
+        "source_time_text": "string",
+        "source_time_type": "string",
+        "travel_time_from_previous_seconds": 0,
+        "waiting_time_seconds": 0,
+        "arrival_offset_seconds": 0,
+        "departure_offset_seconds": 0,
         "stop": {
           "public_id": "00000000-0000-4000-8000-000000000000",
           "name": "string",
@@ -16141,7 +20473,7 @@ Stops ordered by stop_sequence with stop GeoJSON points. Pass includePath=true t
 
 **Summary:** Create a new stop and insert it into a route variant (admin)
 
-Secondary quick-create path for the Insert Stop modal. Creates a new stop (minimal fields: localized names, mode, stop_type, location) and inserts it into this variant in one transaction. At least one of name_mm / name_en is required. The backend owns stop_sequence and resequences all route_stops for the variant to 1..N. Full stop metadata editing stays on the Stop Detail page. Returns the updated ordered stops list (same shape as GET variant stops).
+Quick-create path for the Insert Stop modal. Creates a new stop (localized names, mode, stop_type) and inserts it into this variant in one transaction. Placeholder geometry is derived from the variant stop sequence, or from optional longitude/latitude when the variant is empty. At least one of name_mm / name_en is required. The backend owns stop_sequence and resequences all route_stops for the variant to 1..N. Returns the updated ordered stops (lightweight shape) plus route_stop_count, has_verified_path, and the created_stop summary so the client can update locally without a refetch.
 
 **Security:** Bearer JWT (`Authorization: Bearer …`)
 
@@ -16156,15 +20488,15 @@ Secondary quick-create path for the Insert Stop modal. Creates a new stop (minim
 {
   "mode": "bus",
   "stop_type": "string",
-  "longitude": 0,
-  "latitude": 0,
   "position": "start",
   "name_mm": "string",
   "name_en": "string",
   "anchorRouteStopId": "string",
   "pickup_type": 0,
   "drop_off_type": 0,
-  "is_timing_point": false
+  "is_timing_point": false,
+  "longitude": 0,
+  "latitude": 0
 }
 ```
 
@@ -16174,45 +20506,50 @@ Secondary quick-create path for the Insert Stop modal. Creates a new stop (minim
 
   ```json
   {
-    "items": [
+    "variant_public_id": "string",
+    "ordered_stops": [
       {
-        "id": "string",
+        "route_stop_id": "string",
+        "stop_public_id": "00000000-0000-4000-8000-000000000000",
         "stop_sequence": 0,
+        "display_name": "string",
+        "name_mm": "string",
+        "name_en": "string",
+        "mode": "string",
+        "stop_type": "string",
+        "longitude": 0,
+        "latitude": 0,
+        "actual_longitude": 0,
+        "actual_latitude": 0,
+        "geometry_source": "route_stop_review_geom",
         "pickup_type": 0,
         "drop_off_type": 0,
         "is_timing_point": false,
-        "distance_from_start_m": 0,
-        "stop": {
-          "public_id": "00000000-0000-4000-8000-000000000000",
-          "name": "string",
-          "name_mm": "string",
-          "name_en": "string",
-          "mode": "string",
-          "stop_type": "string",
-          "geometry": {
-            "type": "string",
-            "coordinates": null,
-            "bbox": [
-              0
-            ]
-          }
-        }
+        "is_loop_closure": false,
+        "review_status": "string",
+        "source_time_text": "string",
+        "source_time_type": "string",
+        "travel_time_from_previous_seconds": 0,
+        "waiting_time_seconds": 0,
+        "arrival_offset_seconds": 0,
+        "departure_offset_seconds": 0
       }
     ],
-    "total": 0,
-    "limit": 0,
-    "offset": 0,
-    "path": {
-      "path_kind": "string",
-      "distance_m": 0,
-      "geometry": {
-        "type": "string",
-        "coordinates": null,
-        "bbox": [
-          0
-        ]
-      }
-    }
+    "route_stop_count": 0,
+    "has_verified_path": false,
+    "has_review_placeholder_path": false,
+    "created_stop": {
+      "route_stop_id": "string",
+      "public_id": "00000000-0000-4000-8000-000000000000",
+      "display_name": "string",
+      "name_mm": "string",
+      "name_en": "string",
+      "mode": "string",
+      "stop_type": "string",
+      "longitude": 0,
+      "latitude": 0
+    },
+    "deleted": false
   }
   ```
 
@@ -16272,7 +20609,7 @@ Secondary quick-create path for the Insert Stop modal. Creates a new stop (minim
 
 **Summary:** Insert an existing stop into a route variant (admin)
 
-Inserts an existing stop into this variant's ordered pattern at start/end or before/after an anchor route_stop. The backend owns stop_sequence and resequences all route_stops for the variant to 1..N (the client never sends a final sequence). The same physical stop may appear more than once (each row is a distinct route_stops occurrence). Does not create a new stop. Returns the updated ordered stops list (same shape as GET variant stops).
+Inserts an existing stop into this variant's ordered pattern at start/end or before/after an anchor route_stop. The backend owns stop_sequence and resequences all route_stops for the variant to 1..N (the client never sends a final sequence). The same physical stop may appear more than once (each row is a distinct route_stops occurrence). Does not create a new stop. Returns the updated ordered stops (lightweight shape) plus route_stop_count and has_verified_path so the client can update locally without a refetch.
 
 **Security:** Bearer JWT (`Authorization: Bearer …`)
 
@@ -16301,45 +20638,50 @@ Inserts an existing stop into this variant's ordered pattern at start/end or bef
 
   ```json
   {
-    "items": [
+    "variant_public_id": "string",
+    "ordered_stops": [
       {
-        "id": "string",
+        "route_stop_id": "string",
+        "stop_public_id": "00000000-0000-4000-8000-000000000000",
         "stop_sequence": 0,
+        "display_name": "string",
+        "name_mm": "string",
+        "name_en": "string",
+        "mode": "string",
+        "stop_type": "string",
+        "longitude": 0,
+        "latitude": 0,
+        "actual_longitude": 0,
+        "actual_latitude": 0,
+        "geometry_source": "route_stop_review_geom",
         "pickup_type": 0,
         "drop_off_type": 0,
         "is_timing_point": false,
-        "distance_from_start_m": 0,
-        "stop": {
-          "public_id": "00000000-0000-4000-8000-000000000000",
-          "name": "string",
-          "name_mm": "string",
-          "name_en": "string",
-          "mode": "string",
-          "stop_type": "string",
-          "geometry": {
-            "type": "string",
-            "coordinates": null,
-            "bbox": [
-              0
-            ]
-          }
-        }
+        "is_loop_closure": false,
+        "review_status": "string",
+        "source_time_text": "string",
+        "source_time_type": "string",
+        "travel_time_from_previous_seconds": 0,
+        "waiting_time_seconds": 0,
+        "arrival_offset_seconds": 0,
+        "departure_offset_seconds": 0
       }
     ],
-    "total": 0,
-    "limit": 0,
-    "offset": 0,
-    "path": {
-      "path_kind": "string",
-      "distance_m": 0,
-      "geometry": {
-        "type": "string",
-        "coordinates": null,
-        "bbox": [
-          0
-        ]
-      }
-    }
+    "route_stop_count": 0,
+    "has_verified_path": false,
+    "has_review_placeholder_path": false,
+    "created_stop": {
+      "route_stop_id": "string",
+      "public_id": "00000000-0000-4000-8000-000000000000",
+      "display_name": "string",
+      "name_mm": "string",
+      "name_en": "string",
+      "mode": "string",
+      "stop_type": "string",
+      "longitude": 0,
+      "latitude": 0
+    },
+    "deleted": false
   }
   ```
 
@@ -16399,7 +20741,7 @@ Inserts an existing stop into this variant's ordered pattern at start/end or bef
 
 **Summary:** List transport routes (admin)
 
-Paginated, filterable routes list with variant/stop/path counts. Never returns geometry.
+Paginated, filterable routes list with variant/stop/path counts. Never returns geometry. Unauthenticated callers receive the public route list shape (route_code / names / fare).
 
 **Security:** Bearer JWT (`Authorization: Bearer …`)
 
@@ -16446,7 +20788,9 @@ Paginated, filterable routes list with variant/stop/path counts. Never returns g
     ],
     "total": 0,
     "limit": 0,
-    "offset": 0
+    "offset": 0,
+    "page": 0,
+    "hasNextPage": false
   }
   ```
 
@@ -16477,6 +20821,200 @@ Paginated, filterable routes list with variant/stop/path counts. Never returns g
   ```json
   {
     "message": "string"
+  }
+  ```
+
+#### `POST` `/transport/routes`
+
+**Summary:** Create transport route with auto variants (admin)
+
+Creates a route and its default variants in one transaction. route_kind is derived from the mode config; review_status=needs_review, confidence_score=60, is_active=true, and manual/admin source_refs are set by the server. Variants: loop -> ${code}-LOOP; bus/train -> ${code}-A outbound + ${code}-B inbound; ferry -> ${code}-A outbound (+ ${code}-B inbound when create_return_variant). Returns the created route detail including variants. 409 on duplicate code.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+**Request body** (`application/json`)
+
+```json
+{
+  "mode": "bus",
+  "route_code": "string",
+  "public_name": "string",
+  "origin_name": "string",
+  "destination_name": "string",
+  "operator_id": 0,
+  "create_return_variant": false,
+  "is_loop": false
+}
+```
+
+**Responses**
+
+- **`201`**
+
+  ```json
+  {
+    "public_id": "00000000-0000-4000-8000-000000000000",
+    "route_code": "string",
+    "public_name": "string",
+    "display_name": "string",
+    "mode": "string",
+    "route_kind": "string",
+    "review_status": "string",
+    "is_active": false,
+    "counts": {
+      "variants": 0,
+      "stops": 0,
+      "paths": 0
+    },
+    "names": [
+      {
+        "name": "string",
+        "language_code": "string",
+        "script_code": "string",
+        "name_type": "string",
+        "is_primary": false,
+        "search_weight": 0
+      }
+    ],
+    "sources": [
+      {
+        "source_name": "string",
+        "source_kind": "string",
+        "external_id": "string",
+        "source_url": "string",
+        "is_primary": false
+      }
+    ],
+    "variants": [
+      {
+        "public_id": "00000000-0000-4000-8000-000000000000",
+        "variant_code": "string",
+        "direction_name": "string",
+        "direction_id": 0,
+        "headsign": "string",
+        "origin_name": "string",
+        "destination_name": "string",
+        "stop_count": 0,
+        "path_count": 0,
+        "path_status": "has_path",
+        "distance_m": 0,
+        "estimated_duration_min": 0,
+        "review_status": "string",
+        "confidence_score": 0,
+        "is_active": false
+      }
+    ],
+    "name_mm": "string",
+    "name_en": "string",
+    "origin_name": "string",
+    "destination_name": "string",
+    "origin_admin_area_id": 0,
+    "destination_admin_area_id": 0,
+    "description": "string",
+    "operator": {
+      "id": 0,
+      "name": "string"
+    },
+    "confidence_score": 0,
+    "created_at": "string",
+    "updated_at": "string",
+    "deleted_at": "string",
+    "routeMetadata": {
+      "summary": {
+        "mode": "string",
+        "routeKind": "string",
+        "routeType": "string",
+        "trainType": "string",
+        "trainModel": "string",
+        "operationDays": [
+          "string"
+        ],
+        "sourceStatus": "none",
+        "reviewStatus": "string",
+        "isActive": false,
+        "confidenceScore": 0,
+        "generation": "string"
+      },
+      "names": {
+        "routeCode": "string",
+        "nameMy": "string",
+        "nameEn": "string",
+        "originName": "string",
+        "destinationName": "string",
+        "displayHeadsign": "string"
+      },
+      "counts": {
+        "variantCount": 0,
+        "stopCount": 0,
+        "pathCount": 0,
+        "sourceLinksCount": 0
+      },
+      "train": {
+        "trainNumber": "string",
+        "trainType": "string",
+        "trainModel": "string",
+        "operationDays": [
+          "string"
+        ],
+        "totalStations": 0,
+        "estimatedDurationMin": 0,
+        "displayGroup": "string",
+        "isYangonUrbanService": false,
+        "isSourceFullLoop": false,
+        "closingDuplicateStopSkipped": false,
+        "importedRouteStops": 0
+      },
+      "diagnostics": {
+        "hasSourceLinks": false,
+        "hasPath": false,
+        "hasCompleteStopSequence": false,
+        "hasStopLocationWarnings": false
+      }
+    }
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
   }
   ```
 
@@ -16545,7 +21083,59 @@ Route fields, localized names, source summary, and counts. No stop list.
     "confidence_score": 0,
     "created_at": "string",
     "updated_at": "string",
-    "deleted_at": "string"
+    "deleted_at": "string",
+    "routeMetadata": {
+      "summary": {
+        "mode": "string",
+        "routeKind": "string",
+        "routeType": "string",
+        "trainType": "string",
+        "trainModel": "string",
+        "operationDays": [
+          "string"
+        ],
+        "sourceStatus": "none",
+        "reviewStatus": "string",
+        "isActive": false,
+        "confidenceScore": 0,
+        "generation": "string"
+      },
+      "names": {
+        "routeCode": "string",
+        "nameMy": "string",
+        "nameEn": "string",
+        "originName": "string",
+        "destinationName": "string",
+        "displayHeadsign": "string"
+      },
+      "counts": {
+        "variantCount": 0,
+        "stopCount": 0,
+        "pathCount": 0,
+        "sourceLinksCount": 0
+      },
+      "train": {
+        "trainNumber": "string",
+        "trainType": "string",
+        "trainModel": "string",
+        "operationDays": [
+          "string"
+        ],
+        "totalStations": 0,
+        "estimatedDurationMin": 0,
+        "displayGroup": "string",
+        "isYangonUrbanService": false,
+        "isSourceFullLoop": false,
+        "closingDuplicateStopSkipped": false,
+        "importedRouteStops": 0
+      },
+      "diagnostics": {
+        "hasSourceLinks": false,
+        "hasPath": false,
+        "hasCompleteStopSequence": false,
+        "hasStopLocationWarnings": false
+      }
+    }
   }
   ```
 
@@ -16591,7 +21181,7 @@ Route fields, localized names, source summary, and counts. No stop list.
 
 **Summary:** Update transport route metadata (admin)
 
-Partial update of editable route fields. Names are edited via name_mm/name_en (public_name is derived, Myanmar first, English fallback) and written to transport.route_names. Cannot edit public_name, source_refs, or normalized_data. No hard delete.
+Partial update of editable route fields. Names are edited via name_mm/name_en (public_name is derived, Myanmar first, English fallback) and written to transport.route_names. Structured train metadata merges into normalized_data keys. display_headsign updates the primary variant headsign. Cannot edit public_name, source_refs, or raw normalized_data blobs. No hard delete.
 
 **Security:** Bearer JWT (`Authorization: Bearer …`)
 
@@ -16614,7 +21204,14 @@ Partial update of editable route fields. Names are edited via name_mm/name_en (p
   "description": "string",
   "review_status": "imported_unreviewed",
   "confidence_score": 0,
-  "is_active": false
+  "is_active": false,
+  "train_type": "string",
+  "train_model": "string",
+  "operation_days": [
+    "string"
+  ],
+  "is_yangon_urban_service": false,
+  "display_headsign": "string"
 }
 ```
 
@@ -16670,7 +21267,412 @@ Partial update of editable route fields. Names are edited via name_mm/name_en (p
     "confidence_score": 0,
     "created_at": "string",
     "updated_at": "string",
-    "deleted_at": "string"
+    "deleted_at": "string",
+    "routeMetadata": {
+      "summary": {
+        "mode": "string",
+        "routeKind": "string",
+        "routeType": "string",
+        "trainType": "string",
+        "trainModel": "string",
+        "operationDays": [
+          "string"
+        ],
+        "sourceStatus": "none",
+        "reviewStatus": "string",
+        "isActive": false,
+        "confidenceScore": 0,
+        "generation": "string"
+      },
+      "names": {
+        "routeCode": "string",
+        "nameMy": "string",
+        "nameEn": "string",
+        "originName": "string",
+        "destinationName": "string",
+        "displayHeadsign": "string"
+      },
+      "counts": {
+        "variantCount": 0,
+        "stopCount": 0,
+        "pathCount": 0,
+        "sourceLinksCount": 0
+      },
+      "train": {
+        "trainNumber": "string",
+        "trainType": "string",
+        "trainModel": "string",
+        "operationDays": [
+          "string"
+        ],
+        "totalStations": 0,
+        "estimatedDurationMin": 0,
+        "displayGroup": "string",
+        "isYangonUrbanService": false,
+        "isSourceFullLoop": false,
+        "closingDuplicateStopSkipped": false,
+        "importedRouteStops": 0
+      },
+      "diagnostics": {
+        "hasSourceLinks": false,
+        "hasPath": false,
+        "hasCompleteStopSequence": false,
+        "hasStopLocationWarnings": false
+      }
+    }
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/transport/routes/{publicId}/diagnostics`
+
+**Summary:** Route technical diagnostics (admin)
+
+Read-only technical payload for route review: normalized_data, source_refs, variant normalized_data, source_links, and merged validation warnings from review readiness.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| publicId | Path | yes | string, uuid |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "route": {
+      "normalized_data": null,
+      "source_refs": null
+    },
+    "variants": [
+      {
+        "public_id": "00000000-0000-4000-8000-000000000000",
+        "variant_code": "string",
+        "normalized_data": null
+      }
+    ],
+    "source_links": [
+      {
+        "id": 0,
+        "entity_type": "string",
+        "entity_id": 0,
+        "source_name": "string",
+        "source_kind": "string",
+        "external_id": "string",
+        "source_url": "string",
+        "import_batch_id": 0,
+        "confidence_score": 0,
+        "is_primary": false,
+        "created_at": "2026-01-01T00:00:00.000Z"
+      }
+    ],
+    "validation_warnings": [
+      "string"
+    ]
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `PATCH` `/transport/routes/{publicId}/metadata`
+
+**Summary:** Patch structured transport route metadata (admin)
+
+Structured metadata editor endpoint. Upserts route_names my/en, updates route columns, merges normalized_data keys (never replaces the full blob), and may update the primary variant headsign from normalizedDataPatch.display_headsign. Does not edit route_stops.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| publicId | Path | yes | string, uuid |
+
+
+**Request body** (`application/json`)
+
+```json
+{
+  "routeNames": {
+    "my": "string",
+    "en": "string"
+  },
+  "route": {
+    "originName": "string",
+    "destinationName": "string",
+    "reviewStatus": "imported_unreviewed",
+    "confidenceScore": 0
+  },
+  "normalizedDataPatch": {
+    "train_type": "string",
+    "train_model": "string",
+    "operation_days": [
+      "string"
+    ],
+    "display_headsign": "string",
+    "is_yangon_urban_service": false
+  }
+}
+```
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "public_id": "00000000-0000-4000-8000-000000000000",
+    "route_code": "string",
+    "public_name": "string",
+    "display_name": "string",
+    "mode": "string",
+    "route_kind": "string",
+    "review_status": "string",
+    "is_active": false,
+    "counts": {
+      "variants": 0,
+      "stops": 0,
+      "paths": 0
+    },
+    "names": [
+      {
+        "name": "string",
+        "language_code": "string",
+        "script_code": "string",
+        "name_type": "string",
+        "is_primary": false,
+        "search_weight": 0
+      }
+    ],
+    "sources": [
+      {
+        "source_name": "string",
+        "source_kind": "string",
+        "external_id": "string",
+        "source_url": "string",
+        "is_primary": false
+      }
+    ],
+    "name_mm": "string",
+    "name_en": "string",
+    "origin_name": "string",
+    "destination_name": "string",
+    "origin_admin_area_id": 0,
+    "destination_admin_area_id": 0,
+    "description": "string",
+    "operator": {
+      "id": 0,
+      "name": "string"
+    },
+    "confidence_score": 0,
+    "created_at": "string",
+    "updated_at": "string",
+    "deleted_at": "string",
+    "routeMetadata": {
+      "summary": {
+        "mode": "string",
+        "routeKind": "string",
+        "routeType": "string",
+        "trainType": "string",
+        "trainModel": "string",
+        "operationDays": [
+          "string"
+        ],
+        "sourceStatus": "none",
+        "reviewStatus": "string",
+        "isActive": false,
+        "confidenceScore": 0,
+        "generation": "string"
+      },
+      "names": {
+        "routeCode": "string",
+        "nameMy": "string",
+        "nameEn": "string",
+        "originName": "string",
+        "destinationName": "string",
+        "displayHeadsign": "string"
+      },
+      "counts": {
+        "variantCount": 0,
+        "stopCount": 0,
+        "pathCount": 0,
+        "sourceLinksCount": 0
+      },
+      "train": {
+        "trainNumber": "string",
+        "trainType": "string",
+        "trainModel": "string",
+        "operationDays": [
+          "string"
+        ],
+        "totalStations": 0,
+        "estimatedDurationMin": 0,
+        "displayGroup": "string",
+        "isYangonUrbanService": false,
+        "isSourceFullLoop": false,
+        "closingDuplicateStopSkipped": false,
+        "importedRouteStops": 0
+      },
+      "diagnostics": {
+        "hasSourceLinks": false,
+        "hasPath": false,
+        "hasCompleteStopSequence": false,
+        "hasStopLocationWarnings": false
+      }
+    }
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `POST` `/transport/routes/{publicId}/swap-direction`
+
+**Summary:** Swap inbound/outbound direction metadata for a two-variant route (admin)
+
+Atomically swaps direction_id, direction_name, variant_code suffix (-A/-B), and normalized_data.direction (when present) between the route's two active variants. Requires exactly one outbound (direction_id 0) and one inbound (direction_id 1). Does not change route_stops, paths, or endpoint stop pointers.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| publicId | Path | yes | string, uuid |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "variants": [
+      {
+        "public_id": "00000000-0000-4000-8000-000000000000",
+        "variant_code": "string",
+        "direction_name": "string",
+        "direction_id": 0,
+        "headsign": "string",
+        "origin_name": "string",
+        "destination_name": "string",
+        "stop_count": 0,
+        "path_count": 0,
+        "path_status": "has_path",
+        "distance_m": 0,
+        "estimated_duration_min": 0,
+        "review_status": "string",
+        "confidence_score": 0,
+        "is_active": false
+      }
+    ]
   }
   ```
 
@@ -16779,6 +21781,186 @@ Partial update of editable route fields. Names are edited via name_mm/name_en (p
   ```json
   {
     "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `POST` `/transport/routes/{routePublicId}/variants`
+
+**Summary:** Create a route variant (admin)
+
+Creates a variant under an active route. variant_code is unique per route (route_id + variant_code); a collision returns 409. direction_id: 0 outbound, 1 inbound, 2 loop/branch/special, null unknown. review_status defaults to needs_review and confidence_score to 60 when omitted. Returns the created variant.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| routePublicId | Path | yes | string, uuid |
+
+
+**Request body** (`application/json`)
+
+```json
+{
+  "variant_code": "string",
+  "direction_id": 0,
+  "direction_name": "string",
+  "headsign": "string",
+  "origin_name": "string",
+  "destination_name": "string",
+  "origin_stop_public_id": "00000000-0000-4000-8000-000000000000",
+  "destination_stop_public_id": "00000000-0000-4000-8000-000000000000",
+  "review_status": "imported_unreviewed",
+  "confidence_score": 0
+}
+```
+
+**Responses**
+
+- **`201`**
+
+  ```json
+  {
+    "public_id": "00000000-0000-4000-8000-000000000000",
+    "variant_code": "string",
+    "direction_name": "string",
+    "direction_id": 0,
+    "headsign": "string",
+    "origin_name": "string",
+    "destination_name": "string",
+    "stop_count": 0,
+    "path_count": 0,
+    "path_status": "has_path",
+    "distance_m": 0,
+    "estimated_duration_min": 0,
+    "review_status": "string",
+    "confidence_score": 0,
+    "is_active": false
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+#### `GET` `/transport/routes/between-stops`
+
+**Summary:** Search direct route variants between two stops
+
+Finds public-release route variants that serve both stops and returns the best forward occurrence pair per variant (destination.stop_sequence > origin.stop_sequence, smallest span). Supports repeated stop_id on circular routes without wrap-around.
+
+**Security:** None
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| origin_stop_public_id | Query | yes | string, uuid |
+| destination_stop_public_id | Query | yes | string, uuid |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "origin_stop_public_id": "00000000-0000-4000-8000-000000000000",
+    "destination_stop_public_id": "00000000-0000-4000-8000-000000000000",
+    "candidates": [
+      {
+        "route_id": "string",
+        "route_public_id": "00000000-0000-4000-8000-000000000000",
+        "route_code": "string",
+        "public_name": "string",
+        "variant_id": "string",
+        "variant_public_id": "00000000-0000-4000-8000-000000000000",
+        "variant_code": "string",
+        "direction_name": "string",
+        "origin_name": "string",
+        "destination_name": "string",
+        "origin_stop_sequence": 0,
+        "destination_stop_sequence": 0,
+        "forward_stop_count": 0,
+        "stops": [
+          {
+            "route_stop_id": "string",
+            "stop_id": "string",
+            "public_id": "00000000-0000-4000-8000-000000000000",
+            "stop_sequence": 0,
+            "name_my": "string",
+            "name_en": "string"
+          }
+        ]
+      }
+    ]
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
   }
   ```
 
@@ -17207,6 +22389,343 @@ Partial update of editable stop fields and point geometry. Cannot edit source_re
   }
   ```
 
+#### `DELETE` `/transport/stops/{publicId}`
+
+**Summary:** Archive (soft-delete) a transport stop (admin)
+
+Soft-deletes the stop (sets deleted_at + is_active = false). Never hard-deletes and never deletes route_stops. Rejected with 409 when the stop is still used by routes — remove it from all routes first. Any terminal linked to the stop is archived in the same transaction. stop_names and source_links are preserved. Accepts an optional JSON body `{ reason }` recorded in the archive audit log.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| publicId | Path | yes | string, uuid |
+
+
+**Request body** (`application/json`)
+
+```json
+{
+  "reason": "string"
+}
+```
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "archived": false,
+    "public_id": "00000000-0000-4000-8000-000000000000",
+    "route_count": 0,
+    "archived_terminals": [
+      "00000000-0000-4000-8000-000000000000"
+    ]
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+#### `GET` `/transport/stops/{publicId}/delete-eligibility`
+
+**Summary:** Check whether a transport stop can be permanently deleted (admin)
+
+Read-only reference check across route_stops, variant endpoints, child stops, linked terminals, and fares (when fare stop columns exist). Verified and manual_protected stops are never eligible.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| publicId | Path | yes | string, uuid |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "can_delete": false,
+    "message": "string",
+    "has_route_usage": false,
+    "route_count": 0,
+    "review_status": "string",
+    "references": {
+      "route_stops": 0,
+      "variant_endpoints": 0,
+      "child_stops": 0,
+      "linked_terminals": 0,
+      "fares": 0
+    },
+    "blockers": [
+      "string"
+    ]
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `DELETE` `/transport/stops/{publicId}/permanent`
+
+**Summary:** Permanently delete a transport stop (admin)
+
+Hard-deletes the stop when it has no blocking references and is not verified / manual_protected. Deletes related stop_names and source_links in the same transaction. Rejected with 409 when references remain or the stop is protected. Accepts an optional JSON body `{ reason }` recorded in the delete audit log.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| publicId | Path | yes | string, uuid |
+
+
+**Request body** (`application/json`)
+
+```json
+{
+  "reason": "string"
+}
+```
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "deleted": false,
+    "public_id": "00000000-0000-4000-8000-000000000000"
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "message": "string",
+    "has_route_usage": false,
+    "route_count": 0,
+    "blockers": [
+      "string"
+    ]
+  }
+  ```
+
+#### `GET` `/transport/stops/{publicId}/route-usage-detail`
+
+**Summary:** Route usage detail for one stop (admin)
+
+Authoritative route usage for one stop: distinct route/variant totals, direction breakdown, and every non-deleted route membership. Uses the same membership filters as GET /transport/stops/:publicId/routes. One query via indexed route_stops.stop_id — no N+1.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| publicId | Path | yes | string, uuid |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "stopPublicId": "00000000-0000-4000-8000-000000000000",
+    "stopId": "00000000-0000-4000-8000-000000000000",
+    "items": [
+      {
+        "routeStopId": "string",
+        "routeId": "00000000-0000-4000-8000-000000000000",
+        "routeCode": "string",
+        "routeName": "string",
+        "variantId": "00000000-0000-4000-8000-000000000000",
+        "variantCode": "string",
+        "directionName": "string",
+        "directionId": 0,
+        "stopSequence": 0
+      }
+    ],
+    "routes": [
+      {
+        "routeStopId": "string",
+        "routeId": "00000000-0000-4000-8000-000000000000",
+        "routeCode": "string",
+        "routeName": "string",
+        "variantId": "00000000-0000-4000-8000-000000000000",
+        "variantCode": "string",
+        "directionName": "string",
+        "directionId": 0,
+        "stopSequence": 0
+      }
+    ],
+    "summary": {
+      "totalRoutes": 0,
+      "totalVariants": 0,
+      "routeStopMemberships": 0,
+      "inboundCount": 0,
+      "outboundCount": 0,
+      "clockwiseCount": 0,
+      "anticlockwiseCount": 0
+    },
+    "totalRoutes": 0,
+    "totalVariants": 0,
+    "directionUsage": {
+      "inbound": 0,
+      "outbound": 0,
+      "clockwise": 0,
+      "anticlockwise": 0
+    }
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
 #### `GET` `/transport/stops/{publicId}/routes`
 
 **Summary:** List route variants that include this stop (admin)
@@ -17230,6 +22749,7 @@ Paginated route/variant summaries (code, name, direction, sequence) — never fu
   {
     "items": [
       {
+        "route_stop_id": "string",
         "route_public_id": "00000000-0000-4000-8000-000000000000",
         "route_code": "string",
         "route_name": "string",
@@ -17278,6 +22798,784 @@ Paginated route/variant summaries (code, name, direction, sequence) — never fu
   ```
 
 - **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `PATCH` `/transport/stops/{stopPublicId}/location`
+
+**Summary:** Update a transport stop's location (admin)
+
+Focused location edit: updates geom (SRID 4326) and optionally review_status / confidence_score, bumps updated_at, marks source_refs as a manual/admin location edit, and keeps any linked terminal point in sync. Returns the refreshed stop detail plus stops within 30 m of the saved location.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| stopPublicId | Path | yes | string, uuid |
+
+
+**Request body** (`application/json`)
+
+```json
+{
+  "lng": 0,
+  "lat": 0,
+  "review_status": "imported_unreviewed",
+  "confidence_score": 0
+}
+```
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "stop": {
+      "public_id": "00000000-0000-4000-8000-000000000000",
+      "name": "string",
+      "display_name": "string",
+      "mode": "string",
+      "stop_type": "string",
+      "review_status": "string",
+      "is_active": false,
+      "route_count": 0,
+      "sources": [
+        {
+          "source_name": "string",
+          "source_kind": "string",
+          "external_id": "string",
+          "source_url": "string",
+          "is_primary": false
+        }
+      ],
+      "stop_code": "string",
+      "name_mm": "string",
+      "name_en": "string",
+      "admin_area_id": 0,
+      "admin_area_name": "string",
+      "parent_stop_id": 0,
+      "parent_stop": {
+        "public_id": "00000000-0000-4000-8000-000000000000",
+        "name": "string"
+      },
+      "confidence_score": 0,
+      "longitude": 0,
+      "latitude": 0,
+      "geometry": {
+        "type": "string",
+        "coordinates": null,
+        "bbox": [
+          0
+        ]
+      },
+      "linked_terminal": {
+        "public_id": "00000000-0000-4000-8000-000000000000",
+        "terminal_role": "string",
+        "is_active": false,
+        "terminal_code": "string",
+        "operator_id": 0,
+        "operator": {
+          "id": 0,
+          "name": "string"
+        },
+        "review_status": "string",
+        "confidence_score": 0
+      },
+      "created_at": "string",
+      "updated_at": "string",
+      "deleted_at": "string",
+      "source_refs": {},
+      "normalized_data": {}
+    },
+    "nearby_stops": [
+      {
+        "stop_public_id": "00000000-0000-4000-8000-000000000000",
+        "name": "string",
+        "distance_m": 0,
+        "mode": "string",
+        "stop_type": "string"
+      }
+    ]
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/transport/stops/{stopPublicId}/nearby`
+
+**Summary:** Preview nearby stops around a point (admin)
+
+Read-only duplicate-check helper. Returns active stops within radius_m (default 30 m) of the given lng/lat, nearest first, excluding the stop itself. Intended for previewing duplicates before a location edit is committed.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| lng | Query | yes | number |
+| lat | Query | yes | number |
+| radius_m | Query | no | number |
+| stopPublicId | Path | yes | string, uuid |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  [
+    {
+      "stop_public_id": "00000000-0000-4000-8000-000000000000",
+      "name": "string",
+      "distance_m": 0,
+      "mode": "string",
+      "stop_type": "string"
+    }
+  ]
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `POST` `/transport/stops/merge`
+
+**Summary:** Merge transport stops — keep canonical (admin)
+
+Global keep-canonical merge: repoint all duplicate references to the canonical stop, preserve every route_stop occurrence and sequence, preserve non-conflicting names and source links, verify zero duplicate references, then hard-delete the duplicate stop. Blocks when stops differ in mode. When both stops occur on the same variant, merge requires acknowledgeSameVariantOccurrences.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+**Request body** (`application/json`)
+
+```json
+{
+  "canonicalStopId": "00000000-0000-4000-8000-000000000000",
+  "duplicateStopId": "00000000-0000-4000-8000-000000000000",
+  "currentStopId": "00000000-0000-4000-8000-000000000000",
+  "candidateStopId": "00000000-0000-4000-8000-000000000000",
+  "fieldSources": {
+    "name": "current",
+    "name_mm": "current",
+    "name_en": "current",
+    "stop_type": "current",
+    "geom": "current",
+    "admin_area_id": "current",
+    "confidence_score": "current",
+    "review_status": "current",
+    "is_active": "current"
+  },
+  "reason": "string",
+  "acknowledgeSameVariantOccurrences": false
+}
+```
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "canonicalStop": {
+      "publicId": "00000000-0000-4000-8000-000000000000",
+      "name": "string",
+      "nameMy": "string",
+      "nameEn": "string",
+      "mode": "string",
+      "stopType": "string",
+      "adminAreaId": 0,
+      "adminAreaName": "string",
+      "reviewStatus": "string",
+      "confidenceScore": 0,
+      "isActive": false,
+      "lat": 0,
+      "lng": 0
+    },
+    "deletedStop": {
+      "publicId": "00000000-0000-4000-8000-000000000000",
+      "name": "string",
+      "nameMy": "string",
+      "nameEn": "string",
+      "mode": "string",
+      "stopType": "string",
+      "adminAreaId": 0,
+      "adminAreaName": "string",
+      "reviewStatus": "string",
+      "confidenceScore": 0,
+      "isActive": false,
+      "lat": 0,
+      "lng": 0
+    },
+    "deletedStopId": "00000000-0000-4000-8000-000000000000",
+    "referencesChanged": {
+      "routeStops": 0,
+      "variantOrigins": 0,
+      "variantDestinations": 0,
+      "terminals": 0,
+      "faresOrigin": 0,
+      "faresDestination": 0,
+      "childStops": 0,
+      "stopNames": 0,
+      "sourceLinks": 0
+    },
+    "affectedRouteCodes": [
+      "string"
+    ],
+    "affectedVariantCodes": [
+      "string"
+    ],
+    "counts": {
+      "canonicalBefore": {
+        "routeStops": 0,
+        "variantOrigins": 0,
+        "variantDestinations": 0,
+        "terminals": 0,
+        "faresOrigin": 0,
+        "faresDestination": 0,
+        "childStops": 0,
+        "stopNames": 0,
+        "sourceLinks": 0
+      },
+      "canonicalAfter": {
+        "routeStops": 0,
+        "variantOrigins": 0,
+        "variantDestinations": 0,
+        "terminals": 0,
+        "faresOrigin": 0,
+        "faresDestination": 0,
+        "childStops": 0,
+        "stopNames": 0,
+        "sourceLinks": 0
+      },
+      "duplicateBefore": {
+        "routeStops": 0,
+        "variantOrigins": 0,
+        "variantDestinations": 0,
+        "terminals": 0,
+        "faresOrigin": 0,
+        "faresDestination": 0,
+        "childStops": 0,
+        "stopNames": 0,
+        "sourceLinks": 0
+      },
+      "duplicateAfter": {
+        "routeStops": 0,
+        "variantOrigins": 0,
+        "variantDestinations": 0,
+        "terminals": 0,
+        "faresOrigin": 0,
+        "faresDestination": 0,
+        "childStops": 0,
+        "stopNames": 0,
+        "sourceLinks": 0
+      }
+    }
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "message": "string",
+    "code": "string",
+    "blockers": [
+      "string"
+    ]
+  }
+  ```
+
+#### `POST` `/transport/stops/merge-preview`
+
+**Summary:** Preview merging two transport stops (admin)
+
+Read-only merge preview for Review Map and stop dedup workflows. Requires both stops to exist, be active (not deleted), and share the same mode. Reports variants where both stop IDs occur (including repeated occurrences). Does not block on distance or name similarity.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+**Request body** (`application/json`)
+
+```json
+{
+  "currentStopId": "00000000-0000-4000-8000-000000000000",
+  "candidateStopId": "00000000-0000-4000-8000-000000000000"
+}
+```
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "currentStop": {
+      "publicId": "00000000-0000-4000-8000-000000000000",
+      "name": "string",
+      "nameMy": "string",
+      "nameEn": "string",
+      "mode": "string",
+      "stopType": "string",
+      "adminAreaId": 0,
+      "adminAreaName": "string",
+      "reviewStatus": "string",
+      "confidenceScore": 0,
+      "isActive": false,
+      "lat": 0,
+      "lng": 0
+    },
+    "candidateStop": {
+      "publicId": "00000000-0000-4000-8000-000000000000",
+      "name": "string",
+      "nameMy": "string",
+      "nameEn": "string",
+      "mode": "string",
+      "stopType": "string",
+      "adminAreaId": 0,
+      "adminAreaName": "string",
+      "reviewStatus": "string",
+      "confidenceScore": 0,
+      "isActive": false,
+      "lat": 0,
+      "lng": 0
+    },
+    "currentUsage": {
+      "items": [
+        {
+          "routeStopId": "string",
+          "routeId": "00000000-0000-4000-8000-000000000000",
+          "routeCode": "string",
+          "routeName": "string",
+          "variantId": "00000000-0000-4000-8000-000000000000",
+          "variantCode": "string",
+          "directionName": "string",
+          "directionId": 0,
+          "stopSequence": 0
+        }
+      ],
+      "summary": {
+        "totalRoutes": 0,
+        "totalVariants": 0,
+        "routeStopMemberships": 0,
+        "inboundCount": 0,
+        "outboundCount": 0,
+        "clockwiseCount": 0,
+        "anticlockwiseCount": 0
+      }
+    },
+    "candidateUsage": {
+      "items": [
+        {
+          "routeStopId": "string",
+          "routeId": "00000000-0000-4000-8000-000000000000",
+          "routeCode": "string",
+          "routeName": "string",
+          "variantId": "00000000-0000-4000-8000-000000000000",
+          "variantCode": "string",
+          "directionName": "string",
+          "directionId": 0,
+          "stopSequence": 0
+        }
+      ],
+      "summary": {
+        "totalRoutes": 0,
+        "totalVariants": 0,
+        "routeStopMemberships": 0,
+        "inboundCount": 0,
+        "outboundCount": 0,
+        "clockwiseCount": 0,
+        "anticlockwiseCount": 0
+      }
+    },
+    "sameVariantConflicts": [
+      {
+        "routeCode": "string",
+        "variantCode": "string",
+        "directionName": "string",
+        "currentRouteStopId": "string",
+        "currentSequence": 0,
+        "candidateRouteStopId": "string",
+        "candidateSequence": 0
+      }
+    ],
+    "sameVariantWarning": "string",
+    "affectedRoutes": [
+      {
+        "routeId": "00000000-0000-4000-8000-000000000000",
+        "routeCode": "string",
+        "routeName": "string"
+      }
+    ],
+    "affectedVariants": [
+      {
+        "variantId": "00000000-0000-4000-8000-000000000000",
+        "variantCode": "string",
+        "routeId": "00000000-0000-4000-8000-000000000000",
+        "routeCode": "string",
+        "directionName": "string"
+      }
+    ],
+    "duplicateMembershipConflicts": [
+      {
+        "routeId": "00000000-0000-4000-8000-000000000000",
+        "routeCode": "string",
+        "variantId": "00000000-0000-4000-8000-000000000000",
+        "variantCode": "string",
+        "directionName": "string",
+        "currentRouteStopId": "string",
+        "currentSequence": 0,
+        "candidateRouteStopId": "string",
+        "candidateSequence": 0
+      }
+    ],
+    "sequenceConflicts": [
+      {
+        "routeId": "00000000-0000-4000-8000-000000000000",
+        "routeCode": "string",
+        "variantId": "00000000-0000-4000-8000-000000000000",
+        "variantCode": "string",
+        "directionName": "string",
+        "stopSequence": 0,
+        "currentRouteStopId": "string",
+        "candidateRouteStopId": "string"
+      }
+    ],
+    "mergeAllowed": false,
+    "mergeBlockers": [
+      "string"
+    ],
+    "terminalConflict": {
+      "exists": false,
+      "canonicalTerminal": {
+        "id": "string",
+        "publicId": "string",
+        "name": "string"
+      },
+      "duplicateTerminal": {
+        "id": "string",
+        "publicId": "string",
+        "name": "string"
+      }
+    },
+    "referenceCounts": {
+      "current": {
+        "routeStops": 0,
+        "variantOrigins": 0,
+        "variantDestinations": 0,
+        "terminals": 0,
+        "faresOrigin": 0,
+        "faresDestination": 0,
+        "childStops": 0,
+        "stopNames": 0,
+        "sourceLinks": 0
+      },
+      "candidate": {
+        "routeStops": 0,
+        "variantOrigins": 0,
+        "variantDestinations": 0,
+        "terminals": 0,
+        "faresOrigin": 0,
+        "faresDestination": 0,
+        "childStops": 0,
+        "stopNames": 0,
+        "sourceLinks": 0
+      }
+    },
+    "fieldComparison": {
+      "name": {
+        "current": null,
+        "candidate": null,
+        "same": false
+      },
+      "name_mm": {
+        "current": null,
+        "candidate": null,
+        "same": false
+      },
+      "name_en": {
+        "current": null,
+        "candidate": null,
+        "same": false
+      },
+      "stop_type": {
+        "current": null,
+        "candidate": null,
+        "same": false
+      },
+      "geom": {
+        "current": {
+          "lat": 0,
+          "lng": 0
+        },
+        "candidate": {
+          "lat": 0,
+          "lng": 0
+        },
+        "same": false,
+        "distanceMeters": 0
+      },
+      "admin_area_id": {
+        "current": null,
+        "candidate": null,
+        "same": false
+      },
+      "confidence_score": {
+        "current": null,
+        "candidate": null,
+        "same": false
+      },
+      "review_status": {
+        "current": null,
+        "candidate": null,
+        "same": false
+      },
+      "is_active": {
+        "current": null,
+        "candidate": null,
+        "same": false
+      }
+    }
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "message": "string",
+    "code": "string",
+    "blockers": [
+      "string"
+    ]
+  }
+  ```
+
+- **`500`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/transport/stops/nearby-candidates`
+
+**Summary:** List nearby transport stop candidates for Review Map (admin)
+
+Reusable Review Map helper. Returns same-mode non-deleted stops within an allowed radius around lng/lat, excludes selectedStopId (stop public_id), and orders by distance. Route usage counts are not included — load GET /transport/stops/:publicId/route-usage-detail for the selected stop or a candidate.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| lng | Query | yes | number |
+| lat | Query | yes | number |
+| radiusMeters | Query | no | integer |
+| mode | Query | yes | string |
+| selectedStopId | Query | yes | string, uuid |
+| selectedName | Query | no | string |
+| limit | Query | no | integer |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "items": [
+      {
+        "id": "string",
+        "publicId": "00000000-0000-4000-8000-000000000000",
+        "name": "string",
+        "nameMy": "string",
+        "nameEn": "string",
+        "mode": "string",
+        "stopType": "string",
+        "reviewStatus": "string",
+        "confidenceScore": 0,
+        "lat": 0,
+        "lng": 0,
+        "distanceMeters": 0
+      }
+    ],
+    "radiusMeters": 50,
+    "limit": 0
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
 
   ```json
   {
@@ -17691,6 +23989,537 @@ Partial update of editable terminal fields and point geometry. Cannot edit sourc
   }
   ```
 
+#### `PATCH` `/transport/variants/{variantPublicId}`
+
+**Summary:** Update a route variant (admin)
+
+Partial update of editable variant fields, including origin/destination stop pointers (by stop public_id; null clears). Cannot edit source_refs or normalized_data. No hard delete. Returns the updated variant.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| variantPublicId | Path | yes | string, uuid |
+
+
+**Request body** (`application/json`)
+
+```json
+{
+  "variant_code": "string",
+  "direction_id": 0,
+  "direction_name": "string",
+  "headsign": "string",
+  "origin_name": "string",
+  "destination_name": "string",
+  "origin_stop_public_id": "00000000-0000-4000-8000-000000000000",
+  "destination_stop_public_id": "00000000-0000-4000-8000-000000000000",
+  "review_status": "imported_unreviewed",
+  "confidence_score": 0
+}
+```
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "public_id": "00000000-0000-4000-8000-000000000000",
+    "variant_code": "string",
+    "direction_name": "string",
+    "direction_id": 0,
+    "headsign": "string",
+    "origin_name": "string",
+    "destination_name": "string",
+    "stop_count": 0,
+    "path_count": 0,
+    "path_status": "has_path",
+    "distance_m": 0,
+    "estimated_duration_min": 0,
+    "review_status": "string",
+    "confidence_score": 0,
+    "is_active": false
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+#### `DELETE` `/transport/variants/{variantPublicId}`
+
+**Summary:** Soft-delete a route variant (admin)
+
+Soft-deletes the variant (deleted_at = now(), is_active = false). Never hard-deletes and never removes route_stops or route_paths. Returns the parent route detail.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| variantPublicId | Path | yes | string, uuid |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "public_id": "00000000-0000-4000-8000-000000000000",
+    "route_code": "string",
+    "public_name": "string",
+    "display_name": "string",
+    "mode": "string",
+    "route_kind": "string",
+    "review_status": "string",
+    "is_active": false,
+    "counts": {
+      "variants": 0,
+      "stops": 0,
+      "paths": 0
+    },
+    "names": [
+      {
+        "name": "string",
+        "language_code": "string",
+        "script_code": "string",
+        "name_type": "string",
+        "is_primary": false,
+        "search_weight": 0
+      }
+    ],
+    "sources": [
+      {
+        "source_name": "string",
+        "source_kind": "string",
+        "external_id": "string",
+        "source_url": "string",
+        "is_primary": false
+      }
+    ],
+    "name_mm": "string",
+    "name_en": "string",
+    "origin_name": "string",
+    "destination_name": "string",
+    "origin_admin_area_id": 0,
+    "destination_admin_area_id": 0,
+    "description": "string",
+    "operator": {
+      "id": 0,
+      "name": "string"
+    },
+    "confidence_score": 0,
+    "created_at": "string",
+    "updated_at": "string",
+    "deleted_at": "string",
+    "routeMetadata": {
+      "summary": {
+        "mode": "string",
+        "routeKind": "string",
+        "routeType": "string",
+        "trainType": "string",
+        "trainModel": "string",
+        "operationDays": [
+          "string"
+        ],
+        "sourceStatus": "none",
+        "reviewStatus": "string",
+        "isActive": false,
+        "confidenceScore": 0,
+        "generation": "string"
+      },
+      "names": {
+        "routeCode": "string",
+        "nameMy": "string",
+        "nameEn": "string",
+        "originName": "string",
+        "destinationName": "string",
+        "displayHeadsign": "string"
+      },
+      "counts": {
+        "variantCount": 0,
+        "stopCount": 0,
+        "pathCount": 0,
+        "sourceLinksCount": 0
+      },
+      "train": {
+        "trainNumber": "string",
+        "trainType": "string",
+        "trainModel": "string",
+        "operationDays": [
+          "string"
+        ],
+        "totalStations": 0,
+        "estimatedDurationMin": 0,
+        "displayGroup": "string",
+        "isYangonUrbanService": false,
+        "isSourceFullLoop": false,
+        "closingDuplicateStopSkipped": false,
+        "importedRouteStops": 0
+      },
+      "diagnostics": {
+        "hasSourceLinks": false,
+        "hasPath": false,
+        "hasCompleteStopSequence": false,
+        "hasStopLocationWarnings": false
+      }
+    }
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `PUT` `/transport/variants/{variantPublicId}/path`
+
+**Summary:** Create or replace a route variant's path (admin)
+
+Upserts the variant's single active manual route path. If an active path exists it is updated in place; otherwise one is inserted. No second active path is ever created. Returns the updated path geometry plus the refreshed variant summary.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| variantPublicId | Path | yes | string, uuid |
+
+
+**Request body** (`application/json`)
+
+```json
+{
+  "coordinates": [
+    [
+      0
+    ]
+  ],
+  "path_kind": "manual",
+  "manually_adjusted": false
+}
+```
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "path": {
+      "path_kind": "string",
+      "distance_m": 0,
+      "geometry": {
+        "type": "string",
+        "coordinates": null,
+        "bbox": [
+          0
+        ]
+      }
+    },
+    "variant": {
+      "public_id": "00000000-0000-4000-8000-000000000000",
+      "variant_code": "string",
+      "direction_name": "string",
+      "direction_id": 0,
+      "headsign": "string",
+      "origin_name": "string",
+      "destination_name": "string",
+      "stop_count": 0,
+      "path_count": 0,
+      "path_status": "has_path",
+      "distance_m": 0,
+      "estimated_duration_min": 0,
+      "review_status": "string",
+      "confidence_score": 0,
+      "is_active": false
+    }
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `DELETE` `/transport/variants/{variantPublicId}/path`
+
+**Summary:** Soft-delete a route variant's path (admin)
+
+Soft-deletes the variant's active route path (deleted_at = now(), is_active = false). Never hard-deletes, and never touches the variant or its stops. A no-op when no active path exists. Returns the path (now null) plus the variant summary.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| variantPublicId | Path | yes | string, uuid |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "path": {
+      "path_kind": "string",
+      "distance_m": 0,
+      "geometry": {
+        "type": "string",
+        "coordinates": null,
+        "bbox": [
+          0
+        ]
+      }
+    },
+    "variant": {
+      "public_id": "00000000-0000-4000-8000-000000000000",
+      "variant_code": "string",
+      "direction_name": "string",
+      "direction_id": 0,
+      "headsign": "string",
+      "origin_name": "string",
+      "destination_name": "string",
+      "stop_count": 0,
+      "path_count": 0,
+      "path_status": "has_path",
+      "distance_m": 0,
+      "estimated_duration_min": 0,
+      "review_status": "string",
+      "confidence_score": 0,
+      "is_active": false
+    }
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/transport/variants/{variantPublicId}/stop-quality`
+
+**Summary:** Stop-quality diagnostics for a route variant (admin)
+
+Read-only diagnostics for one variant's ordered stops. Per stop: straight-line gap from the previous stop (null for the first), deviation from the active route path (null when no active path exists), a defensive exact-duplicate flag, and a count of other active same-mode stops within ~30 m. Diagnostics only — no automatic fixes.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| variantPublicId | Path | yes | string, uuid |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "items": [
+      {
+        "route_stop_id": "string",
+        "stop_public_id": "00000000-0000-4000-8000-000000000000",
+        "stop_name": "string",
+        "stop_sequence": 0,
+        "lng": 0,
+        "lat": 0,
+        "distance_from_previous_m": 0,
+        "distance_from_path_m": 0,
+        "is_exact_duplicate_in_variant": false,
+        "is_loop_closure": false,
+        "nearby_duplicate_count": 0
+      }
+    ],
+    "total": 0
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
 ## Common error responses
 
 Many routes return JSON error bodies for failed validation, auth, or missing resources. Shapes are defined per route in OpenAPI; representative **examples** (from the first matching response schema in the spec) are below.
@@ -17757,6 +24586,14 @@ Many routes return JSON error bodies for failed validation, auth, or missing res
 }
 ```
 
+### HTTP 501
+
+```json
+{
+  "message": "string"
+}
+```
+
 ### HTTP 502
 
 ```json
@@ -17788,4 +24625,4 @@ Many routes return JSON error bodies for failed validation, auth, or missing res
 
 ---
 
-*OpenAPI version: 3.0.3 · API version: 0.1.0 · Operations: 211*
+*OpenAPI version: 3.0.3 · API version: 0.1.0 · Operations: 287*

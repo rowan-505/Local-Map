@@ -125,7 +125,7 @@ describe("import-review places category_id direct PATCH", () => {
                             class_code: null,
                             building_type: null,
                             building_type_id: null,
-                            landuse_class_id: null,
+                            land_area_class_id: null,
                             admin_area_id: null,
                             levels: null,
                             height_m: null,

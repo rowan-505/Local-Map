@@ -1,5 +1,5 @@
 -- =============================================================================
--- Read-only verification: core_map_buildings typed source identity
+-- Read-only verification: core_buildings typed source identity
 -- =============================================================================
 --
 -- Run the complete script after migration 149.
@@ -20,7 +20,7 @@ SELECT
     c.column_default
 FROM information_schema.columns AS c
 WHERE c.table_schema = 'core'
-  AND c.table_name = 'core_map_buildings'
+  AND c.table_name = 'core_buildings'
   AND c.column_name IN (
       'source_registry_id',
       'source_snapshot_id',
@@ -38,7 +38,7 @@ SELECT
     count(*) = 7 AS passes
 FROM information_schema.columns AS c
 WHERE c.table_schema = 'core'
-  AND c.table_name = 'core_map_buildings'
+  AND c.table_name = 'core_buildings'
   AND c.column_name IN (
       'source_registry_id',
       'source_snapshot_id',
@@ -56,18 +56,18 @@ SELECT
     c.convalidated,
     pg_get_constraintdef(c.oid, true) AS definition
 FROM pg_constraint AS c
-WHERE c.conrelid = 'core.core_map_buildings'::regclass
+WHERE c.conrelid = 'core.core_buildings'::regclass
   AND (
       c.conname IN (
-          'core_map_buildings_source_registry_id_fkey',
-          'core_map_buildings_source_snapshot_id_fkey',
-          'core_map_buildings_source_feature_type_chk'
+          'core_buildings_source_registry_id_fkey',
+          'core_buildings_source_snapshot_id_fkey',
+          'core_buildings_source_feature_type_chk'
       )
       OR c.conkey = ARRAY[
           (
               SELECT a.attnum
               FROM pg_attribute AS a
-              WHERE a.attrelid = 'core.core_map_buildings'::regclass
+              WHERE a.attrelid = 'core.core_buildings'::regclass
                 AND a.attname = 'admin_area_id'
           )
       ]::smallint[]
@@ -78,13 +78,13 @@ SELECT
     count(*) AS admin_area_fk_count,
     count(*) = 1 AS passes
 FROM pg_constraint AS c
-WHERE c.conrelid = 'core.core_map_buildings'::regclass
+WHERE c.conrelid = 'core.core_buildings'::regclass
   AND c.contype = 'f'
   AND c.conkey = ARRAY[
       (
           SELECT a.attnum
           FROM pg_attribute AS a
-          WHERE a.attrelid = 'core.core_map_buildings'::regclass
+          WHERE a.attrelid = 'core.core_buildings'::regclass
             AND a.attname = 'admin_area_id'
       )
   ]::smallint[];
@@ -95,8 +95,8 @@ SELECT
     i.indexdef
 FROM pg_indexes AS i
 WHERE i.schemaname = 'core'
-  AND i.tablename = 'core_map_buildings'
-  AND i.indexname = 'core_map_buildings_source_identity_uidx';
+  AND i.tablename = 'core_buildings'
+  AND i.indexname = 'core_buildings_source_identity_uidx';
 
 -- 4. Typed backfill coverage.
 SELECT
@@ -113,7 +113,7 @@ SELECT
     count(*) FILTER (WHERE region_code IS NOT NULL) AS with_region_code,
     count(*) FILTER (WHERE is_geometry_manually_edited) AS geometry_manually_edited,
     count(*) FILTER (WHERE is_attributes_manually_edited) AS attributes_manually_edited
-FROM core.core_map_buildings;
+FROM core.core_buildings;
 
 -- 5. Must return zero rows: duplicate complete source identities.
 SELECT
@@ -123,7 +123,7 @@ SELECT
     b.source_feature_id,
     count(*) AS row_count,
     array_agg(b.id ORDER BY b.id) AS building_ids
-FROM core.core_map_buildings AS b
+FROM core.core_buildings AS b
 JOIN system.system_source_registry AS r
   ON r.id = b.source_registry_id
 WHERE b.source_registry_id IS NOT NULL
@@ -149,7 +149,7 @@ SELECT
     b.source_feature_type,
     b.source_feature_id,
     b.region_code
-FROM core.core_map_buildings AS b
+FROM core.core_buildings AS b
 LEFT JOIN system.system_source_registry AS r
   ON r.id = b.source_registry_id
 WHERE nullif(btrim(b.source_refs ->> 'osm_id'), '') IS NOT NULL
@@ -171,7 +171,7 @@ SELECT
     count(*) AS unresolved_rows,
     min(b.id) AS first_building_id,
     max(b.id) AS last_building_id
-FROM core.core_map_buildings AS b
+FROM core.core_buildings AS b
 LEFT JOIN system.system_source_registry AS r
   ON r.id = b.source_registry_id
 WHERE coalesce(
@@ -194,7 +194,7 @@ SELECT
     s.source_registry_id AS snapshot_source_registry_id,
     b.source_snapshot_id,
     s.snapshot_version
-FROM core.core_map_buildings AS b
+FROM core.core_buildings AS b
 JOIN system.system_source_snapshots AS s
   ON s.id = b.source_snapshot_id
 WHERE b.source_registry_id IS DISTINCT FROM s.source_registry_id
@@ -210,7 +210,7 @@ SELECT
         nullif(btrim(b.source_refs ->> 'source_snapshot_version'), ''),
         nullif(btrim(b.source_refs ->> 'snapshot_version'), '')
     ) AS source_refs_snapshot_version
-FROM core.core_map_buildings AS b
+FROM core.core_buildings AS b
 JOIN system.system_source_snapshots AS s
   ON s.id = b.source_snapshot_id
 WHERE coalesce(
@@ -243,7 +243,7 @@ WITH parsed_source AS (
             ELSE NULL
         END AS expected_feature_id,
         nullif(btrim(b.source_refs ->> 'region_code'), '') AS expected_region_code
-    FROM core.core_map_buildings AS b
+    FROM core.core_buildings AS b
 )
 SELECT
     b.id,
@@ -253,7 +253,7 @@ SELECT
     p.expected_feature_id,
     b.region_code,
     p.expected_region_code
-FROM core.core_map_buildings AS b
+FROM core.core_buildings AS b
 JOIN parsed_source AS p
   ON p.id = b.id
 WHERE (
@@ -276,7 +276,7 @@ SELECT
     b.source_feature_type,
     b.is_geometry_manually_edited,
     b.is_attributes_manually_edited
-FROM core.core_map_buildings AS b
+FROM core.core_buildings AS b
 WHERE b.source_feature_type NOT IN ('way', 'relation')
    OR b.is_geometry_manually_edited IS NULL
    OR b.is_attributes_manually_edited IS NULL

@@ -17,7 +17,7 @@ import {
 const ALL_CLEANUP_FAMILIES = [
     "buildings",
     "places",
-    "landuse",
+    "land_areas",
     "water_lines",
     "water_polygons",
     "roads",

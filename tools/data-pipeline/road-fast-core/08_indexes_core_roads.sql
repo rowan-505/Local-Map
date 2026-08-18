@@ -104,8 +104,8 @@ CREATE INDEX IF NOT EXISTS core_streets_geom_gix
 CREATE INDEX IF NOT EXISTS core_streets_road_class_id_idx
     ON core.core_streets (road_class_id);
 
-CREATE INDEX IF NOT EXISTS core_streets_is_active_idx
-    ON core.core_streets (is_active);
+-- Status pagination indexes provide the is_active leading-key access paths.
+-- Do not recreate the retired low-selectivity core_streets_is_active_idx.
 
 CREATE INDEX IF NOT EXISTS core_streets_is_verified_idx
     ON core.core_streets (is_verified);

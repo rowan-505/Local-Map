@@ -97,9 +97,9 @@ BEGIN
         WHEN 'roads', 'water_lines', 'routing_roads' THEN
             v_expect_line := true;
             v_require_class := (v_family = 'roads');
-        WHEN 'buildings', 'landuse', 'water_polygons', 'admin_areas' THEN
+        WHEN 'buildings', 'landuse', 'protected_areas', 'water_polygons', 'admin_areas' THEN
             v_expect_poly := true;
-            v_require_class := (v_family IN ('landuse'));
+            v_require_class := (v_family IN ('landuse', 'protected_areas'));
             v_require_name := (v_family = 'admin_areas');
             v_require_admin_level := (v_family = 'admin_areas');
         WHEN 'places' THEN
@@ -166,8 +166,13 @@ BEGIN
             END IF;
 
             IF NOT system.pipeline_geom_in_myanmar_bounds(p_geom) THEN
-                v_notes := array_append(v_notes, 'geometry_outside_myanmar_bounds');
-                v_invalid := true;
+                IF v_family = 'protected_areas' THEN
+                    v_notes := array_append(v_notes, 'geometry_outside_myanmar_land_bbox');
+                    v_warning := true;
+                ELSE
+                    v_notes := array_append(v_notes, 'geometry_outside_myanmar_bounds');
+                    v_invalid := true;
+                END IF;
             END IF;
         END IF;
     END IF;
@@ -196,7 +201,7 @@ BEGIN
         END IF;
         v_invalid := true;
     ELSIF v_allow_missing_name_as_warning
-          AND v_family IN ('roads', 'places', 'buildings', 'landuse', 'water_lines', 'water_polygons')
+          AND v_family IN ('roads', 'places', 'buildings', 'landuse', 'protected_areas', 'water_lines', 'water_polygons')
           AND nullif(btrim(p_canonical_name), '') IS NULL THEN
         v_notes := array_append(v_notes, 'optional_name_missing');
         v_warning := true;

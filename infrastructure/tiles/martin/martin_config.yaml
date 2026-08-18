@@ -57,6 +57,17 @@
 #     geometry_column: geom
 #     id_column: id
 
+#   # Future Core-backed coastline (table empty until import). Auto-publish from
+#   # tiles schema may already expose this; register explicitly if needed:
+#   tiles_coastlines_v:
+#     schema: tiles
+#     table: tiles_coastlines_v
+#     srid: 4326
+#     geometry_column: geom
+#     id_column: id
+#   # See infrastructure/database/migrations/supabase/157_core_coastlines.sql
+#   # and infrastructure/database/docs/core_coastlines.md
+
 #   tiles_places_v:
 #     schema: tiles
 #     table: tiles_places_v

@@ -76,7 +76,7 @@ VALUES
     (10, 'places', 'staging_place_candidates', 'place_candidates', 'place', true, true),
     (20, 'roads', 'staging_road_candidates', 'road_candidates', 'road', true, true),
     (30, 'buildings', 'staging_building_candidates', 'building_candidates', 'building', true, true),
-    (40, 'landuse', 'staging_landuse_candidates', 'landuse_candidates', 'landuse', false, true),
+    (40, 'landuse', 'staging_landuse_candidates', 'land_area_candidates', 'landuse', false, true),
     (50, 'water_lines', 'staging_water_line_candidates', 'water_line_candidates', 'water_line', false, false),
     (60, 'water_polygons', 'staging_water_polygon_candidates', 'water_polygon_candidates', 'water_polygon', false, false),
     (70, 'admin_areas', 'staging_admin_area_candidates', 'admin_area_candidates', 'admin_area', false, false),

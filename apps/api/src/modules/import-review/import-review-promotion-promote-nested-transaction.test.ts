@@ -10,7 +10,7 @@ import {
     type PublishItemValidationRow,
 } from "./import-review-promotion-execution.js";
 import { dedupePromotionFailureSamples } from "./import-review-promotion-failure.js";
-import { ImportReviewPromotionPromoteLanduseRepository } from "./import-review-promotion-promote-landuse.repo.js";
+import { ImportReviewPromotionPromoteLandAreasRepository } from "./import-review-promotion-promote-land-areas.repo.js";
 import { ImportReviewPromotionPromotePlacesRepository } from "./import-review-promotion-promote-places.repo.js";
 import { ImportReviewPromotionPromoteRepository } from "./import-review-promotion-promote.repo.js";
 import { ImportReviewPromotionPromoteRoutingBarriersRepository } from "./import-review-promotion-promote-routing-barriers.repo.js";
@@ -72,26 +72,25 @@ describe("promotion family repos avoid nested $transaction", () => {
         assert.equal(result.outcome, "inserted");
     });
 
-    it("insertLanduseTx does not call $transaction inside outer commit", async () => {
+    it("insertLandAreaTx does not call $transaction inside outer commit", async () => {
         const prisma = createMockPrisma({
             queryRaw: async (query) => {
                 const sql = query.join("?");
-                if (sql.includes("INSERT INTO core.core_map_landuse")) {
+                if (sql.includes("INSERT INTO core.core_land_areas")) {
                     return [
                         {
                             id: 2n,
                             external_id: "lu1",
-                            source_staging_id: null,
                             name: null,
                             class_code: "farmland",
-                            landuse_class_id: 1n,
+                            land_area_class_id: 1n,
                             detail_level: "basic",
                             crop_code: null,
                             candidate_id: 10n,
                         },
                     ];
                 }
-                if (sql.includes("landuse_candidates")) {
+                if (sql.includes("land_area_candidates")) {
                     return [
                         {
                             canonical_name: null,
@@ -108,8 +107,8 @@ describe("promotion family repos avoid nested $transaction", () => {
             },
             executeRaw: async () => 0,
         });
-        const repo = new ImportReviewPromotionPromoteLanduseRepository(prisma as never);
-        const result = await repo.insertLanduseTx(prisma as never, 18n, 2n);
+        const repo = new ImportReviewPromotionPromoteLandAreasRepository(prisma as never);
+        const result = await repo.insertLandAreaTx(prisma as never, 18n, 2n);
         assert.equal(prisma.$transactionCalled, false);
         assert.equal(result.outcome, "inserted");
     });
@@ -362,7 +361,7 @@ describe("promotion repo source has no nested $transaction", () => {
     it("family promote repos do not call prisma.$transaction", () => {
         for (const file of [
             "import-review-promotion-promote-places.repo.ts",
-            "import-review-promotion-promote-landuse.repo.ts",
+            "import-review-promotion-promote-land-areas.repo.ts",
             "import-review-promotion-promote-roads.repo.ts",
             "import-review-promotion-promote-admin-areas.repo.ts",
             "import-review-promotion-promote-map.repo.ts",

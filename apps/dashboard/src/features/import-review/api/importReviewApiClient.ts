@@ -198,9 +198,9 @@ export async function getReferenceOptions(
     params: GetImportReviewReferenceOptionsParams,
     fetchInit?: ImportReviewFetchInit
 ): Promise<ImportReviewReferenceOption[]> {
-    if (params.refSource === "ref_landuse_classes") {
+    if (params.refSource === "ref_land_area_classes") {
         const formOptions = await getImportReviewFormOptions(fetchInit);
-        return formOptions.landuse_classes.map((r) => ({
+        return formOptions.land_area_classes.map((r) => ({
             id: String(r.value),
             label: r.label,
             code: r.code ?? undefined,

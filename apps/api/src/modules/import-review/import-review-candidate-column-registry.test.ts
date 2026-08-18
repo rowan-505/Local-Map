@@ -4,14 +4,14 @@ import test from "node:test";
 import {
     effectiveAdminAreaIdExpr,
     ImportReviewCandidateColumnRegistry,
-    landuseClassCodeEffectiveExpr,
+    landAreaClassCodeEffectiveExpr,
 } from "./import-review-candidate-column-registry.js";
 
-test("landuse_candidates static registry has no admin_area_id column", async () => {
+test("land_area_candidates static registry has no admin_area_id column", async () => {
     const registry = new ImportReviewCandidateColumnRegistry({} as never);
-    const caps = await registry.getCapabilities("import_review.landuse_candidates");
+    const caps = await registry.getCapabilities("import_review.land_area_candidates");
     assert.equal(caps.hasAdminAreaIdColumn, false);
-    assert.equal(caps.hasLanduseClassIdColumn, true);
+    assert.equal(caps.hasLandAreaClassIdColumn, true);
 });
 
 test("building_candidates static registry has admin_area_id column", async () => {
@@ -59,8 +59,8 @@ test("effectiveAdminAreaIdExpr omits physical column when unavailable", () => {
     assert.match(withoutColumn, /normalized_data/);
 });
 
-test("landuseClassCodeEffectiveExpr uses class_code and overrides only", () => {
-    const expr = landuseClassCodeEffectiveExpr("l").strings.join("?");
+test("landAreaClassCodeEffectiveExpr uses class_code and overrides only", () => {
+    const expr = landAreaClassCodeEffectiveExpr("l").strings.join("?");
     assert.match(expr, /l\.class_code/);
     assert.doesNotMatch(expr, /admin_area_id/);
 });

@@ -44,6 +44,23 @@ Tests: `./tools/data-pipeline/tests/database_target_safety_tests.sh`
 
 Never send `pmtiles_only` to Import Review or direct-Core.
 
+### Land-area classification
+
+Authoritative path:
+
+`core.core_land_areas.land_area_class_id` → `ref.ref_land_area_classes.id` → `ref.ref_land_area_classes.code`
+
+OSM imports must normalize tags to a stable CoreMap class code, resolve the ref id, then write `land_area_class_id`.  
+`core.core_land_areas.class_code` is a **deprecated** compatibility mirror of `ref.code` only — not the source of truth for tiles, search, API category, or new imports.
+
+### Protected areas (overlay)
+
+Protected areas are **not** land cover and **not** ordinary parks. They live in:
+
+`core.core_protected_areas.protected_area_class_id` → `ref.ref_protected_area_classes`
+
+OSM `protect_class` / `designation` / `protection_title` stay in `source_tags`. Do not fold them into `core_land_areas`.
+
 ## National apply rules
 
 1. One entity family per apply. Never multi-family national apply.

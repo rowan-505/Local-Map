@@ -81,7 +81,7 @@ VALUES
         true, true, true, true, true
     ),
     (
-        'core_map_buildings', 'buildings', true, true,
+        'core_buildings', 'buildings', true, true,
         ARRAY[
             'id', 'public_id', 'external_id', 'source_refs',
             'name', 'building_type_id', 'admin_area_id', 'geom', 'centroid',
@@ -105,40 +105,40 @@ VALUES
         false, true, true, true, true
     ),
     (
-        'core_map_landuse', 'landuse', false, true,
+        'core_land_areas', 'landuse', false, true,
         ARRAY[
             'id', 'public_id', 'external_id', 'source_refs',
-            'name', 'class_code', 'admin_area_id', 'geom', 'centroid',
+            'name', 'land_area_class_id', 'admin_area_id', 'geom', 'centroid',
             'manual_override', 'is_verified', 'verification_status',
             'deleted_at', 'updated_at', 'created_at'
         ],
         'geom',
         ARRAY['name'],
-        ARRAY['class_code'],
+        ARRAY['land_area_class_id'],
         true, true, true, true, true
     ),
     (
-        'core_map_water_lines', 'water_lines', false, true,
+        'core_water_lines', 'water_lines', false, true,
         ARRAY[
             'id', 'public_id', 'external_id', 'source_refs',
-            'name', 'class_code', 'geom',
+            'name', 'water_class_id', 'geom',
             'is_verified', 'verification_status', 'deleted_at', 'updated_at', 'created_at'
         ],
         'geom',
         ARRAY['name'],
-        ARRAY['class_code'],
+        ARRAY['water_class_id'],
         false, true, true, true, true
     ),
     (
-        'core_map_water_polygons', 'water_polygons', false, true,
+        'core_water_polygons', 'water_polygons', false, true,
         ARRAY[
             'id', 'public_id', 'external_id', 'source_refs',
-            'name', 'class_code', 'geom',
+            'name', 'water_class_id', 'geom',
             'is_verified', 'verification_status', 'deleted_at', 'updated_at', 'created_at'
         ],
         'geom',
         ARRAY['name'],
-        ARRAY['class_code'],
+        ARRAY['water_class_id'],
         false, true, true, true, true
     ),
     (

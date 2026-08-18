@@ -11,7 +11,7 @@ const dashboardRoutes: FastifyPluginAsync = async (app) => {
     app.get(
         "/dashboard/stats",
         {
-            preHandler: app.authenticate,
+            preHandler: [app.authenticate, app.requireDashboardAccess],
             schema: getDashboardStatsSchema,
         },
         async (request, reply) => {

@@ -37,11 +37,11 @@ CREATE TEMP TABLE prod_mirror_validation_manifest (
 INSERT INTO prod_mirror_validation_manifest VALUES
     ('core_places', true, true, true, false, true, true, true),
     ('core_streets', true, true, true, true, true, true, true),
-    ('core_map_buildings', true, true, true, false, true, true, true),
+    ('core_buildings', true, true, true, false, true, true, true),
     ('core_admin_areas', false, true, true, false, true, true, true),
-    ('core_map_landuse', false, true, true, true, true, true, true),
-    ('core_map_water_lines', false, true, true, false, true, true, true),
-    ('core_map_water_polygons', false, true, true, false, true, true, true),
+    ('core_land_areas', false, true, true, true, true, true, true),
+    ('core_water_lines', false, true, true, false, true, true, true),
+    ('core_water_polygons', false, true, true, false, true, true, true),
     ('core_addresses', false, true, false, true, true, true, true),
     ('core_place_names', false, true, false, false, false, false, false),
     ('core_street_names', false, true, false, false, false, false, false),
@@ -309,8 +309,8 @@ HAVING count(*) > 1
 ORDER BY cnt DESC, external_id
 LIMIT 20;
 
-SELECT 'dup_sample' AS section, 'core_map_buildings' AS table_name, external_id, count(*)::bigint AS cnt
-FROM prod_mirror.core_map_buildings
+SELECT 'dup_sample' AS section, 'core_buildings' AS table_name, external_id, count(*)::bigint AS cnt
+FROM prod_mirror.core_buildings
 WHERE external_id IS NOT NULL AND btrim(external_id) <> ''
 GROUP BY external_id
 HAVING count(*) > 1

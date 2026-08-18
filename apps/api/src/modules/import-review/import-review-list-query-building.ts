@@ -36,7 +36,7 @@ export function buildBuildingLightweightListExtensionSelect(
     return Prisma.sql`
         , ${shapeColumn(config, "building_type", "text")} AS building_type
         , ${effectiveBuildingTypeIdExpr(config)} AS building_type_id
-        , NULL::bigint AS landuse_class_id
+        , NULL::bigint AS land_area_class_id
         , ${effectiveAdminAreaIdExpr(alias)} AS admin_area_id
         , ${shapeColumn(config, "levels", "int")} AS levels
         , ${shapeColumn(config, "height_m", "numeric")} AS height_m

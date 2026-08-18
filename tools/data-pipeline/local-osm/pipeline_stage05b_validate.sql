@@ -43,6 +43,7 @@ BEGIN
                 ('places', 'place', 'staging_place_candidates'),
                 ('buildings', 'building', 'staging_building_candidates'),
                 ('landuse', 'landuse', 'staging_landuse_candidates'),
+                ('protected_areas', 'protected_area', 'staging_protected_area_candidates'),
                 ('water_lines', 'water_line', 'staging_water_line_candidates'),
                 ('water_polygons', 'water_polygon', 'staging_water_polygon_candidates'),
                 ('admin_areas', 'admin_area', 'staging_admin_area_candidates'),
@@ -124,6 +125,20 @@ BEGIN
               AND column_name = 'place_class_id'
         ) THEN
             v_class_id_expr := 's2.place_class_id';
+        ELSIF r.entity_family = 'landuse' AND EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = v_staging_schema
+              AND table_name = r.table_name
+              AND column_name = 'land_area_class_id'
+        ) THEN
+            v_class_id_expr := 's2.land_area_class_id';
+        ELSIF r.entity_family = 'protected_areas' AND EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = v_staging_schema
+              AND table_name = r.table_name
+              AND column_name = 'protected_area_class_id'
+        ) THEN
+            v_class_id_expr := 's2.protected_area_class_id';
         ELSE
             v_class_id_expr := 'NULL::bigint';
         END IF;

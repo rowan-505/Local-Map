@@ -366,14 +366,14 @@ export const importReviewBuildingItemSchema = {
         building_type_id: { type: "string", nullable: true },
         building_type_code: { type: "string", nullable: true },
         building_type_name: { type: "string", nullable: true },
-        landuse_class_id: {
+        land_area_class_id: {
             type: "string",
             nullable: true,
-            description: "Landuse list/patch only — effective ref.ref_landuse_classes id.",
+            description: "Land areas list/patch only — effective ref.ref_land_area_classes id.",
         },
-        landuse_class_code: { type: "string", nullable: true },
-        landuse_class_name: { type: "string", nullable: true },
-        landuse_class_name_mm: { type: "string", nullable: true },
+        land_area_class_code: { type: "string", nullable: true },
+        land_area_class_name: { type: "string", nullable: true },
+        land_area_class_name_mm: { type: "string", nullable: true },
         category_id: {
             type: "string",
             nullable: true,
@@ -505,7 +505,7 @@ export const importReviewBuildingItemSchema = {
         effective_stop_code: { type: "string", nullable: true },
         effective_canonical_name: { type: "string", nullable: true },
         effective_class_code: { type: "string", nullable: true },
-        effective_landuse_class_id: { type: "string", nullable: true },
+        effective_land_area_class_id: { type: "string", nullable: true },
         effective_admin_area_id: { type: "string", nullable: true },
         effective_admin_area_name: { type: "string", nullable: true },
         admin_area_name: {
@@ -4143,7 +4143,7 @@ export const postImportReviewPromotionBatchPromoteSchema = {
     tags: [Tags.ImportReview],
     summary: "Promote validated publish batch to core (buildings and places)",
     description:
-        "Writes approved building and place candidates to core.core_map_buildings and core.core_places (including place names and sources). Returns 202 immediately; poll progress and logs endpoints.",
+        "Writes approved building and place candidates to core.core_buildings and core.core_places (including place names and sources). Returns 202 immediately; poll progress and logs endpoints.",
     security: [...bearerAuth],
     params: {
         type: "object",
@@ -4902,7 +4902,7 @@ export const getImportReviewFormOptionsSchema = {
                 "road_classes",
                 "poi_categories",
                 "building_types",
-                "landuse_classes",
+                "land_area_classes",
                 "waterway_classes",
                 "water_classes",
                 "barrier_types",
@@ -4914,7 +4914,7 @@ export const getImportReviewFormOptionsSchema = {
                 road_classes: { type: "array", items: importReviewFormOptionItemSchema },
                 poi_categories: { type: "array", items: importReviewPoiCategoryFormOptionSchema },
                 building_types: { type: "array", items: importReviewFormOptionItemSchema },
-                landuse_classes: { type: "array", items: importReviewFormOptionItemSchema },
+                land_area_classes: { type: "array", items: importReviewFormOptionItemSchema },
                 waterway_classes: { type: "array", items: importReviewFormOptionItemSchema },
                 water_classes: { type: "array", items: importReviewFormOptionItemSchema },
                 barrier_types: { type: "array", items: importReviewFormOptionItemSchema },

@@ -58,7 +58,7 @@ export type AdminAreaAtPointRow = {
     match_type: string;
 };
 
-export type LanduseAtPointRow = {
+export type LandAreaAtPointRow = {
     id: bigint;
     public_id: string;
     name: string | null;
@@ -174,7 +174,7 @@ export class ReverseAddressRepository {
     }
 
     async findBuildingAtPoint(point: ClickPoint): Promise<BuildingAtPointRow | null> {
-        if (!(await this.tableExists("core.core_map_buildings"))) {
+        if (!(await this.tableExists("core.core_buildings"))) {
             return null;
         }
         const click = this.clickSql(point);
@@ -207,7 +207,7 @@ export class ReverseAddressRepository {
                 COALESCE(
                     (
                         SELECT n.name
-                        FROM core.core_map_building_names AS n
+                        FROM core.core_building_names AS n
                         WHERE n.building_id = b.id
                           AND nullif(btrim(n.name), '') IS NOT NULL
                         ORDER BY
@@ -222,12 +222,12 @@ export class ReverseAddressRepository {
                             n.id ASC
                         LIMIT 1
                     ),
-                    -- deprecated: legacy core_map_buildings.name
+                    -- deprecated: legacy core_buildings.name
                     NULLIF(btrim(b.name), '')
                 ) AS name,
                 a.id AS linked_address_id,
                 a.public_id::text AS linked_address_public_id
-            FROM core.core_map_buildings AS b
+            FROM core.core_buildings AS b
             CROSS JOIN click
             ${linkJoin}
             WHERE b.deleted_at IS NULL
@@ -415,12 +415,12 @@ export class ReverseAddressRepository {
         return rows[0] ?? null;
     }
 
-    async findLanduseAtPoint(point: ClickPoint): Promise<LanduseAtPointRow | null> {
-        if (!(await this.tableExists("core.core_map_landuse"))) {
+    async findLandAreaAtPoint(point: ClickPoint): Promise<LandAreaAtPointRow | null> {
+        if (!(await this.tableExists("core.core_land_areas"))) {
             return null;
         }
         const click = this.clickSql(point);
-        const rows = await this.prisma.$queryRaw<LanduseAtPointRow[]>`
+        const rows = await this.prisma.$queryRaw<LandAreaAtPointRow[]>`
             WITH click AS (SELECT ${click}::geometry(Point, 4326) AS geom)
             SELECT
                 lu.id,
@@ -428,9 +428,9 @@ export class ReverseAddressRepository {
                 lu.name,
                 lc.code AS class_code,
                 lc.name AS class_name
-            FROM core.core_map_landuse AS lu
+            FROM core.core_land_areas AS lu
             CROSS JOIN click
-            LEFT JOIN ref.ref_landuse_classes AS lc ON lc.id = lu.landuse_class_id
+            LEFT JOIN ref.ref_land_area_classes AS lc ON lc.id = lu.land_area_class_id
             WHERE lu.deleted_at IS NULL
               AND lu.geom IS NOT NULL
               AND NOT ST_IsEmpty(lu.geom)

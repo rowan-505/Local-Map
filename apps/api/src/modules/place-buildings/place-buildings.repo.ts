@@ -59,7 +59,7 @@ export class PlaceBuildingsRepository {
     ): Promise<bigint | null> {
         const rows = await db.$queryRaw<{ id: bigint }[]>(Prisma.sql`
             SELECT b.id
-            FROM core.core_map_buildings AS b
+            FROM core.core_buildings AS b
             WHERE b.public_id = CAST(${buildingPublicId} AS uuid)
               AND b.deleted_at IS NULL
               AND b.is_active IS TRUE
@@ -74,7 +74,7 @@ export class PlaceBuildingsRepository {
     ): Promise<bigint | null> {
         const rows = await db.$queryRaw<{ id: bigint }[]>(Prisma.sql`
             SELECT b.id
-            FROM core.core_map_buildings AS b
+            FROM core.core_buildings AS b
             WHERE b.public_id = CAST(${buildingPublicId} AS uuid)
             LIMIT 1
         `);
@@ -117,7 +117,7 @@ export class PlaceBuildingsRepository {
             FROM core.core_places AS p
             INNER JOIN core.core_place_buildings AS pb
                 ON pb.place_id = p.id
-            INNER JOIN core.core_map_buildings AS b
+            INNER JOIN core.core_buildings AS b
                 ON b.id = pb.building_id
             LEFT JOIN ref.ref_building_types AS bt ON bt.id = b.building_type_id
             LEFT JOIN core.core_admin_areas AS aa ON aa.id = b.admin_area_id
@@ -141,7 +141,7 @@ export class PlaceBuildingsRepository {
                 p.lat::double precision AS place_lat,
                 p.lng::double precision AS place_lng,
                 c.name AS category_name
-            FROM core.core_map_buildings AS b
+            FROM core.core_buildings AS b
             INNER JOIN core.core_place_buildings AS pb
                 ON pb.building_id = b.id
             INNER JOIN core.core_places AS p
@@ -198,7 +198,7 @@ export class PlaceBuildingsRepository {
                     aa.canonical_name AS building_admin_area_canonical_name,
                     aa.slug AS building_admin_area_slug
                 FROM core.core_place_buildings AS pb
-                INNER JOIN core.core_map_buildings AS b
+                INNER JOIN core.core_buildings AS b
                     ON b.id = pb.building_id
                 LEFT JOIN ref.ref_building_types AS bt ON bt.id = b.building_type_id
                 LEFT JOIN core.core_admin_areas AS aa ON aa.id = b.admin_area_id
@@ -215,7 +215,7 @@ export class PlaceBuildingsRepository {
         const result = await this.prisma.$executeRaw(Prisma.sql`
             DELETE FROM core.core_place_buildings AS pb
             USING core.core_places AS p,
-                  core.core_map_buildings AS b
+                  core.core_buildings AS b
             WHERE pb.place_id = p.id
               AND pb.building_id = b.id
               AND p.public_id = CAST(${placePublicId} AS uuid)
@@ -239,7 +239,7 @@ export class PlaceBuildingsRepository {
                 SELECT pb.place_id, pb.building_id
                 FROM core.core_place_buildings AS pb
                 INNER JOIN core.core_places AS p ON p.id = pb.place_id
-                INNER JOIN core.core_map_buildings AS b ON b.id = pb.building_id
+                INNER JOIN core.core_buildings AS b ON b.id = pb.building_id
                 WHERE p.public_id = CAST(${placePublicId} AS uuid)
                   AND p.deleted_at IS NULL
                   AND b.public_id = CAST(${buildingPublicId} AS uuid)
@@ -311,7 +311,7 @@ export class PlaceBuildingsRepository {
                     aa.canonical_name AS building_admin_area_canonical_name,
                     aa.slug AS building_admin_area_slug
                 FROM core.core_place_buildings AS pb
-                INNER JOIN core.core_map_buildings AS b
+                INNER JOIN core.core_buildings AS b
                     ON b.id = pb.building_id
                 LEFT JOIN ref.ref_building_types AS bt ON bt.id = b.building_type_id
                 LEFT JOIN core.core_admin_areas AS aa ON aa.id = b.admin_area_id

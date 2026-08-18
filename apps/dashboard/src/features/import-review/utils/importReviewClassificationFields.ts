@@ -34,7 +34,7 @@ function firstNonEmpty(...values: Array<string | null | undefined>): string | nu
 const CLASS_TAG_KEYS: Partial<Record<string, readonly string[]>> = {
     water_lines: ["waterway"],
     water_polygons: ["water", "natural"],
-    landuse: ["landuse", "amenity", "natural"],
+    land_areas: ["landuse", "amenity", "natural"],
 };
 
 /** Imported class/type from column, normalized_data tags, or root keys (no fields). */

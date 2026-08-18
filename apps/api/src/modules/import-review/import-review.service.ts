@@ -243,7 +243,8 @@ function toEffectiveRawRow(row: BuildingListRowDb): EffectiveValuesRawRow {
         canonical_name: row.canonical_name,
         class_code: row.class_code,
         admin_area_id: row.admin_area_id,
-        landuse_class_id: row.landuse_class_id,
+        land_area_class_id: row.land_area_class_id,
+        water_class_id: row.water_class_id ?? null,
         levels: row.levels,
         height_m: row.height_m,
         normalized_data: row.normalized_data,
@@ -286,10 +287,11 @@ function mapBuildingRow(
         building_type_id: bigStr(row.building_type_id),
         building_type_code: row.building_type_code ?? null,
         building_type_name: row.building_type_name ?? null,
-        landuse_class_id: bigStr(row.landuse_class_id),
-        landuse_class_code: row.landuse_class_code ?? null,
-        landuse_class_name: row.landuse_class_name ?? null,
-        landuse_class_name_mm: row.landuse_class_name_mm ?? null,
+        land_area_class_id: bigStr(row.land_area_class_id),
+        land_area_class_code: row.land_area_class_code ?? null,
+        land_area_class_name: row.land_area_class_name ?? null,
+        land_area_class_name_mm: row.land_area_class_name_mm ?? null,
+        water_class_id: bigStr(row.water_class_id ?? null),
         admin_area_id: bigStr(row.admin_area_id),
         levels: row.levels,
         height_m: numOrNull(row.height_m),
@@ -1884,13 +1886,25 @@ export class ImportReviewService {
             }
         }
 
-        if (Object.prototype.hasOwnProperty.call(patch, "landuse_class_id")) {
-            const id = parseId(patch.landuse_class_id);
+        if (Object.prototype.hasOwnProperty.call(patch, "land_area_class_id")) {
+            const id = parseId(patch.land_area_class_id);
             if (id !== null) {
-                const refRow = await this.referenceOptionsRepo.getActiveLanduseClassById(id);
+                const refRow = await this.referenceOptionsRepo.getActiveLandAreaClassById(id);
                 if (refRow === null) {
                     throw new ImportReviewDecisionRuleError(
-                        `Unknown or inactive landuse_class_id=${id.toString()} (must match ref.ref_landuse_classes where is_active = true).`
+                        `Unknown or inactive land_area_class_id=${id.toString()} (must match ref.ref_land_area_classes where is_active = true).`
+                    );
+                }
+            }
+        }
+
+        if (Object.prototype.hasOwnProperty.call(patch, "water_class_id")) {
+            const id = parseId(patch.water_class_id);
+            if (id !== null) {
+                const refRow = await this.referenceOptionsRepo.getActiveWaterClassById(id);
+                if (refRow === null) {
+                    throw new ImportReviewDecisionRuleError(
+                        `Unknown or inactive water_class_id=${id.toString()} (must match ref.ref_water_classes where is_active = true).`
                     );
                 }
             }

@@ -1,6 +1,6 @@
 import type { CoreEntityConfig } from "./types";
 import { BUILDINGS_ENTITY_CONFIG } from "./buildings";
-import { LANDUSE_ENTITY_CONFIG } from "./landuse";
+import { LAND_AREAS_ENTITY_CONFIG } from "./land-areas";
 import { PLACES_ENTITY_CONFIG } from "./places";
 import { STREETS_ENTITY_CONFIG } from "./streets";
 import {
@@ -18,7 +18,7 @@ export type {
     CoreEntityKey,
 } from "./types";
 export { BUILDINGS_ENTITY_CONFIG } from "./buildings";
-export { LANDUSE_ENTITY_CONFIG } from "./landuse";
+export { LAND_AREAS_ENTITY_CONFIG } from "./land-areas";
 export { PLACES_ENTITY_CONFIG } from "./places";
 export { STREETS_ENTITY_CONFIG } from "./streets";
 export {
@@ -32,7 +32,7 @@ export const CORE_ENTITY_CONFIGS = {
     buildings: BUILDINGS_ENTITY_CONFIG,
     places: PLACES_ENTITY_CONFIG,
     streets: STREETS_ENTITY_CONFIG,
-    landuse: LANDUSE_ENTITY_CONFIG,
+    "land-areas": LAND_AREAS_ENTITY_CONFIG,
     "water-lines": WATER_LINES_ENTITY_CONFIG,
     "water-polygons": WATER_POLYGONS_ENTITY_CONFIG,
     addresses: ADDRESSES_ENTITY_CONFIG,

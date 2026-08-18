@@ -159,7 +159,7 @@ export default function StatsPage() {
                         <StatsCard
                             title="Map buildings"
                             value={main.map_buildings}
-                            description="core.core_map_buildings"
+                            description="core.core_buildings"
                         />
                         <StatsCard title="Streets" value={main.streets} description="core.core_streets" />
                         <StatsCard

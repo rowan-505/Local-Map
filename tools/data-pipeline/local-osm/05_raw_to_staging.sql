@@ -106,6 +106,7 @@ VALUES (
 \ir pipeline_source_identity.sql
 \ir pipeline_tmp_import_mode.sql
 \ir pipeline_settlements.sql
+\ir pipeline_osm_category_normalize.sql
 -- pipeline_township_assignment.sql retired: required local core.* and local admin IDs.
 -- Township assign for IR uses Stage 08c + pipeline_prod_admin_assign.sql (prod_mirror).
 
@@ -273,7 +274,9 @@ WITH required_targets(entity_family, table_name) AS (
         ('road_name', 'staging_road_name_candidates'),
         ('building', 'staging_building_candidates'),
         ('landuse', 'staging_landuse_candidates'),
+        ('protected_area', 'staging_protected_area_candidates'),
         ('water_line', 'staging_water_line_candidates'),
+        ('coastline', 'staging_coastline_candidates'),
         ('water_polygon', 'staging_water_polygon_candidates'),
         ('admin_area', 'staging_admin_area_candidates'),
         ('admin_area_name', 'staging_admin_area_name_candidates'),
@@ -1944,7 +1947,7 @@ BEGIN
     has_barrier := to_regclass(format('%I.staging_routing_barrier_candidates', v_staging_schema)) IS NOT NULL;
 
     IF NOT pg_temp.pipeline_stage05_extraction_any_enabled(ARRAY[
-        'road', 'road_name', 'routing_road', 'water_line', 'search_name', 'routing_barrier'
+        'road', 'road_name', 'routing_road', 'water_line', 'coastline', 'search_name', 'routing_barrier'
     ]) THEN
         INSERT INTO stage05_report VALUES (
             'line_extraction', 'all', NULL, 'skipped', 0, 'SKIP',
@@ -2396,17 +2399,21 @@ BEGIN
     END IF;
 
     -- ---------------------------------------------------------------------
-    -- D. Water line candidates.
+    -- D0. Coastline candidates (natural=coastline; before waterway lines).
     -- ---------------------------------------------------------------------
     q := format(
-        'SELECT count(*)::bigint FROM %I.raw_osm_lines WHERE source_snapshot_id = $1 AND geom IS NOT NULL AND tags ? ''waterway''',
+        $q$
+        SELECT count(*)::bigint FROM %I.raw_osm_lines
+        WHERE source_snapshot_id = $1 AND geom IS NOT NULL
+          AND system.pipeline_is_coastline_tags(tags)
+        $q$,
         v_raw_schema
     );
     EXECUTE q INTO v_available USING v_source_snapshot_id;
 
-    IF NOT pg_temp.pipeline_stage05_extraction_enabled('water_line') THEN
-        INSERT INTO stage05_report VALUES ('line_extraction', 'water_line', format('%s.staging_water_line_candidates', v_staging_schema), 'inserted_rows', 0, 'SKIP', 'ENTITY_FAMILIES filter excludes water_lines.');
-    ELSIF has_water_line THEN
+    IF NOT pg_temp.pipeline_stage05_extraction_enabled('coastline') THEN
+        INSERT INTO stage05_report VALUES ('line_extraction', 'coastline', format('%s.staging_coastline_candidates', v_staging_schema), 'inserted_rows', 0, 'SKIP', 'ENTITY_FAMILIES filter excludes coastlines.');
+    ELSIF to_regclass(format('%I.staging_coastline_candidates', v_staging_schema)) IS NOT NULL THEN
         q := format(
             $q$
             WITH src AS (
@@ -2416,35 +2423,21 @@ BEGIN
                 FROM %I.raw_osm_lines AS raw
                 WHERE raw.source_snapshot_id = $1
                   AND raw.geom IS NOT NULL
-                  AND raw.tags ? 'waterway'
+                  AND system.pipeline_is_coastline_tags(raw.tags)
             ),
             inserted AS (
-                INSERT INTO %I.staging_water_line_candidates (
-                    source_snapshot_id,
-                    raw_id,
-                    external_id,
-                    canonical_name,
-                    class_code,
-                    normalized_data,
-                    source_refs,
-                    confidence_score,
-                    match_status,
-                    auto_action,
-                    review_status,
-                    geom
+                INSERT INTO %I.staging_coastline_candidates (
+                    source_snapshot_id, raw_id, external_id, canonical_name, class_code,
+                    normalized_data, source_refs, confidence_score, match_status, auto_action, review_status, geom
                 )
                 SELECT
-                    $1,
-                    src.id,
-                    src.external_id,
-                    nullif(src.tags->>'name', ''),
-                    src.tags->>'waterway',
+                    $1, src.id, src.external_id, nullif(btrim(src.tags->>'name'), ''), 'coastline',
                     jsonb_build_object(
                         'tags', coalesce(src.tags, '{}'::jsonb),
-                        'waterway', src.tags->>'waterway',
+                        'natural', src.tags->>'natural',
                         'name', src.tags->>'name',
-                        'tunnel', src.tags->>'tunnel',
-                        'intermittent', src.tags->>'intermittent'
+                        'name_en', nullif(btrim(src.tags->>'name:en'), ''),
+                        'name_mm', nullif(btrim(coalesce(src.tags->>'name:my', src.tags->>'name:mm', src.tags->>'name:my-MM')), '')
                     ),
                     jsonb_build_object(
                         'source_snapshot_id', $1,
@@ -2455,28 +2448,133 @@ BEGIN
                         'osm_id', src.osm_id,
                         'osm_feature_type', src.osm_feature_type
                     ),
-                    CASE WHEN src.tags ? 'name' THEN 75 ELSE 60 END,
-                    'new_candidate',
-                    NULL,
-                    'pending',
-                    src.geom
+                    CASE WHEN src.tags ? 'name' THEN 75 ELSE 70 END,
+                    'new_candidate', NULL, 'pending', src.geom
                 FROM src
                 WHERE NOT EXISTS (
-                    SELECT 1
-                    FROM %I.staging_water_line_candidates AS existing
-                    WHERE existing.source_snapshot_id = $1
-                      AND existing.external_id = src.external_id
+                    SELECT 1 FROM %I.staging_coastline_candidates existing
+                    WHERE existing.source_snapshot_id = $1 AND existing.external_id = src.external_id
                 )
                 RETURNING 1
             )
             SELECT count(*)::bigint FROM inserted
             $q$,
-            v_raw_schema,
-            v_staging_schema,
-            v_staging_schema
+            v_raw_schema, v_staging_schema, v_staging_schema
         );
         EXECUTE q INTO v_inserted USING v_source_snapshot_id, v_snapshot_version, v_region_code;
-        INSERT INTO stage05_report VALUES ('line_extraction', 'water_line', format('%s.staging_water_line_candidates', v_staging_schema), 'inserted_rows', v_inserted, 'PASS', format('available_rows=%s', v_available));
+        INSERT INTO stage05_report VALUES ('line_extraction', 'coastline', format('%s.staging_coastline_candidates', v_staging_schema), 'inserted_rows', v_inserted, 'PASS', format('raw_candidates=%s', v_available));
+    ELSE
+        INSERT INTO stage05_report VALUES ('line_extraction', 'coastline', format('%s.staging_coastline_candidates', v_staging_schema), 'available_rows', v_available, 'WARN', 'Target table missing; apply local migration 016.');
+    END IF;
+
+    -- ---------------------------------------------------------------------
+    -- D. Water line candidates (waterway=*; exclude coastline).
+    -- ---------------------------------------------------------------------
+    q := format(
+        $q$
+        SELECT count(*)::bigint FROM %I.raw_osm_lines
+        WHERE source_snapshot_id = $1 AND geom IS NOT NULL
+          AND tags ? 'waterway'
+          AND NOT system.pipeline_is_coastline_tags(tags)
+        $q$,
+        v_raw_schema
+    );
+    EXECUTE q INTO v_available USING v_source_snapshot_id;
+
+    IF NOT pg_temp.pipeline_stage05_extraction_enabled('water_line') THEN
+        INSERT INTO stage05_report VALUES ('line_extraction', 'water_line', format('%s.staging_water_line_candidates', v_staging_schema), 'inserted_rows', 0, 'SKIP', 'ENTITY_FAMILIES filter excludes water_lines.');
+    ELSIF has_water_line THEN
+        EXECUTE format(
+            'ALTER TABLE %I.staging_water_line_candidates ADD COLUMN IF NOT EXISTS water_class_id bigint',
+            v_staging_schema
+        );
+
+        IF to_regclass(format('%I.staging_osm_unmapped_tags', v_staging_schema)) IS NOT NULL THEN
+            EXECUTE format(
+                'DELETE FROM %I.staging_osm_unmapped_tags WHERE source_snapshot_id = $1 AND entity_family = ''water_lines''',
+                v_staging_schema
+            ) USING v_source_snapshot_id;
+            q := format(
+                $q$
+                INSERT INTO %I.staging_osm_unmapped_tags (
+                    source_snapshot_id, entity_family, osm_feature_type, osm_id, external_id,
+                    tag_key, tag_value, reason, tags
+                )
+                SELECT
+                    $1, 'water_lines', raw.osm_feature_type, NULLIF(btrim(raw.osm_id), '')::bigint,
+                    system.pipeline_osm_external_id(raw.osm_feature_type, raw.osm_id),
+                    'waterway', raw.tags->>'waterway', 'unmapped_water_class', coalesce(raw.tags, '{}'::jsonb)
+                FROM %I.raw_osm_lines AS raw
+                WHERE raw.source_snapshot_id = $1
+                  AND raw.geom IS NOT NULL
+                  AND raw.tags ? 'waterway'
+                  AND NOT system.pipeline_is_coastline_tags(raw.tags)
+                  AND system.pipeline_normalize_water_class(raw.tags, 'line') IS NULL
+                $q$,
+                v_staging_schema, v_raw_schema
+            );
+            EXECUTE q USING v_source_snapshot_id;
+            GET DIAGNOSTICS v_inserted = ROW_COUNT;
+            INSERT INTO stage05_report VALUES ('normalization', 'water_line', format('%s.staging_osm_unmapped_tags', v_staging_schema), 'unmapped_rows', v_inserted, 'PASS', format('raw_candidates=%s', v_available));
+        END IF;
+
+        q := format(
+            $q$
+            WITH raw_src AS (
+                SELECT
+                    raw.*,
+                    system.pipeline_osm_external_id(raw.osm_feature_type, raw.osm_id) AS external_id,
+                    system.pipeline_normalize_water_class(raw.tags, 'line') AS class_code
+                FROM %I.raw_osm_lines AS raw
+                WHERE raw.source_snapshot_id = $1
+                  AND raw.geom IS NOT NULL
+                  AND raw.tags ? 'waterway'
+                  AND NOT system.pipeline_is_coastline_tags(raw.tags)
+            ),
+            src AS (
+                SELECT r.*, wc.id AS water_class_id
+                FROM raw_src AS r
+                INNER JOIN ref.ref_water_classes AS wc
+                    ON wc.code = r.class_code AND wc.is_active
+                WHERE r.class_code IS NOT NULL
+            ),
+            inserted AS (
+                INSERT INTO %I.staging_water_line_candidates (
+                    source_snapshot_id, raw_id, external_id, canonical_name, class_code, water_class_id,
+                    normalized_data, source_refs, confidence_score, match_status, auto_action, review_status, geom
+                )
+                SELECT
+                    $1, src.id, src.external_id, nullif(src.tags->>'name', ''), src.class_code, src.water_class_id,
+                    jsonb_build_object(
+                        'tags', coalesce(src.tags, '{}'::jsonb),
+                        'waterway', src.tags->>'waterway',
+                        'water_class', src.class_code,
+                        'name', src.tags->>'name',
+                        'name_en', nullif(btrim(src.tags->>'name:en'), ''),
+                        'name_mm', nullif(btrim(coalesce(src.tags->>'name:my', src.tags->>'name:mm', src.tags->>'name:my-MM')), ''),
+                        'tunnel', src.tags->>'tunnel',
+                        'intermittent', src.tags->>'intermittent'
+                    ),
+                    jsonb_build_object(
+                        'source_snapshot_id', $1, 'snapshot_version', $2, 'region_code', $3,
+                        'raw_table', 'raw_osm_lines', 'raw_id', src.id,
+                        'osm_id', src.osm_id, 'osm_feature_type', src.osm_feature_type
+                    ),
+                    CASE WHEN src.tags ? 'name' THEN 75 ELSE 60 END,
+                    'new_candidate', NULL, 'pending', src.geom
+                FROM src
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM %I.staging_water_line_candidates AS existing
+                    WHERE existing.source_snapshot_id = $1 AND existing.external_id = src.external_id
+                )
+                RETURNING 1
+            )
+            SELECT count(*)::bigint FROM inserted
+            $q$,
+            v_raw_schema, v_staging_schema, v_staging_schema
+        );
+        EXECUTE q INTO v_inserted USING v_source_snapshot_id, v_snapshot_version, v_region_code;
+        INSERT INTO stage05_report VALUES ('line_extraction', 'water_line', format('%s.staging_water_line_candidates', v_staging_schema), 'inserted_rows', v_inserted, 'PASS', format('raw_candidates=%s normalized_via=ref.ref_water_classes', v_available));
     ELSE
         INSERT INTO stage05_report VALUES ('line_extraction', 'water_line', format('%s.staging_water_line_candidates', v_staging_schema), 'available_rows', v_available, 'WARN', 'Target table missing; skipped water line extraction.');
     END IF;
@@ -3230,6 +3328,7 @@ DECLARE
     has_address boolean;
     has_address_component boolean;
     has_landuse boolean;
+    has_protected_area boolean;
     has_water_polygon boolean;
     has_admin_area boolean;
     has_admin_area_name boolean;
@@ -3248,6 +3347,7 @@ BEGIN
     has_address := to_regclass(format('%I.staging_address_candidates', v_staging_schema)) IS NOT NULL;
     has_address_component := to_regclass(format('%I.staging_address_component_candidates', v_staging_schema)) IS NOT NULL;
     has_landuse := to_regclass(format('%I.staging_landuse_candidates', v_staging_schema)) IS NOT NULL;
+    has_protected_area := to_regclass(format('%I.staging_protected_area_candidates', v_staging_schema)) IS NOT NULL;
     has_water_polygon := to_regclass(format('%I.staging_water_polygon_candidates', v_staging_schema)) IS NOT NULL;
     has_admin_area := to_regclass(format('%I.staging_admin_area_candidates', v_staging_schema)) IS NOT NULL;
     has_admin_area_name := to_regclass(format('%I.staging_admin_area_name_candidates', v_staging_schema)) IS NOT NULL;
@@ -3255,8 +3355,8 @@ BEGIN
     has_barrier := to_regclass(format('%I.staging_routing_barrier_candidates', v_staging_schema)) IS NOT NULL;
 
     IF NOT pg_temp.pipeline_stage05_extraction_any_enabled(ARRAY[
-        'building', 'address', 'address_component', 'landuse', 'water_polygon',
-        'admin_area', 'admin_area_name', 'search_name', 'routing_barrier'
+        'building', 'address', 'address_component', 'landuse', 'protected_area',
+        'water_polygon', 'admin_area', 'admin_area_name', 'search_name', 'routing_barrier'
     ]) THEN
         INSERT INTO stage05_report VALUES (
             'polygon_extraction', 'all', NULL, 'skipped', 0, 'SKIP',
@@ -3683,13 +3783,16 @@ BEGIN
     END IF;
 
     -- ---------------------------------------------------------------------
-    -- D. Landuse candidates
+    -- D. Landuse / landcover / wetland candidates (normalized → CoreMap CODE)
+    -- Route priority: wetland → landuse → natural surface → leisure.
+    -- Water polygons are excluded (handled in section E).
     -- ---------------------------------------------------------------------
     q := format(
         $q$
         SELECT count(*)::bigint FROM %I.raw_osm_polygons
         WHERE source_snapshot_id = $1 AND geom IS NOT NULL
-          AND (tags ? 'landuse' OR tags->>'leisure' = 'park' OR tags->>'amenity' = 'grave_yard')
+          AND system.pipeline_is_land_area_candidate_tags(tags)
+          AND NOT system.pipeline_is_water_polygon_candidate_tags(tags)
         $q$,
         v_raw_schema
     );
@@ -3698,55 +3801,117 @@ BEGIN
     IF NOT pg_temp.pipeline_stage05_extraction_enabled('landuse') THEN
         INSERT INTO stage05_report VALUES ('polygon_extraction', 'landuse', format('%s.staging_landuse_candidates', v_staging_schema), 'inserted_rows', 0, 'SKIP', 'ENTITY_FAMILIES filter excludes landuse.');
     ELSIF has_landuse THEN
-        q := format(
-            $q$
-            WITH src AS (
-                SELECT raw.*, system.pipeline_osm_external_id(raw.osm_feature_type, raw.osm_id) AS external_id,
-                       coalesce(nullif(raw.tags->>'landuse',''), nullif(raw.tags->>'leisure',''), nullif(raw.tags->>'amenity','')) AS class_code
-                FROM %I.raw_osm_polygons AS raw
-                WHERE raw.source_snapshot_id = $1 AND raw.geom IS NOT NULL
-                  AND (raw.tags ? 'landuse' OR raw.tags->>'leisure' = 'park' OR raw.tags->>'amenity' = 'grave_yard')
-            ),
-            inserted AS (
-                INSERT INTO %I.staging_landuse_candidates (
-                    source_snapshot_id, raw_id, external_id, canonical_name, class_code,
-                    normalized_data, source_refs, confidence_score, match_status, auto_action, review_status, geom
+        EXECUTE format(
+            'ALTER TABLE %I.staging_landuse_candidates ADD COLUMN IF NOT EXISTS land_area_class_id bigint',
+            v_staging_schema
+        );
+
+        IF to_regclass(format('%I.staging_osm_unmapped_tags', v_staging_schema)) IS NOT NULL THEN
+            EXECUTE format(
+                'DELETE FROM %I.staging_osm_unmapped_tags WHERE source_snapshot_id = $1 AND entity_family = ''landuse''',
+                v_staging_schema
+            ) USING v_source_snapshot_id;
+            q := format(
+                $q$
+                INSERT INTO %I.staging_osm_unmapped_tags (
+                    source_snapshot_id, entity_family, osm_feature_type, osm_id, external_id,
+                    tag_key, tag_value, reason, tags
                 )
                 SELECT
-                    $1, src.id, src.external_id,
+                    $1, 'landuse', raw.osm_feature_type, NULLIF(btrim(raw.osm_id), '')::bigint,
+                    system.pipeline_osm_external_id(raw.osm_feature_type, raw.osm_id),
                     CASE
-                        WHEN nullif(btrim(src.tags->>'name'), '') IS NULL THEN NULL
-                        WHEN lower(btrim(src.tags->>'name')) = lower(btrim(src.class_code)) THEN NULL
-                        WHEN lower(btrim(src.tags->>'name')) IN (
+                        WHEN raw.tags ? 'landuse' THEN 'landuse'
+                        WHEN lower(coalesce(raw.tags->>'natural', '')) = 'wetland' THEN 'natural'
+                        WHEN raw.tags ? 'natural' THEN 'natural'
+                        WHEN raw.tags ? 'leisure' THEN 'leisure'
+                        WHEN raw.tags ? 'amenity' THEN 'amenity'
+                        ELSE 'tags'
+                    END,
+                    CASE
+                        WHEN raw.tags ? 'landuse' THEN raw.tags->>'landuse'
+                        WHEN lower(coalesce(raw.tags->>'natural', '')) = 'wetland'
+                            THEN coalesce(raw.tags->>'wetland', 'wetland')
+                        WHEN raw.tags ? 'natural' THEN raw.tags->>'natural'
+                        WHEN raw.tags ? 'leisure' THEN raw.tags->>'leisure'
+                        WHEN raw.tags ? 'amenity' THEN raw.tags->>'amenity'
+                        ELSE NULL
+                    END,
+                    'unmapped_land_area_class',
+                    coalesce(raw.tags, '{}'::jsonb)
+                FROM %I.raw_osm_polygons AS raw
+                WHERE raw.source_snapshot_id = $1
+                  AND raw.geom IS NOT NULL
+                  AND system.pipeline_is_land_area_candidate_tags(raw.tags)
+                  AND NOT system.pipeline_is_water_polygon_candidate_tags(raw.tags)
+                  AND system.pipeline_normalize_land_area_class(raw.tags) IS NULL
+                $q$,
+                v_staging_schema, v_raw_schema
+            );
+            EXECUTE q USING v_source_snapshot_id;
+            GET DIAGNOSTICS v_inserted = ROW_COUNT;
+            INSERT INTO stage05_report VALUES ('normalization', 'landuse', format('%s.staging_osm_unmapped_tags', v_staging_schema), 'unmapped_rows', v_inserted, 'PASS', format('raw_candidates=%s', v_available));
+        END IF;
+
+        q := format(
+            $q$
+            WITH raw_src AS (
+                SELECT
+                    raw.*,
+                    system.pipeline_osm_external_id(raw.osm_feature_type, raw.osm_id) AS external_id,
+                    system.pipeline_normalize_land_area_class(raw.tags) AS class_code
+                FROM %I.raw_osm_polygons AS raw
+                WHERE raw.source_snapshot_id = $1
+                  AND raw.geom IS NOT NULL
+                  AND system.pipeline_is_land_area_candidate_tags(raw.tags)
+                  AND NOT system.pipeline_is_water_polygon_candidate_tags(raw.tags)
+            ),
+            src AS (
+                SELECT
+                    r.*,
+                    lac.id AS land_area_class_id,
+                    CASE
+                        WHEN nullif(btrim(r.tags->>'name'), '') IS NULL THEN NULL
+                        WHEN lower(btrim(r.tags->>'name')) = lower(btrim(r.class_code)) THEN NULL
+                        WHEN lower(btrim(r.tags->>'name')) IN (
                             'residential', 'industrial', 'commercial', 'retail', 'farmland', 'paddy',
                             'orchard', 'aquaculture', 'farmyard', 'education', 'healthcare', 'religious',
                             'cemetery', 'military', 'transport', 'construction', 'park', 'recreation_ground',
-                            'forest', 'grassland', 'grass', 'vacant', 'other', 'wood'
+                            'forest', 'grassland', 'grass', 'vacant', 'other', 'wood', 'wetland',
+                            'marsh', 'swamp', 'scrub', 'heath', 'sand', 'beach', 'bare_rock', 'mud'
                         ) THEN NULL
-                        ELSE nullif(btrim(src.tags->>'name'), '')
-                    END,
-                    src.class_code,
+                        ELSE nullif(btrim(r.tags->>'name'), '')
+                    END AS real_name
+                FROM raw_src AS r
+                INNER JOIN ref.ref_land_area_classes AS lac
+                    ON lac.code = r.class_code AND lac.is_active
+                WHERE r.class_code IS NOT NULL
+            ),
+            inserted AS (
+                INSERT INTO %I.staging_landuse_candidates (
+                    source_snapshot_id, raw_id, external_id, canonical_name, class_code, land_area_class_id,
+                    normalized_data, source_refs, confidence_score, match_status, auto_action, review_status, geom
+                )
+                SELECT
+                    $1, src.id, src.external_id, src.real_name, src.class_code, src.land_area_class_id,
                     jsonb_build_object(
                         'tags', coalesce(src.tags, '{}'::jsonb),
                         'landuse', src.tags->>'landuse',
+                        'natural', src.tags->>'natural',
+                        'wetland', src.tags->>'wetland',
                         'leisure', src.tags->>'leisure',
                         'amenity', src.tags->>'amenity',
-                        'name', CASE
-                            WHEN nullif(btrim(src.tags->>'name'), '') IS NULL THEN NULL
-                            WHEN lower(btrim(src.tags->>'name')) = lower(btrim(src.class_code)) THEN NULL
-                            WHEN lower(btrim(src.tags->>'name')) IN (
-                                'residential', 'industrial', 'commercial', 'retail', 'farmland', 'paddy',
-                                'orchard', 'aquaculture', 'farmyard', 'education', 'healthcare', 'religious',
-                                'cemetery', 'military', 'transport', 'construction', 'park', 'recreation_ground',
-                                'forest', 'grassland', 'grass', 'vacant', 'other', 'wood'
-                            ) THEN NULL
-                            ELSE nullif(btrim(src.tags->>'name'), '')
-                        END,
+                        'land_area_class', src.class_code,
+                        'name', src.real_name,
                         'name_en', nullif(btrim(src.tags->>'name:en'), ''),
                         'name_mm', nullif(btrim(coalesce(src.tags->>'name:my', src.tags->>'name:mm', src.tags->>'name:my-MM')), '')
                     ),
-                    jsonb_build_object('source_snapshot_id', $1, 'snapshot_version', $2, 'region_code', $3, 'raw_table', 'raw_osm_polygons', 'raw_id', src.id, 'osm_id', src.osm_id, 'osm_feature_type', src.osm_feature_type),
-                    CASE WHEN src.tags ? 'name' THEN 75 ELSE 60 END,
+                    jsonb_build_object(
+                        'source_snapshot_id', $1, 'snapshot_version', $2, 'region_code', $3,
+                        'raw_table', 'raw_osm_polygons', 'raw_id', src.id,
+                        'osm_id', src.osm_id, 'osm_feature_type', src.osm_feature_type
+                    ),
+                    CASE WHEN src.real_name IS NOT NULL THEN 75 ELSE 60 END,
                     'new_candidate', NULL, 'pending', src.geom
                 FROM src
                 WHERE NOT EXISTS (
@@ -3757,24 +3922,258 @@ BEGIN
             )
             SELECT count(*)::bigint FROM inserted
             $q$,
-            v_raw_schema,
-            v_staging_schema,
-            v_staging_schema
+            v_raw_schema, v_staging_schema, v_staging_schema
         );
         EXECUTE q INTO v_inserted USING v_source_snapshot_id, v_snapshot_version, v_region_code;
-        INSERT INTO stage05_report VALUES ('polygon_extraction', 'landuse', format('%s.staging_landuse_candidates', v_staging_schema), 'inserted_rows', v_inserted, 'PASS', format('available_rows=%s', v_available));
+        INSERT INTO stage05_report VALUES ('polygon_extraction', 'landuse', format('%s.staging_landuse_candidates', v_staging_schema), 'inserted_rows', v_inserted, 'PASS', format('raw_candidates=%s normalized_via=ref.ref_land_area_classes', v_available));
+
+        EXECUTE format(
+            $q$
+            INSERT INTO stage05_report (section, entity_family, target_table, metric, value_n, status, note)
+            SELECT 'normalization', 'landuse', %L, 'class_' || class_code, count(*)::bigint, 'PASS', NULL
+            FROM %I.staging_landuse_candidates
+            WHERE source_snapshot_id = $1
+            GROUP BY class_code
+            $q$,
+            format('%s.staging_landuse_candidates', v_staging_schema),
+            v_staging_schema
+        ) USING v_source_snapshot_id;
     ELSE
         INSERT INTO stage05_report VALUES ('polygon_extraction', 'landuse', format('%s.staging_landuse_candidates', v_staging_schema), 'available_rows', v_available, 'WARN', 'Target table missing; skipped landuse extraction.');
     END IF;
 
     -- ---------------------------------------------------------------------
-    -- E. Water polygon candidates
+    -- D2. Protected-area overlay candidates (boundary / leisure=nature_reserve)
+    -- One OSM identity → one staging row (dedupe by external_id).
     -- ---------------------------------------------------------------------
     q := format(
         $q$
         SELECT count(*)::bigint FROM %I.raw_osm_polygons
         WHERE source_snapshot_id = $1 AND geom IS NOT NULL
-          AND (tags->>'natural' = 'water' OR tags ? 'water' OR tags->>'waterway' = 'riverbank')
+          AND system.pipeline_is_protected_area_candidate_tags(tags)
+        $q$,
+        v_raw_schema
+    );
+    EXECUTE q INTO v_available USING v_source_snapshot_id;
+
+    IF NOT pg_temp.pipeline_stage05_extraction_enabled('protected_area') THEN
+        INSERT INTO stage05_report VALUES ('polygon_extraction', 'protected_area', format('%s.staging_protected_area_candidates', v_staging_schema), 'inserted_rows', 0, 'SKIP', 'ENTITY_FAMILIES filter excludes protected_areas.');
+    ELSIF has_protected_area THEN
+        IF to_regclass(format('%I.staging_osm_unmapped_tags', v_staging_schema)) IS NOT NULL THEN
+            EXECUTE format(
+                'DELETE FROM %I.staging_osm_unmapped_tags WHERE source_snapshot_id = $1 AND entity_family = ''protected_areas''',
+                v_staging_schema
+            ) USING v_source_snapshot_id;
+            q := format(
+                $q$
+                INSERT INTO %I.staging_osm_unmapped_tags (
+                    source_snapshot_id, entity_family, osm_feature_type, osm_id, external_id,
+                    tag_key, tag_value, reason, tags
+                )
+                SELECT
+                    $1, 'protected_areas', raw.osm_feature_type, NULLIF(btrim(raw.osm_id), '')::bigint,
+                    system.pipeline_osm_external_id(raw.osm_feature_type, raw.osm_id),
+                    CASE
+                        WHEN raw.tags ? 'boundary' THEN 'boundary'
+                        WHEN raw.tags ? 'leisure' THEN 'leisure'
+                        WHEN raw.tags ? 'protect_class' THEN 'protect_class'
+                        WHEN raw.tags ? 'designation' THEN 'designation'
+                        WHEN raw.tags ? 'protection_title' THEN 'protection_title'
+                        ELSE 'tags'
+                    END,
+                    CASE
+                        WHEN raw.tags ? 'boundary' THEN raw.tags->>'boundary'
+                        WHEN raw.tags ? 'leisure' THEN raw.tags->>'leisure'
+                        WHEN raw.tags ? 'protect_class' THEN raw.tags->>'protect_class'
+                        WHEN raw.tags ? 'designation' THEN raw.tags->>'designation'
+                        WHEN raw.tags ? 'protection_title' THEN raw.tags->>'protection_title'
+                        ELSE NULL
+                    END,
+                    'unmapped_protected_area_class',
+                    coalesce(raw.tags, '{}'::jsonb)
+                FROM %I.raw_osm_polygons AS raw
+                WHERE raw.source_snapshot_id = $1
+                  AND raw.geom IS NOT NULL
+                  AND system.pipeline_is_protected_area_candidate_tags(raw.tags)
+                  AND system.pipeline_normalize_protected_area_class(raw.tags) IS NULL
+                $q$,
+                v_staging_schema, v_raw_schema
+            );
+            EXECUTE q USING v_source_snapshot_id;
+            GET DIAGNOSTICS v_inserted = ROW_COUNT;
+            INSERT INTO stage05_report VALUES ('normalization', 'protected_area', format('%s.staging_osm_unmapped_tags', v_staging_schema), 'unmapped_rows', v_inserted, 'PASS', format('raw_candidates=%s', v_available));
+        END IF;
+
+        q := format(
+            $q$
+            WITH raw_src AS (
+                SELECT
+                    raw.*,
+                    system.pipeline_osm_external_id(raw.osm_feature_type, raw.osm_id) AS external_id,
+                    system.pipeline_normalize_protected_area_class(raw.tags) AS class_code,
+                    system.pipeline_normalize_protected_area_geom(raw.geom) AS geom_mp
+                FROM %I.raw_osm_polygons AS raw
+                WHERE raw.source_snapshot_id = $1
+                  AND raw.geom IS NOT NULL
+                  AND system.pipeline_is_protected_area_candidate_tags(raw.tags)
+            ),
+            ranked AS (
+                SELECT
+                    r.*,
+                    row_number() OVER (
+                        PARTITION BY r.external_id
+                        ORDER BY
+                            CASE WHEN r.geom_mp IS NOT NULL THEN 0 ELSE 1 END,
+                            ST_Area(r.geom_mp::geography) DESC NULLS LAST,
+                            r.id
+                    ) AS rn
+                FROM raw_src AS r
+            ),
+            src AS (
+                SELECT
+                    r.*,
+                    pac.id AS protected_area_class_id,
+                    nullif(btrim(r.tags->>'name'), '') AS name_und,
+                    nullif(btrim(r.tags->>'name:en'), '') AS name_en,
+                    nullif(btrim(coalesce(r.tags->>'name:my', r.tags->>'name:mm', r.tags->>'name:my-MM')), '') AS name_mm
+                FROM ranked AS r
+                INNER JOIN ref.ref_protected_area_classes AS pac
+                    ON pac.code = r.class_code AND pac.is_active
+                WHERE r.class_code IS NOT NULL
+                  AND r.geom_mp IS NOT NULL
+                  AND r.rn = 1
+            ),
+            inserted AS (
+                INSERT INTO %I.staging_protected_area_candidates (
+                    source_snapshot_id, raw_id, external_id, canonical_name, class_code,
+                    protected_area_class_id, normalized_data, source_refs, confidence_score,
+                    match_status, auto_action, review_status, geom, centroid, area_m2,
+                    eligible_for_core, core_selection_reason
+                )
+                SELECT
+                    $1, src.id, src.external_id,
+                    coalesce(src.name_en, src.name_mm, src.name_und),
+                    src.class_code, src.protected_area_class_id,
+                    jsonb_build_object(
+                        'tags', coalesce(src.tags, '{}'::jsonb),
+                        'boundary', src.tags->>'boundary',
+                        'leisure', src.tags->>'leisure',
+                        'protect_class', src.tags->>'protect_class',
+                        'protection_title', src.tags->>'protection_title',
+                        'designation', src.tags->>'designation',
+                        'operator', src.tags->>'operator',
+                        'ownership', src.tags->>'ownership',
+                        'access', src.tags->>'access',
+                        'website', src.tags->>'website',
+                        'wikidata', src.tags->>'wikidata',
+                        'wikipedia', src.tags->>'wikipedia',
+                        'protected_area_class', src.class_code,
+                        'name', coalesce(src.name_en, src.name_mm, src.name_und),
+                        'name_en', src.name_en,
+                        'name_mm', src.name_mm,
+                        'name_und', src.name_und,
+                        'names', (
+                            SELECT coalesce(jsonb_agg(to_jsonb(n) ORDER BY n.language_code, n.name), '[]'::jsonb)
+                            FROM (
+                                SELECT DISTINCT ON (lower(x.name), x.language_code)
+                                    x.name, x.language_code, x.source_tag, x.name_type, x.is_primary
+                                FROM (
+                                    VALUES
+                                        (src.name_und, 'und', 'name', 'official', true),
+                                        (src.name_en, 'en', 'name:en', 'official', true),
+                                        (src.name_mm, 'my', 'name:my', 'official', true)
+                                ) AS x(name, language_code, source_tag, name_type, is_primary)
+                                WHERE x.name IS NOT NULL AND btrim(x.name) <> ''
+                                ORDER BY lower(x.name), x.language_code, x.source_tag
+                            ) n
+                        )
+                    ),
+                    jsonb_build_object(
+                        'source_snapshot_id', $1, 'snapshot_version', $2, 'region_code', $3,
+                        'raw_table', 'raw_osm_polygons', 'raw_id', src.id,
+                        'osm_id', src.osm_id, 'osm_feature_type', src.osm_feature_type,
+                        'external_id', src.external_id
+                    ),
+                    CASE WHEN coalesce(src.name_en, src.name_mm, src.name_und) IS NOT NULL THEN 80 ELSE 65 END,
+                    'new_candidate', NULL, 'pending',
+                    src.geom_mp,
+                    ST_PointOnSurface(src.geom_mp)::geometry(Point, 4326),
+                    ST_Area(src.geom_mp::geography)::numeric,
+                    true,
+                    'protected_area_overlay'
+                FROM src
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM %I.staging_protected_area_candidates existing
+                    WHERE existing.source_snapshot_id = $1 AND existing.external_id = src.external_id
+                )
+                RETURNING 1
+            )
+            SELECT count(*)::bigint FROM inserted
+            $q$,
+            v_raw_schema, v_staging_schema, v_staging_schema
+        );
+        EXECUTE q INTO v_inserted USING v_source_snapshot_id, v_snapshot_version, v_region_code;
+        INSERT INTO stage05_report VALUES ('polygon_extraction', 'protected_area', format('%s.staging_protected_area_candidates', v_staging_schema), 'inserted_rows', v_inserted, 'PASS', format('raw_candidates=%s unique_normalized_via=ref.ref_protected_area_classes', v_available));
+
+        -- Report subtype signals for class=other (do NOT invent new ref classes).
+        IF to_regclass(format('%I.staging_osm_unmapped_tags', v_staging_schema)) IS NOT NULL THEN
+            q := format(
+                $q$
+                INSERT INTO %I.staging_osm_unmapped_tags (
+                    source_snapshot_id, entity_family, osm_feature_type, osm_id, external_id,
+                    tag_key, tag_value, reason, tags
+                )
+                SELECT
+                    s.source_snapshot_id,
+                    'protected_areas',
+                    s.source_refs->>'osm_feature_type',
+                    NULLIF(btrim(s.source_refs->>'osm_id'), '')::bigint,
+                    s.external_id,
+                    kv.tag_key,
+                    kv.tag_value,
+                    'unmapped_protected_area_subtype',
+                    coalesce(s.normalized_data->'tags', '{}'::jsonb)
+                FROM %I.staging_protected_area_candidates AS s
+                CROSS JOIN LATERAL (
+                    VALUES
+                        ('protect_class', nullif(btrim(s.normalized_data->>'protect_class'), '')),
+                        ('designation', nullif(btrim(s.normalized_data->>'designation'), '')),
+                        ('protection_title', nullif(btrim(s.normalized_data->>'protection_title'), ''))
+                ) AS kv(tag_key, tag_value)
+                WHERE s.source_snapshot_id = $1
+                  AND s.class_code = 'other'
+                  AND kv.tag_value IS NOT NULL
+                $q$,
+                v_staging_schema, v_staging_schema
+            );
+            EXECUTE q USING v_source_snapshot_id;
+            GET DIAGNOSTICS v_available = ROW_COUNT;
+            INSERT INTO stage05_report VALUES ('normalization', 'protected_area', format('%s.staging_osm_unmapped_tags', v_staging_schema), 'other_subtype_signals', v_available, 'PASS', 'class=other protect_class/designation/protection_title retained; no auto ref add');
+        END IF;
+
+        EXECUTE format(
+            $q$
+            INSERT INTO stage05_report (section, entity_family, target_table, metric, value_n, status, note)
+            SELECT 'normalization', 'protected_area', %L, 'class_' || class_code, count(*)::bigint, 'PASS', NULL
+            FROM %I.staging_protected_area_candidates
+            WHERE source_snapshot_id = $1
+            GROUP BY class_code
+            $q$,
+            format('%s.staging_protected_area_candidates', v_staging_schema),
+            v_staging_schema
+        ) USING v_source_snapshot_id;
+    ELSE
+        INSERT INTO stage05_report VALUES ('polygon_extraction', 'protected_area', format('%s.staging_protected_area_candidates', v_staging_schema), 'available_rows', v_available, 'WARN', 'Target table missing; apply local migration 017.');
+    END IF;
+
+    -- ---------------------------------------------------------------------
+    -- E. Water polygon candidates (natural=water / water=* / riverbank)
+    -- ---------------------------------------------------------------------
+    q := format(
+        $q$
+        SELECT count(*)::bigint FROM %I.raw_osm_polygons
+        WHERE source_snapshot_id = $1 AND geom IS NOT NULL
+          AND system.pipeline_is_water_polygon_candidate_tags(tags)
         $q$,
         v_raw_schema
     );
@@ -3783,24 +4182,88 @@ BEGIN
     IF NOT pg_temp.pipeline_stage05_extraction_enabled('water_polygon') THEN
         INSERT INTO stage05_report VALUES ('polygon_extraction', 'water_polygon', format('%s.staging_water_polygon_candidates', v_staging_schema), 'inserted_rows', 0, 'SKIP', 'ENTITY_FAMILIES filter excludes water_polygons.');
     ELSIF has_water_polygon THEN
+        EXECUTE format(
+            'ALTER TABLE %I.staging_water_polygon_candidates ADD COLUMN IF NOT EXISTS water_class_id bigint',
+            v_staging_schema
+        );
+
+        IF to_regclass(format('%I.staging_osm_unmapped_tags', v_staging_schema)) IS NOT NULL THEN
+            EXECUTE format(
+                'DELETE FROM %I.staging_osm_unmapped_tags WHERE source_snapshot_id = $1 AND entity_family = ''water_polygons''',
+                v_staging_schema
+            ) USING v_source_snapshot_id;
+            q := format(
+                $q$
+                INSERT INTO %I.staging_osm_unmapped_tags (
+                    source_snapshot_id, entity_family, osm_feature_type, osm_id, external_id,
+                    tag_key, tag_value, reason, tags
+                )
+                SELECT
+                    $1, 'water_polygons', raw.osm_feature_type, NULLIF(btrim(raw.osm_id), '')::bigint,
+                    system.pipeline_osm_external_id(raw.osm_feature_type, raw.osm_id),
+                    CASE
+                        WHEN raw.tags ? 'water' THEN 'water'
+                        WHEN lower(coalesce(raw.tags->>'natural', '')) = 'water' THEN 'natural'
+                        ELSE 'waterway'
+                    END,
+                    coalesce(raw.tags->>'water', raw.tags->>'natural', raw.tags->>'waterway'),
+                    'unmapped_water_class',
+                    coalesce(raw.tags, '{}'::jsonb)
+                FROM %I.raw_osm_polygons AS raw
+                WHERE raw.source_snapshot_id = $1
+                  AND raw.geom IS NOT NULL
+                  AND system.pipeline_is_water_polygon_candidate_tags(raw.tags)
+                  AND system.pipeline_normalize_water_class(raw.tags, 'polygon') IS NULL
+                $q$,
+                v_staging_schema, v_raw_schema
+            );
+            EXECUTE q USING v_source_snapshot_id;
+            GET DIAGNOSTICS v_inserted = ROW_COUNT;
+            INSERT INTO stage05_report VALUES ('normalization', 'water_polygon', format('%s.staging_osm_unmapped_tags', v_staging_schema), 'unmapped_rows', v_inserted, 'PASS', format('raw_candidates=%s', v_available));
+        END IF;
+
         q := format(
             $q$
-            WITH src AS (
-                SELECT raw.*, system.pipeline_osm_external_id(raw.osm_feature_type, raw.osm_id) AS external_id,
-                       coalesce(nullif(raw.tags->>'water',''), nullif(raw.tags->>'natural',''), nullif(raw.tags->>'waterway','')) AS class_code
+            WITH raw_src AS (
+                SELECT
+                    raw.*,
+                    system.pipeline_osm_external_id(raw.osm_feature_type, raw.osm_id) AS external_id,
+                    system.pipeline_normalize_water_class(raw.tags, 'polygon') AS class_code
                 FROM %I.raw_osm_polygons AS raw
-                WHERE raw.source_snapshot_id = $1 AND raw.geom IS NOT NULL
-                  AND (raw.tags->>'natural' = 'water' OR raw.tags ? 'water' OR raw.tags->>'waterway' = 'riverbank')
+                WHERE raw.source_snapshot_id = $1
+                  AND raw.geom IS NOT NULL
+                  AND system.pipeline_is_water_polygon_candidate_tags(raw.tags)
+            ),
+            src AS (
+                SELECT r.*, wc.id AS water_class_id
+                FROM raw_src AS r
+                INNER JOIN ref.ref_water_classes AS wc
+                    ON wc.code = r.class_code AND wc.is_active
+                WHERE r.class_code IS NOT NULL
             ),
             inserted AS (
                 INSERT INTO %I.staging_water_polygon_candidates (
-                    source_snapshot_id, raw_id, external_id, canonical_name, class_code,
+                    source_snapshot_id, raw_id, external_id, canonical_name, class_code, water_class_id,
                     normalized_data, source_refs, confidence_score, match_status, auto_action, review_status, geom
                 )
                 SELECT
-                    $1, src.id, src.external_id, nullif(src.tags->>'name', ''), src.class_code,
-                    jsonb_build_object('tags', coalesce(src.tags, '{}'::jsonb), 'natural', src.tags->>'natural', 'water', src.tags->>'water', 'waterway', src.tags->>'waterway', 'intermittent', src.tags->>'intermittent', 'name', src.tags->>'name'),
-                    jsonb_build_object('source_snapshot_id', $1, 'snapshot_version', $2, 'region_code', $3, 'raw_table', 'raw_osm_polygons', 'raw_id', src.id, 'osm_id', src.osm_id, 'osm_feature_type', src.osm_feature_type),
+                    $1, src.id, src.external_id, nullif(src.tags->>'name', ''), src.class_code, src.water_class_id,
+                    jsonb_build_object(
+                        'tags', coalesce(src.tags, '{}'::jsonb),
+                        'natural', src.tags->>'natural',
+                        'water', src.tags->>'water',
+                        'waterway', src.tags->>'waterway',
+                        'water_class', src.class_code,
+                        'intermittent', src.tags->>'intermittent',
+                        'name', src.tags->>'name',
+                        'name_en', nullif(btrim(src.tags->>'name:en'), ''),
+                        'name_mm', nullif(btrim(coalesce(src.tags->>'name:my', src.tags->>'name:mm', src.tags->>'name:my-MM')), '')
+                    ),
+                    jsonb_build_object(
+                        'source_snapshot_id', $1, 'snapshot_version', $2, 'region_code', $3,
+                        'raw_table', 'raw_osm_polygons', 'raw_id', src.id,
+                        'osm_id', src.osm_id, 'osm_feature_type', src.osm_feature_type
+                    ),
                     CASE WHEN src.tags ? 'name' THEN 75 ELSE 60 END,
                     'new_candidate', NULL, 'pending', src.geom
                 FROM src
@@ -3812,12 +4275,22 @@ BEGIN
             )
             SELECT count(*)::bigint FROM inserted
             $q$,
-            v_raw_schema,
-            v_staging_schema,
-            v_staging_schema
+            v_raw_schema, v_staging_schema, v_staging_schema
         );
         EXECUTE q INTO v_inserted USING v_source_snapshot_id, v_snapshot_version, v_region_code;
-        INSERT INTO stage05_report VALUES ('polygon_extraction', 'water_polygon', format('%s.staging_water_polygon_candidates', v_staging_schema), 'inserted_rows', v_inserted, 'PASS', format('available_rows=%s', v_available));
+        INSERT INTO stage05_report VALUES ('polygon_extraction', 'water_polygon', format('%s.staging_water_polygon_candidates', v_staging_schema), 'inserted_rows', v_inserted, 'PASS', format('raw_candidates=%s normalized_via=ref.ref_water_classes', v_available));
+
+        EXECUTE format(
+            $q$
+            INSERT INTO stage05_report (section, entity_family, target_table, metric, value_n, status, note)
+            SELECT 'normalization', 'water_polygon', %L, 'class_' || class_code, count(*)::bigint, 'PASS', NULL
+            FROM %I.staging_water_polygon_candidates
+            WHERE source_snapshot_id = $1
+            GROUP BY class_code
+            $q$,
+            format('%s.staging_water_polygon_candidates', v_staging_schema),
+            v_staging_schema
+        ) USING v_source_snapshot_id;
     ELSE
         INSERT INTO stage05_report VALUES ('polygon_extraction', 'water_polygon', format('%s.staging_water_polygon_candidates', v_staging_schema), 'available_rows', v_available, 'WARN', 'Target table missing; skipped water polygon extraction.');
     END IF;
@@ -4275,6 +4748,7 @@ BEGIN
                 ('address_component', 'staging_address_component_candidates'),
                 ('landuse', 'staging_landuse_candidates'),
                 ('water_line', 'staging_water_line_candidates'),
+                ('coastline', 'staging_coastline_candidates'),
                 ('water_polygon', 'staging_water_polygon_candidates'),
                 ('admin_area', 'staging_admin_area_candidates'),
                 ('admin_area_name', 'staging_admin_area_name_candidates'),
