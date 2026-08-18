@@ -90,3 +90,5 @@ Historical inspect/apply SQL and Baseline v1 remain in this folder (`00_baseline
 04_verify.sql
 run-remaining-repair.sh
 ```
+
+One-off township dumps `27_township_gap_auto_update_20260724.sql`, `28_township_gap_safe_review_update_20260724.sql`, and `29_township_gap_autonomous_review_fill_20260724.sql` are local data files, not source. They stay on disk and are gitignored.

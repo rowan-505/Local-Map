@@ -65,11 +65,8 @@
     "dotenv": "^16.6.1",
     "fastify": "^5.8.5",
     "fastify-plugin": "^5.1.0",
-    "generate": "^0.14.0",
-    "npx": "^10.2.2",
     "pluscodes": "^3.0.1",
     "prisma": "^6.15.0",
-    "recharts": "^3.9.0",
     "resend": "^6.14.0",
     "zod": "^4.3.6"
   },

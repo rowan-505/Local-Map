@@ -25,8 +25,8 @@ build
 # ========================
 .env
 .env.*
-.env.local
-.env.example
+!.env.example
+!**/.env.example
 
 # ========================
 # OS / Editor
@@ -219,6 +219,14 @@ infrastructure/database/introspection/**/snapshots/
 /infrastructure/tiles/**/*.temp
 
 /todo.txt
+/learning.md
+/rclone-test.txt
+.augment/
+
+# One-off township dump SQL (keep locally; not source)
+tools/data-repair/current-production/27_township_gap_auto_update_20260724.sql
+tools/data-repair/current-production/28_township_gap_safe_review_update_20260724.sql
+tools/data-repair/current-production/29_township_gap_autonomous_review_fill_20260724.sql
 
 /packages/admin_area_manual_fixes
 /packages/manual_fixes_gap1

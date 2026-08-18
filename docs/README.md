@@ -1,6 +1,6 @@
 # CoreMap docs
 
-Short guides for humans. Start here. Old long audits live in [`archive/`](archive/README.md).
+Product README is at the [repo root](../README.md). Short guides for humans start here. Old long audits live in [`archive/`](archive/README.md).
 
 ## Read in this order
 
