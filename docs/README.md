@@ -1,6 +1,6 @@
 # CoreMap docs
 
-Product README is at the [repo root](../README.md). Short guides for humans start here. Old long audits live in [`archive/`](archive/README.md).
+Product README is at the [repo root](../README.md). Short guides start here.
 
 ## Read in this order
 
@@ -19,29 +19,30 @@ Product README is at the [repo root](../README.md). Short guides for humans star
 | Search / address / routing | [search-routing.md](search-routing.md) |
 | Deploy | [deployment.md](deployment.md) |
 | Debug | [debugging.md](debugging.md) |
+| Current status | [current_status.md](current_status.md) |
 | V2 plan | [roadmap.md](roadmap.md) |
 
-## Also keep open
+## First look at the code
 
-| File | Role |
+Start with a small module, not the largest files.
+
+| Start here | Path |
 |------|------|
-| [`AGENTS.md`](../AGENTS.md) | Full product + architecture rules (AI and humans) |
-| [`apps/api/docs/API.md`](../apps/api/docs/API.md) | Generated route list |
-| [`docs/ai/`](ai/README.md) | AI skills and workflows |
+| API pattern | `apps/api/src/modules/places/` (`routes` → `schema` → `service` → `repo`) |
+| Public map API | `apps/api/src/modules/public-map/` |
+| Public map UI | `apps/web/src/features/map/` |
+| Architecture rules | [`AGENTS.md`](../AGENTS.md) |
+
+Skip on a first pass: `apps/api/src/modules/transport/transport.repo.ts` and `apps/api/src/modules/import-review/` (large, domain-heavy). Generated route list: [`apps/api/docs/API.md`](../apps/api/docs/API.md).
 
 ## Folder layout
 
 ```text
 docs/
   README.md            ← this index
-  *.md                 ← 12 short guides
-  ai/                  ← AI skills (keep)
-  archive/             ← outdated / one-time / pre-cleanup docs
+  *.md                 ← short guides
+  ai/                  ← AI skills
+  archive/             ← old audits (not current)
 ```
 
-## Doc rules
-
-- Standing knowledge → short file in `docs/`.
-- One-time audit or apply log → `docs/archive/YYYY-MM-topic/`.
-- Prefer pointers to code READMEs over pasting long commands.
-- Keep English simple. Keep each guide short.
+Standing knowledge stays in `docs/*.md`. One-off audits go under `docs/archive/`.

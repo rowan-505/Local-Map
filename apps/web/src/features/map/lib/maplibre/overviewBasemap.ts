@@ -1,12 +1,4 @@
-/**
- * Overview basemap source + layers for apps/web (Natural Earth + core admin0 outline + MIMU admin1, z0–z8).
- * No OSM roads, buildings, POIs, or transit — API overlays are added separately in MapView.
- *
- * PMTiles URL: `VITE_OVERVIEW_PMTILES_URL` (see `config/overviewPmtilesUrl.ts`).
- *
- * **populated_places filters** — Natural Earth field names vary by export; we coalesce common casings.
- * Adjust `isMajorPopulatedPlaceFilter()` if your PMTiles uses different property names.
- */
+/** Overview PMTiles layers (z0–z8). Places and transit are added later in MapView. */
 import type {
   ExpressionSpecification,
   FillLayerSpecification,
@@ -181,8 +173,7 @@ export function createOverviewBasemapStyle(pmtilesHttpUrl: string): StyleSpecifi
     version: 8,
     name: 'CoreMap Myanmar Overview',
     metadata: {
-      'local-map:purpose':
-        'Natural Earth + MIMU admin1 overview z0–z8. Myanmar admin0 high-precision land-aligned tiers (z0–z6).',
+      'local-map:purpose': 'CoreMap Myanmar overview, z0–z8.',
       'local-map:zoom-range': '0-8',
       'local-map:source-layers': OVERVIEW_PMTILES_SOURCE_LAYERS.join(','),
     },
@@ -372,8 +363,7 @@ function countryBoundariesLayer(source: string): LineLayerSpecification {
     layout: { 'line-cap': 'round', 'line-join': 'round' },
     metadata: {
       'local-map:role': 'neighbor-country-boundaries',
-      'local-map:note':
-        'Natural Earth land boundaries for neighbors only. Segments touching Myanmar are filtered out so mmr_admin0_z* tiers draw the outer ring through z6.',
+      'local-map:note': 'Neighbor country boundaries; Myanmar outline uses mmr_admin0 tiers.',
     },
     paint: {
       'line-color': OVERVIEW_NEIGHBOR_COUNTRY_BOUNDARY_COLOR,
@@ -416,7 +406,7 @@ function mmrAdmin0BoundaryTierLayers(source: string): LayerSpecification[] {
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       metadata: {
         'local-map:role': 'myanmar-admin0-boundary-line',
-        'local-map:note': `Myanmar admin0 ${tier.zoomBand}. source-layer ${tier.sourceLayer} (land-aligned NE).`,
+        'local-map:note': `Myanmar admin0 ${tier.zoomBand}. source-layer ${tier.sourceLayer}.`,
       },
       paint: {
         'line-color': OVERVIEW_MMR_ADMIN0_BOUNDARY_LINE_COLOR,
@@ -439,8 +429,7 @@ function mmrAdmin1BoundariesLayer(source: string): LineLayerSpecification {
     layout: { 'line-cap': 'round', 'line-join': 'round' },
     metadata: {
       'local-map:role': 'myanmar-internal-admin-boundaries',
-      'local-map:note':
-        'MIMU state/region internal boundaries z3–z10; regional admin_boundaries state_region from z7.',
+      'local-map:note': 'State/region internal boundaries; regional admin layers take over from z7.',
     },
     paint: {
       'line-color': OVERVIEW_MMR_ADMIN1_BOUNDARY_COLOR,

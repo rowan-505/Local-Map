@@ -1,8 +1,4 @@
-/**
- * App POI layers (GeoJSON + circle) — product data only, separate from:
- * - shared vector basemap (`packages/map-style/base-map.json`)
- * - Kyauktan township overlay (`kyauktanTownshipOverlay`)
- */
+/** Place marker layers (GeoJSON). Separate from the vector basemap. */
 import type { LanguageMode } from '@local-map/localized-name';
 import { getMapTextFieldExpression } from '@local-map/localized-name';
 import type { ExpressionSpecification, GeoJSONSource } from 'maplibre-gl';

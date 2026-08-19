@@ -1,4 +1,4 @@
-# Local Map API
+# CoreMap API
 
 Fastify backend for CoreMap (`apps/api`). See [`docs/api.md`](../../docs/api.md) and repo root [`AGENTS.md`](../../AGENTS.md).
 

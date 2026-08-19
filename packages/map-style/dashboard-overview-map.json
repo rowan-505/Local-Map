@@ -2,7 +2,7 @@
   "version": 8,
   "name": "CoreMap Myanmar Overview",
   "metadata": {
-    "local-map:purpose": "Natural Earth + MIMU admin1 overview basemap for z0–z8. Myanmar admin0 high-precision land-aligned tiers (z0–z6). Regional OSM admin from z7+. No OSM detail in overview tiles.",
+    "local-map:purpose": "CoreMap Myanmar overview, z0–z8.",
     "local-map:zoom-range": "0-8",
     "local-map:visibility": "z0-4: ocean, land, boundaries, Myanmar outline | z4-6: neighbor country labels (no Myanmar) | z5.5-8: mmr_admin1 state labels | z7-8: major cities | z6-8: major lakes/rivers",
     "local-map:glyphs": "Self-hosted NotoSansMyanmar-Regular at /fonts/{fontstack}/{range}.pbf",

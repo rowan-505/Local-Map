@@ -271,7 +271,7 @@ There are no XML layout files for screens. UI is written with Jetpack Compose.
 ## How To Run
 
 1. Open this Android project folder in Android Studio:
-   `apps/mobile/andriod-kotlin`
+   `apps/mobile/android-kotlin`
 2. Let Android Studio run Gradle sync.
 3. Select the `app` configuration.
 4. Run on an emulator or device.

@@ -7,10 +7,7 @@ export const OVERVIEW_MAX_ZOOM = 8;
 /** MapLibre layer `maxzoom` — tiles stop at z8; layers use 9 so z8 is still visible. */
 export const OVERVIEW_LAYER_MAX_ZOOM = 9;
 
-/**
- * Public map viewport — aligned with overview PMTiles coverage (Natural Earth + MIMU z0–z8).
- * Pan and minimum zoom are locked so users stay within the overview archive extent.
- */
+/** Public map viewport — locked to the overview PMTiles extent (z0–z8). */
 export const MYANMAR_OVERVIEW_CENTER: [number, number] = [96.2, 20.5];
 
 /** Opening zoom — frames Myanmar and neighbors within overview tiles. */

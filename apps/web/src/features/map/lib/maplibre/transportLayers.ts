@@ -1,8 +1,4 @@
-/**
- * Martin transport overlay layers (hidden by default — `visibility: 'none'`).
- * Sources are registered separately in `transportSources.ts`; this module only adds layers
- * and never calls the Fastify API. Keep styling simple and readable (no overstyling).
- */
+/** Martin transport overlay layers. Sources are registered in `transportSources.ts`. */
 import type {
   CircleLayerSpecification,
   ExpressionSpecification,

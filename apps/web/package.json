@@ -7,8 +7,6 @@
     "postinstall": "npm ci --prefix ../../packages/map-style",
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "data:kyauktan": "tsx scripts/fetchKyauktanOsmPois.ts",
-    "pois:refresh": "tsx scripts/fetchKyauktanOsmPois.ts",
     "lint": "eslint .",
     "test:map": "node --import tsx --test src/features/map/config/overviewPmtilesUrl.test.ts src/features/map/config/publicMapViewport.test.ts src/features/map/lib/maplibre/basemapZoomVisibility.test.ts src/features/map/lib/maplibre/overviewBasemap.test.ts src/features/map/lib/maplibre/composeWebMapStyle.test.ts src/features/map/lib/maplibre/localRegionPmtilesQa.test.ts src/features/map/lib/maplibre/regionalBasemapValidation.test.ts src/features/map/lib/maplibre/mapLayerInsert.test.ts src/features/map/lib/maplibre/localizedBasemapLabels.test.ts src/features/map/lib/maplibre/roadLabelTextFields.test.ts src/features/map/lib/maplibre/webBasemapMode.test.ts src/features/map/lib/maplibre/transportDisplayName.test.ts src/features/map/lib/maplibre/publicMapMarkerValidation.test.ts src/features/map/lib/maplibre/searchHighlightOnMap.test.ts src/features/poi/api/publicSearchPages.test.ts src/features/poi/api/searchClickAnalytics.test.ts",
     "preview": "vite preview"

@@ -32,7 +32,7 @@ Full agent rules: [`AGENTS.md`](../AGENTS.md).
 ## Repo layout
 
 ```text
-apps/api | web | dashboard | mobile(experimental)
+apps/api | web | dashboard | mobile (experimental, android-kotlin)
 packages/          shared helpers
 infrastructure/    DB, tiles, routing, cloud
 tools/             pipelines and scripts

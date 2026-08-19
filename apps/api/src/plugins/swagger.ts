@@ -45,9 +45,9 @@ export const swaggerCorePlugin = fp(
             openapi: {
                 openapi: "3.0.3",
                 info: {
-                    title: "Local Map API",
+                    title: "CoreMap API",
                     description:
-                        "HTTP API for Local Map (places, streets, buildings, public map). Routes marked with a lock require `Authorization: Bearer <token>` from POST /auth/login.",
+                        "HTTP API for CoreMap (places, streets, buildings, public map). Routes marked with a lock require `Authorization: Bearer <token>` from POST /auth/login.",
                     version: readApiVersion(),
                 },
                 servers: buildOpenApiServers(),

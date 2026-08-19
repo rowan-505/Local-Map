@@ -15,7 +15,7 @@ Web-first Myanmar map platform. PostGIS is the source of truth. The Fastify API 
 | Tiles | `infrastructure/tiles/` | Basemap build and delivery |
 | Routing | `infrastructure/routing/valhalla/` | Valhalla road routing |
 
-`apps/mobile` is experimental. It is not part of V2 production.
+`apps/mobile` is experimental (`apps/mobile/android-kotlin`). It is not part of V2 production.
 
 ## Run locally
 
@@ -26,5 +26,7 @@ Short version: copy [`.env.example`](.env.example) to `.env`, copy `apps/api/env
 ## Docs
 
 - [Overview and layer rules](docs/overview.md)
-- [Full architecture rules](AGENTS.md)
+- [Getting started](docs/getting-started.md)
 - [Docs index](docs/README.md)
+
+To read the code, start at `apps/api/src/modules/places/` and `apps/web/src/features/map/`. See [docs/README.md](docs/README.md) for a short tour.

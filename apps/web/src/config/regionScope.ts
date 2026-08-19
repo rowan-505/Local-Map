@@ -1,7 +1,4 @@
-/**
- * MVP region scope — one country, one operational area (Kyauktan).
- * Map UI and data loading both read from here; no duplicate bbox literals elsewhere.
- */
+/** Country bounds plus the Kyauktan operational bbox. */
 
 /** MapLibre GL–compatible `maxBounds`: [southwest, northeast] as [lng, lat] pairs. */
 export type LngLatBounds = readonly [readonly [number, number], readonly [number, number]];
@@ -27,7 +24,7 @@ export const REGION_SCOPE = {
     id: 'kyauktan' as const,
     label: 'Kyauktan',
     centerLngLat: [96.32278, 16.63806] as [number, number],
-    /** Operational bbox for camera / queries. Map polygon: `src/data/geo/kyauktan-township.json` (OSM). */
+    /** Operational bbox for camera and queries. */
     boundsLngLat: [
       [96.12, 16.48],
       [96.52, 16.78],

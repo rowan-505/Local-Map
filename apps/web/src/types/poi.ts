@@ -3,7 +3,7 @@
  */
 import type { PoiCategoryId } from './poi-category';
 
-export type PoiDataSource = 'api' | 'osm';
+export type PoiDataSource = 'api';
 
 export type Poi = {
   readonly id: string;

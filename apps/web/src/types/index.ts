@@ -1,4 +1,4 @@
-/** Domain types for the local map MVP — import from `@/types`. */
+/** Domain types — import from `@/types`. */
 
 export type { Coordinates, LngLatTuple } from './coordinates';
 export type { PoiFilterState } from './filters';

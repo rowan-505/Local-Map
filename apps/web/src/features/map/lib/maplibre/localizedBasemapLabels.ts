@@ -1,7 +1,4 @@
-/**
- * Applies bilingual `text-field` to symbol layers in the loaded style.
- * Overview Natural Earth/MIMU layers use dedicated field names (not `name_mm` / `name_en`).
- */
+/** Set bilingual `text-field` on symbol layers. Overview tiles use their own name keys. */
 import type { ExpressionSpecification, LayerSpecification } from 'maplibre-gl';
 import type { LanguageMode } from '@local-map/localized-name';
 import { getMapTextFieldExpression } from '@local-map/localized-name';

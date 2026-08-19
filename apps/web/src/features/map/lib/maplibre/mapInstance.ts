@@ -1,7 +1,4 @@
-/**
- * MapLibre GL construction — shared style and interaction defaults from `../../config`;
- * viewport from `mapDefaults`. GeoJSON overlays unchanged (`basemapMvpStyle`, POI layers in MapView).
- */
+/** Create the public MapLibre map. Style and viewport come from `../../config`. */
 import maplibregl from 'maplibre-gl';
 import { getActiveWebMapStyle, MAP_LIBRE_INTERACTION_DEFAULTS } from '../../config';
 import {
@@ -11,7 +8,6 @@ import {
 import { getPublicMapMapLibreInitOptions } from '../../config/publicMapViewport';
 import type { MapEngine } from '../mapEngineTypes';
 import { registerPmtilesProtocol } from './registerPmtilesProtocol';
-import { applyMvpBasemapStyle } from './basemapMvpStyle';
 import { logBasemapDebugSnapshot } from './basemapDebug';
 import { logGlyphServingHealthInDev } from './glyphDevCheck';
 
@@ -43,10 +39,6 @@ export async function createMaplibreMap(container: HTMLDivElement): Promise<MapE
 
   const viewport = getPublicMapMapLibreInitOptions();
 
-  /**
-   * Overview PMTiles: fallback center/zoom + low minZoom; MapView runs startup `fitBounds` after load.
-   * No maxBounds unless ENABLE_OVERVIEW_VIEWPORT_LOCK. Dashboard uses separate init.
-   */
   const map = new maplibregl.Map({
     container,
     style,
@@ -63,7 +55,6 @@ export async function createMaplibreMap(container: HTMLDivElement): Promise<MapE
   });
 
   map.once('load', () => {
-    applyMvpBasemapStyle(map);
     exposeMaplibreDebugGlobals(map);
     if (isMapDebugExposeEnabled()) {
       window.__MAP_DEBUG_BASEMAP__ = () => logBasemapDebugSnapshot(map);

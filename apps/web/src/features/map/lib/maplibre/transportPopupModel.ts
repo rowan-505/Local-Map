@@ -1,12 +1,4 @@
-/**
- * Normalizes MapLibre transport feature properties into a popup-ready model,
- * keyed by Martin source-layer name (with layer-id fallback). Debug inspection only —
- * no API calls. Tolerant of missing fields: absent/null/empty values render as "—".
- *
- * User-facing titles never expose generated OSM fallback names: terminal titles go through
- * the `transportDisplayName` helpers, so unnamed ferries read as "Ferry landing" instead of
- * `ferry_terminal osm:N:...`. Raw generated names remain only in the dev-only debug block.
- */
+/** Popup copy for Martin transport features. Titles go through `transportDisplayName`. */
 import { getFerryVehicleAccessNote, getTransportPopupTitle } from './transportDisplayName';
 
 export const TRANSPORT_MISSING_VALUE = '—';
@@ -100,12 +92,6 @@ function readLower(properties: FeatureProperties, key: string): string {
   return (coalesce(properties, [key]) ?? '').toLowerCase();
 }
 
-/**
- * Terminal popup model. Ferries get user-safe wording (never a generated OSM name):
- * an unnamed ferry reads "Ferry landing", and imported-unreviewed ferries are flagged as
- * candidates with an "Imported from OSM, not verified" note. The transport tiles carry no
- * vehicle-access field, so ferry vehicle access is always reported as unknown.
- */
 function buildTerminalPopupModel(properties: FeatureProperties): TransportPopupModel {
   const mode = readLower(properties, 'mode');
   const isFerry = mode === 'ferry';
@@ -126,7 +112,7 @@ function buildTerminalPopupModel(properties: FeatureProperties): TransportPopupM
     {
       label: 'Review',
       value: isImportedUnreviewed
-        ? 'Imported from OSM, not verified'
+        ? 'Imported, not verified'
         : display(properties, 'review_status'),
     },
   ];

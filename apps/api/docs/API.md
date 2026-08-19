@@ -1,4 +1,4 @@
-# Local Map API
+# CoreMap API
 
 > **Generated:** 2026-08-18T12:12:50.756Z (UTC)  
 > **OpenAPI:** This file is produced from `buildApp().swagger()` in `scripts/generate-api-docs.ts` — the same JSON as `GET /openapi.json` when the server is running.
@@ -17,7 +17,7 @@
 
 ## Authentication
 
-HTTP API for Local Map (places, streets, buildings, public map). Routes marked with a lock require `Authorization: Bearer <token>` from POST /auth/login.
+HTTP API for CoreMap (places, streets, buildings, public map). Routes marked with a lock require `Authorization: Bearer <token>` from POST /auth/login.
 
 ### Bearer JWT (`bearerAuth`)
 

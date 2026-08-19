@@ -21,6 +21,8 @@ apps/api/src/modules/<domain>/
 
 Keep route handlers thin. Use raw SQL for geospatial and search-heavy work.
 
+A good first module is [`places`](../apps/api/src/modules/places/). Transport and import-review are much larger; read them after the pattern is clear.
+
 ## Main route groups
 
 | Path | Purpose |

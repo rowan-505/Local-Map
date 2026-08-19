@@ -1,10 +1,4 @@
-/**
- * MapLibre `text-field` expressions for overview PMTiles (Natural Earth + MIMU).
- * Do not use regional `name_mm` / `name_en` fields — they are absent on overview tiles.
- *
- * TODO: Ocean/sea names are not in the current overview archive (no physical label points layer).
- * To show ocean labels, add Natural Earth physical label points or a custom sea-label layer to PMTiles.
- */
+/** Overview tile label fields. Regional `name_mm` / `name_en` are not on these layers. */
 import type { ExpressionSpecification } from 'maplibre-gl';
 
 export const OVERVIEW_LABEL_LAYER_IDS = [
@@ -15,7 +9,7 @@ export const OVERVIEW_LABEL_LAYER_IDS = [
 
 export type OverviewLabelLayerId = (typeof OVERVIEW_LABEL_LAYER_IDS)[number];
 
-/** Natural Earth `countries` — uppercase attribute names from 10m admin export. */
+/** Country polygons — uppercase attribute names from the overview export. */
 export const OVERVIEW_COUNTRY_LABEL_TEXT_FIELD: ExpressionSpecification = [
   'coalesce',
   ['get', 'NAME'],
@@ -24,7 +18,7 @@ export const OVERVIEW_COUNTRY_LABEL_TEXT_FIELD: ExpressionSpecification = [
   ['get', 'NAME_LONG'],
 ];
 
-/** Natural Earth `populated_places` — mixed case keys from tippecanoe. */
+/** Populated places — mixed-case keys from tippecanoe. */
 export const OVERVIEW_POPULATED_PLACES_TEXT_FIELD: ExpressionSpecification = [
   'coalesce',
   ['get', 'NAME'],
@@ -33,7 +27,7 @@ export const OVERVIEW_POPULATED_PLACES_TEXT_FIELD: ExpressionSpecification = [
   ['get', 'nameascii'],
 ];
 
-/** MIMU / admin1 polygons — state/region name fields (ST*, SR*, optional lowercase fallbacks). */
+/** State/region polygons — ST / SR name fields, plus lowercase fallbacks. */
 export const OVERVIEW_MMR_ADMIN1_LABEL_TEXT_FIELD: ExpressionSpecification = [
   'coalesce',
   ['get', 'ST'],

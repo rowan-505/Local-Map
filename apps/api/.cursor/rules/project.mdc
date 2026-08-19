@@ -4,7 +4,7 @@ alwaysApply: false
 # API Rules (Fastify Backend)
 
 ## Purpose
-This is the backend API layer for the Local Map project.
+This is the backend API layer for CoreMap.
 
 ## Responsibilities
 - Handle business logic
