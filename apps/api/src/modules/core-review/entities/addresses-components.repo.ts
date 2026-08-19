@@ -158,23 +158,11 @@ export class CoreReviewAddressComponentsRepository {
         `;
 
         if (postalCode) {
-            try {
-                await this.prisma.$executeRaw`
-                    UPDATE core.core_addresses
-                    SET postal_code = ${postalCode}
-                    WHERE id = ${addressId}
-                `;
-            } catch {
-                try {
-                    await this.prisma.$executeRaw`
-                        UPDATE core.core_addresses
-                        SET postcode = ${postalCode}
-                        WHERE id = ${addressId}
-                    `;
-                } catch {
-                    /* legacy schema without postal columns */
-                }
-            }
+            await this.prisma.$executeRaw`
+                UPDATE core.core_addresses
+                SET postal_code = ${postalCode}
+                WHERE id = ${addressId}
+            `;
         }
 
         return display;

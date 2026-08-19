@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import StatsCard from "@/src/components/dashboard/StatsCard";
 import { isAbortError } from "@/src/lib/api";
 import { searchPath } from "@/src/lib/dashboardNavigation";
+import { useDashboardRoleAccess } from "@/src/hooks/useDashboardRoleAccess";
 import { rolesFromJwtAccessToken } from "@/src/lib/jwtRoles";
 
 import {
@@ -116,6 +117,7 @@ function SearchIndexHealthSkeleton() {
 }
 
 export default function SearchIndexHealthPage() {
+    const { canWrite } = useDashboardRoleAccess();
     const [data, setData] = useState<SearchIndexHealthReport | null>(null);
     const [phase, setPhase] = useState<SearchIndexHealthLoadPhase>("initial");
     const dataRef = useRef<SearchIndexHealthReport | null>(null);
@@ -279,7 +281,8 @@ export default function SearchIndexHealthPage() {
                         <button
                             type="button"
                             className={SECONDARY_BTN}
-                            disabled={phase === "initial" || isRefreshing || runningAction}
+                            disabled={!canWrite || phase === "initial" || isRefreshing || runningAction}
+                            title={!canWrite ? "Read-only viewers cannot run maintenance checks" : undefined}
                             onClick={() => void runHealthCheck()}
                         >
                             {runningAction ? "Running…" : "Run health check"}

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { isAbortError } from "@/src/lib/api";
 import { searchPath } from "@/src/lib/dashboardNavigation";
+import { useDashboardRoleAccess } from "@/src/hooks/useDashboardRoleAccess";
 
 import {
     createSearchAlias,
@@ -66,6 +67,7 @@ type FlashMessage = {
 };
 
 export default function SearchAliasesPage() {
+    const { canWrite } = useDashboardRoleAccess();
     const router = useRouter();
     const searchParams = useSearchParams();
     const initialUrlFilters = readSearchAliasUrlFilters(searchParams);
@@ -350,7 +352,13 @@ export default function SearchAliasesPage() {
                             never edited here.
                         </p>
                     </div>
-                    <button type="button" className={PRIMARY_BTN} onClick={openCreate}>
+                    <button
+                        type="button"
+                        className={PRIMARY_BTN}
+                        disabled={!canWrite}
+                        title={!canWrite ? "Read-only viewers cannot create aliases" : undefined}
+                        onClick={openCreate}
+                    >
                         Create alias
                     </button>
                 </header>
@@ -566,6 +574,8 @@ export default function SearchAliasesPage() {
                                         <button
                                             type="button"
                                             className={`${PRIMARY_BTN} mt-4`}
+                                            disabled={!canWrite}
+                                            title={!canWrite ? "Read-only viewers cannot create aliases" : undefined}
                                             onClick={openCreate}
                                         >
                                             Create alias
@@ -619,6 +629,8 @@ export default function SearchAliasesPage() {
                                                 <button
                                                     type="button"
                                                     className={SECONDARY_BTN}
+                                                    disabled={!canWrite}
+                                                    title={!canWrite ? "Read-only viewers cannot edit aliases" : undefined}
                                                     onClick={() => openEdit(item)}
                                                 >
                                                     Edit
@@ -626,7 +638,8 @@ export default function SearchAliasesPage() {
                                                 <button
                                                     type="button"
                                                     className={SECONDARY_BTN}
-                                                    disabled={rowActionId === item.id}
+                                                    disabled={!canWrite || rowActionId === item.id}
+                                                    title={!canWrite ? "Read-only viewers cannot change alias status" : undefined}
                                                     onClick={() => void handleToggleActive(item)}
                                                 >
                                                     {rowActionId === item.id
@@ -684,7 +697,7 @@ export default function SearchAliasesPage() {
                 </div>
             </div>
 
-            {dialogMode ? (
+            {canWrite && dialogMode ? (
                 <SearchAliasFormDialog
                     mode={dialogMode}
                     initialItem={editingItem}

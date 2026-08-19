@@ -3,6 +3,7 @@ import { mapBuildingNameFields } from "../../lib/entity-names/building-detail-se
 import type { BuildingDetailRow } from "../buildings/buildings.repo.js";
 import type { PlaceDetailRow, PlaceNameRow, PlaceRow } from "../places/places.repo.js";
 import type { StreetCoreReviewListRow, StreetRow } from "../streets/streets.repo.js";
+import { legacyIsOnewayFromTravelDirection } from "../streets/streets-direction.js";
 import type { CoreReviewNameDto } from "./core-review.types.js";
 import {
     effectiveVerificationStatusFromRow,
@@ -119,7 +120,8 @@ export function serializeCoreReviewStreetListItem(row: StreetCoreReviewListRow) 
         roadClass: row.road_class,
         roadClassName: row.road_class_name,
         surface: row.surface,
-        isOneway: row.is_oneway,
+        travelDirection: row.travel_direction,
+        isOneway: legacyIsOnewayFromTravelDirection(row.travel_direction),
         bridge: row.bridge,
         tunnel: row.tunnel,
         manualOverride: false,
@@ -150,7 +152,8 @@ export function serializeCoreReviewStreet(row: StreetRow) {
         roadClass: row.road_class,
         roadClassName: row.road_class_name,
         surface: row.surface,
-        isOneway: row.is_oneway,
+        travelDirection: row.travel_direction,
+        isOneway: legacyIsOnewayFromTravelDirection(row.travel_direction),
         bridge: row.bridge,
         tunnel: row.tunnel,
         manualOverride: row.manual_override,

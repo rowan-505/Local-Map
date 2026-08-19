@@ -122,7 +122,8 @@ SELECT s.*,c.id target_id,c.deleted_at target_deleted_at,
       c.canonical_name IS DISTINCT FROM s.canonical_name
       OR c.road_class_id IS DISTINCT FROM s.road_class_id
       OR c.admin_area_id IS DISTINCT FROM s.admin_area_id
-      OR c.is_oneway IS DISTINCT FROM s.is_oneway
+      OR c.travel_direction IS DISTINCT FROM
+        CASE WHEN s.is_oneway THEN 'forward'::text ELSE NULL::text END
       OR c.bridge IS DISTINCT FROM s.bridge
       OR c.tunnel IS DISTINCT FROM s.tunnel
       OR c.layer IS DISTINCT FROM s.layer
@@ -151,20 +152,20 @@ CREATE TEMP TABLE direct_roads_changes (
 WITH ins AS (
   INSERT INTO core.core_streets (
     external_id,canonical_name,geom,admin_area_id,source_type_id,road_class_id,
-    road_class,surface,is_oneway,bridge,tunnel,layer,source_tags,source_refs,
-    normalized_data,is_active,is_verified,manual_override,edit_status,
-    routing_status,verification_status
+    road_class,surface,travel_direction,bridge,tunnel,layer,source_tags,source_refs,
+    normalized_data,is_active,manual_override,verification_status
   )
   SELECT s.external_id,s.canonical_name,s.geom::geometry(LineString,4326),
     s.admin_area_id,p.source_type_id,s.road_class_id,rc.code,s.surface,
-    s.is_oneway,s.bridge,s.tunnel,s.layer,
+    CASE WHEN s.is_oneway THEN 'forward'::text ELSE NULL::text END,
+    s.bridge,s.tunnel,s.layer,
     coalesce(s.normalized_data->'tags','{}'::jsonb),
     s.source_refs||jsonb_build_object(
       'external_id',s.external_id,'source_snapshot_version',p.snapshot_version,
       'region_code',p.region_code,'loader','direct_core.roads'),
     s.normalized_data||jsonb_build_object(
       'local_staging_id',s.local_staging_id,'import_class',s.classification),
-    true,false,false,'published','synced','unverified'
+    true,false,'unverified'
   FROM direct_roads_plan s CROSS JOIN direct_roads_params p
   JOIN ref.ref_road_classes rc ON rc.id=s.road_class_id
   WHERE s.classification='safe_new' AND s.target_id IS NULL
@@ -178,7 +179,8 @@ WITH upd AS (
   UPDATE core.core_streets c SET
     canonical_name=s.canonical_name,geom=s.geom::geometry(LineString,4326),
     admin_area_id=s.admin_area_id,road_class_id=s.road_class_id,
-    road_class=rc.code,surface=s.surface,is_oneway=s.is_oneway,
+    road_class=rc.code,surface=s.surface,
+    travel_direction=CASE WHEN s.is_oneway THEN 'forward'::text ELSE NULL::text END,
     bridge=s.bridge,tunnel=s.tunnel,layer=s.layer,
     source_tags=coalesce(s.normalized_data->'tags',c.source_tags),
     source_refs=c.source_refs||s.source_refs||jsonb_build_object(
@@ -191,10 +193,11 @@ WITH upd AS (
   JOIN ref.ref_road_classes rc ON rc.id=s.road_class_id
   WHERE c.id=s.target_id AND s.classification='safe_update'
     AND (c.canonical_name,c.geom,c.admin_area_id,c.road_class_id,c.road_class,
-      c.surface,c.is_oneway,c.bridge,c.tunnel,c.layer,c.source_tags,
+      c.surface,c.travel_direction,c.bridge,c.tunnel,c.layer,c.source_tags,
       c.source_refs,c.normalized_data) IS DISTINCT FROM
     (s.canonical_name,s.geom,s.admin_area_id,s.road_class_id,rc.code,
-      s.surface,s.is_oneway,s.bridge,s.tunnel,s.layer,
+      s.surface,CASE WHEN s.is_oneway THEN 'forward'::text ELSE NULL::text END,
+      s.bridge,s.tunnel,s.layer,
       coalesce(s.normalized_data->'tags',c.source_tags),
       c.source_refs||s.source_refs||jsonb_build_object(
         'external_id',s.external_id,'source_snapshot_version',p.snapshot_version,

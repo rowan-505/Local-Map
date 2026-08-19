@@ -57,6 +57,7 @@ function createMockRepo(
     overrides: Partial<ImportReviewPromotionRepository> = {}
 ): ImportReviewPromotionRepository {
     return {
+        prisma,
         getPrisma: () => prisma,
         resolveScope: async () => ({
             reviewBatchId: 2n,

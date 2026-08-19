@@ -182,7 +182,7 @@ BEGIN
                 road_class_id = r.road_class_id,
                 road_class = r.road_class_code,
                 surface = r.surface_text,
-                is_oneway = r.is_oneway,
+                travel_direction = CASE WHEN r.is_oneway THEN 'forward' ELSE NULL END,
                 bridge = r.bridge_flag,
                 tunnel = r.tunnel_flag,
                 layer = r.layer_no,
@@ -191,9 +191,7 @@ BEGIN
                 source_refs = coalesce(cs.source_refs, '{}'::jsonb) || r.merged_source_refs,
                 normalized_data = coalesce(cs.normalized_data, '{}'::jsonb) || r.merged_normalized_data,
                 is_active = true,
-                is_verified = false,
                 verification_status = 'unverified',
-                routing_status = 'ready_for_test',
                 updated_at = now()%s
             FROM ready AS r
             WHERE cs.external_id = r.external_id
@@ -219,7 +217,7 @@ BEGIN
                 road_class_id,
                 road_class,
                 surface,
-                is_oneway,
+                travel_direction,
                 bridge,
                 tunnel,
                 layer,
@@ -228,10 +226,8 @@ BEGIN
                 source_refs,
                 normalized_data,
                 is_active,
-                is_verified,
                 verification_status,
                 manual_override,
-                routing_status,
                 created_at,
                 updated_at%s
             )
@@ -242,7 +238,7 @@ BEGIN
                 r.road_class_id,
                 r.road_class_code,
                 r.surface_text,
-                r.is_oneway,
+                CASE WHEN r.is_oneway THEN 'forward' ELSE NULL END,
                 r.bridge_flag,
                 r.tunnel_flag,
                 r.layer_no,
@@ -251,10 +247,8 @@ BEGIN
                 r.merged_source_refs,
                 r.merged_normalized_data,
                 true,
-                false,
                 'unverified',
                 false,
-                'ready_for_test',
                 now(),
                 now()%s
             FROM ready AS r

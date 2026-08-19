@@ -14,9 +14,11 @@ const MERGE_RADIUS_M = 50;
 export default function TransportStopMergePanel({
     stop,
     onMerged,
+    canWrite,
 }: {
     readonly stop: TransportStopDetail;
     readonly onMerged: (targetPublicId: string) => void;
+    readonly canWrite: boolean;
 }) {
     const [nearby, setNearby] = useState<readonly TransportNearbyStop[]>([]);
     const [loading, setLoading] = useState(false);
@@ -114,6 +116,7 @@ export default function TransportStopMergePanel({
                         <select
                             className={SELECT_CLASS}
                             value={targetId}
+                            disabled={!canWrite}
                             onChange={(e) => setTargetId(e.target.value)}
                         >
                             <option value="">Select target…</option>
@@ -132,6 +135,7 @@ export default function TransportStopMergePanel({
                         <input
                             type="text"
                             value={reason}
+                            disabled={!canWrite}
                             onChange={(e) => setReason(e.target.value)}
                             placeholder="Why merge these stops?"
                             className={SELECT_CLASS}
@@ -147,7 +151,8 @@ export default function TransportStopMergePanel({
                     <div className="flex justify-end">
                         <button
                             type="button"
-                            disabled={merging || !targetId}
+                            disabled={!canWrite || merging || !targetId}
+                            title={!canWrite ? "Read-only viewers cannot merge stops" : undefined}
                             onClick={() => void handleMerge()}
                             className="rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
                         >

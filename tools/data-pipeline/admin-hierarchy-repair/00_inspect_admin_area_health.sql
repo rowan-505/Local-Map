@@ -533,7 +533,8 @@ UNION ALL
         'null_admin_area_id'::text AS issue,
         b.id,
         b.public_id,
-        coalesce(b.name, b.external_id) AS name,
+        coalesce((SELECT n.name FROM core.core_building_names n WHERE n.building_id=b.id
+                  ORDER BY n.is_primary DESC, n.search_weight DESC NULLS LAST, n.id LIMIT 1), b.external_id) AS name,
         b.admin_area_id,
         NULL::text AS admin_level_code,
         NULL::text AS admin_canonical_name
@@ -550,7 +551,8 @@ UNION ALL
         'rep_point_outside_assigned_admin_geom',
         b.id,
         b.public_id,
-        coalesce(b.name, b.external_id),
+        coalesce((SELECT n.name FROM core.core_building_names n WHERE n.building_id=b.id
+                  ORDER BY n.is_primary DESC, n.search_weight DESC NULLS LAST, n.id LIMIT 1), b.external_id),
         b.admin_area_id,
         al.code,
         aa.canonical_name

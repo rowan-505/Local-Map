@@ -125,7 +125,7 @@ export class ImportReviewPromotionPromoteLandAreasRepository {
                         )
                     )
                     INSERT INTO core.core_land_areas (
-                        external_id, name,
+                        external_id,
                         land_area_class_id, admin_area_id,
                         geom, centroid, area_m2,
                         confidence_score, manual_override, source_tags,
@@ -136,7 +136,6 @@ export class ImportReviewPromotionPromoteLandAreasRepository {
                     )
                     SELECT
                         g.external_id_ready,
-                        NULL::text,
                         g.land_area_class_id_ready,
                         g.admin_area_id_ready,
                         g.geom,
@@ -154,7 +153,7 @@ export class ImportReviewPromotionPromoteLandAreasRepository {
                         now(),
                         NULL::timestamptz
                     FROM guard AS g
-                    RETURNING id, external_id, name,
+                    RETURNING id, external_id, NULL::text AS name,
                         land_area_class_id, detail_level, crop_code
                 `;
 
@@ -177,14 +176,6 @@ export class ImportReviewPromotionPromoteLandAreasRepository {
                 const names = await this.loadCandidateNames(tx, publishItemId);
                 const derived = deriveImportReviewNames(this.toNameCandidate(names));
                 const legacyName = derived.name_en ?? derived.name_mm ?? derived.name_und ?? null;
-
-                if (legacyName) {
-                    await tx.$executeRaw`
-                        UPDATE core.core_land_areas
-                        SET name = ${legacyName}, updated_at = now()
-                        WHERE id = ${row.id}
-                    `;
-                }
 
                 await syncLandAreaFeatureNames(tx, row.id, {
                     name_mm: derived.name_mm,
@@ -332,7 +323,7 @@ export class ImportReviewPromotionPromoteLandAreasRepository {
                     WHERE c.id = v.matched_core_id
                       AND coalesce(c.is_active, true)
                       AND c.deleted_at IS NULL
-                    RETURNING c.id, c.external_id, c.name, c.land_area_class_id,
+                    RETURNING c.id, c.external_id, NULL::text AS name, c.land_area_class_id,
                         c.detail_level, c.crop_code
                 `;
 
@@ -354,12 +345,6 @@ export class ImportReviewPromotionPromoteLandAreasRepository {
                 const names = await this.loadCandidateNames(tx, publishItemId);
                 const derived = deriveImportReviewNames(this.toNameCandidate(names));
                 const legacyName = derived.name_en ?? derived.name_mm ?? derived.name_und ?? null;
-
-                await tx.$executeRaw`
-                    UPDATE core.core_land_areas
-                    SET name = ${legacyName}, updated_at = now()
-                    WHERE id = ${row.id}
-                `;
 
                 await syncLandAreaFeatureNames(tx, row.id, {
                     name_mm: derived.name_mm,

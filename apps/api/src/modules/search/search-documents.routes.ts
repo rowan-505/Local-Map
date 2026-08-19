@@ -7,12 +7,11 @@ import { getSearchDocumentsSchema } from "./search-documents.openapi.js";
 
 const searchDocumentsRoutes: FastifyPluginAsync = async (app) => {
     const service = new SearchDocumentsService(new SearchDocumentsRepository(app.prisma));
-    const requireAdmin = app.requireRole("admin", "super_admin");
-    const adminGuard = { preHandler: [app.authenticate, requireAdmin] };
+    const readGuard = { preHandler: [app.authenticate, app.requireDashboardAccess] };
 
     app.get(
         "/admin/search/documents",
-        { ...adminGuard, schema: getSearchDocumentsSchema },
+        { ...readGuard, schema: getSearchDocumentsSchema },
         async (request, reply) => {
             const parsed = listSearchDocumentsQuerySchema.safeParse(request.query);
             if (!parsed.success) {

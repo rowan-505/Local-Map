@@ -93,6 +93,7 @@ describe("createRetryBatchFromFailedReady service", () => {
 
         let createArgs: { candidateIdsByFamily?: Record<string, readonly bigint[]> } | undefined;
         const repo = {
+            prisma,
             getPrisma: () => prisma,
             fetchPublishBatchById: async () => ({
                 id: sourceBatchId,
@@ -189,6 +190,7 @@ describe("createRetryBatchFromFailedReady service", () => {
 
     it("rejects retry when source batch still has promotable pending items", async () => {
         const repo = {
+            prisma: {} as PrismaClient,
             getPrisma: () => ({} as PrismaClient),
             fetchPublishBatchById: async () => ({
                 id: 18n,

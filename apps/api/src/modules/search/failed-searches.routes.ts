@@ -25,12 +25,12 @@ function handleError(error: unknown, reply: FastifyReply): FastifyReply {
 
 const failedSearchesRoutes: FastifyPluginAsync = async (app) => {
     const service = new FailedSearchesService(new FailedSearchesRepository(app.prisma));
-    const requireAdmin = app.requireRole("admin", "super_admin");
-    const adminGuard = { preHandler: [app.authenticate, requireAdmin] };
+    const readGuard = { preHandler: [app.authenticate, app.requireDashboardAccess] };
+    const writeGuard = { preHandler: [app.authenticate, app.requireDashboardWrite] };
 
     app.get(
         "/admin/search/failed-searches",
-        { ...adminGuard, schema: getFailedSearchesSchema },
+        { ...readGuard, schema: getFailedSearchesSchema },
         async (request, reply) => {
             const parsed = listFailedSearchesQuerySchema.safeParse(request.query);
             if (!parsed.success) {
@@ -45,7 +45,7 @@ const failedSearchesRoutes: FastifyPluginAsync = async (app) => {
 
     app.get(
         "/admin/search/failed-searches/:id",
-        { ...adminGuard, schema: getFailedSearchByIdSchema },
+        { ...readGuard, schema: getFailedSearchByIdSchema },
         async (request, reply) => {
             const params = failedSearchIdParamSchema.safeParse(request.params);
             if (!params.success) {
@@ -64,7 +64,7 @@ const failedSearchesRoutes: FastifyPluginAsync = async (app) => {
 
     app.patch(
         "/admin/search/failed-searches/:id",
-        { ...adminGuard, schema: patchFailedSearchSchema },
+        { ...writeGuard, schema: patchFailedSearchSchema },
         async (request, reply) => {
             const params = failedSearchIdParamSchema.safeParse(request.params);
             if (!params.success) {

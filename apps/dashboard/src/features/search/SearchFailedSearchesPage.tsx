@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { isAbortError } from "@/src/lib/api";
+import { useDashboardRoleAccess } from "@/src/hooks/useDashboardRoleAccess";
 
 import {
     createSearchAlias,
@@ -81,6 +82,7 @@ function parseMinOccurrence(value: string): number | undefined {
 }
 
 export default function SearchFailedSearchesPage() {
+    const { canWrite } = useDashboardRoleAccess();
     const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
     const [searchInput, setSearchInput] = useState("");
     const [page, setPage] = useState(1);
@@ -595,6 +597,7 @@ export default function SearchFailedSearchesPage() {
                     candidateLoading={candidateLoading}
                     selectedAliasTargetKey={selectedAliasTargetKey}
                     actionLoading={actionLoading}
+                    canWrite={canWrite}
                     onClose={() => {
                         setInspectItem(null);
                         setPresetEntity(null);
@@ -628,7 +631,7 @@ export default function SearchFailedSearchesPage() {
                 />
             ) : null}
 
-            {aliasDialogItem ? (
+            {canWrite && aliasDialogItem ? (
                 <SearchAliasFormDialog
                     mode="create"
                     presetEntity={presetEntity}
@@ -646,7 +649,7 @@ export default function SearchFailedSearchesPage() {
                 />
             ) : null}
 
-            {resolveDialogItem ? (
+            {canWrite && resolveDialogItem ? (
                 <FailedSearchResolveDialog
                     query={resolveDialogItem.query}
                     saving={resolveSaving}

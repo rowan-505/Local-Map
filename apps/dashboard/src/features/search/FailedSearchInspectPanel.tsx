@@ -34,6 +34,7 @@ export default function FailedSearchInspectPanel({
     onInspectDocument,
     onUseAsAliasTarget,
     actionLoading,
+    canWrite,
 }: {
     item: FailedSearchItem;
     candidateDocuments: SearchDocumentItem[];
@@ -46,6 +47,7 @@ export default function FailedSearchInspectPanel({
     onInspectDocument: (document: SearchDocumentItem) => void;
     onUseAsAliasTarget: (document: SearchDocumentItem) => void;
     actionLoading: boolean;
+    canWrite: boolean;
 }) {
     const aliasesHref = item.linked_entity
         ? `${searchPath("aliases")}?entity_type=${encodeURIComponent(item.linked_entity.entity_type)}&entity_id=${encodeURIComponent(item.linked_entity.entity_id)}`
@@ -166,6 +168,8 @@ export default function FailedSearchInspectPanel({
                                                 <button
                                                     type="button"
                                                     className={PRIMARY_BTN}
+                                                    disabled={!canWrite}
+                                                    title={!canWrite ? "Read-only viewers cannot select an alias target" : undefined}
                                                     onClick={() => onUseAsAliasTarget(doc)}
                                                 >
                                                     {isSelected ? "Selected target" : "Use as alias target"}
@@ -193,7 +197,8 @@ export default function FailedSearchInspectPanel({
                             <button
                                 type="button"
                                 className={PRIMARY_BTN}
-                                disabled={actionLoading || !selectedAliasTargetKey}
+                                disabled={!canWrite || actionLoading || !selectedAliasTargetKey}
+                                title={!canWrite ? "Read-only viewers cannot add aliases" : undefined}
                                 onClick={onCreateAlias}
                             >
                                 Add alias…
@@ -201,7 +206,8 @@ export default function FailedSearchInspectPanel({
                             <button
                                 type="button"
                                 className={SECONDARY_BTN}
-                                disabled={actionLoading}
+                                disabled={!canWrite || actionLoading}
+                                title={!canWrite ? "Read-only viewers cannot resolve searches" : undefined}
                                 onClick={onMarkResolved}
                             >
                                 Mark resolved…
@@ -211,7 +217,8 @@ export default function FailedSearchInspectPanel({
                         <button
                             type="button"
                             className={SECONDARY_BTN}
-                            disabled={actionLoading}
+                            disabled={!canWrite || actionLoading}
+                            title={!canWrite ? "Read-only viewers cannot reopen searches" : undefined}
                             onClick={onReopen}
                         >
                             {actionLoading ? "Reopening…" : "Reopen"}

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { isAbortError } from "@/src/lib/api";
 import { transportPath } from "@/src/lib/dashboardNavigation";
+import { useDashboardRoleAccess } from "@/src/hooks/useDashboardRoleAccess";
 import {
     getTransportInfrastructureLineDetail,
     updateTransportInfrastructureLine,
@@ -131,6 +132,7 @@ export default function TransportInfrastructureDetailContent({
     afterSave,
     hideHeader = false,
 }: TransportInfrastructureDetailContentProps) {
+    const { canWrite } = useDashboardRoleAccess();
     const [detail, setDetail] = useState<TransportInfrastructureLineDetail | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
@@ -257,7 +259,9 @@ export default function TransportInfrastructureDetailContent({
                 <button
                     type="button"
                     onClick={startEdit}
-                    className="rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-800"
+                    disabled={!canWrite}
+                    title={!canWrite ? "Read-only viewers cannot edit infrastructure lines" : undefined}
+                    className="rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                     Edit
                 </button>
@@ -267,7 +271,7 @@ export default function TransportInfrastructureDetailContent({
                     <button
                         type="button"
                         onClick={cancelEdit}
-                        disabled={saving}
+                        disabled={!canWrite || saving}
                         className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                     >
                         Cancel
@@ -275,7 +279,7 @@ export default function TransportInfrastructureDetailContent({
                     <button
                         type="button"
                         onClick={() => void save()}
-                        disabled={saving}
+                        disabled={!canWrite || saving}
                         className="rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
                     >
                         {saving ? "Saving…" : "Save changes"}

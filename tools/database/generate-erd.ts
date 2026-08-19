@@ -1,3 +1,4 @@
+import dns from "node:dns";
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
@@ -5,6 +6,11 @@ import { fileURLToPath } from "node:url";
 
 import dotenv from "dotenv";
 import { Client } from "pg";
+
+// Node 17+ looks up AAAA first. macOS often returns NAT64 IPv6 for the
+// Supabase pooler; those sockets can drop during SSL with
+// "Connection terminated unexpectedly". Prefer IPv4.
+dns.setDefaultResultOrder("ipv4first");
 
 const defaultInspectedSchemas = [
   "ref",
@@ -18,6 +24,9 @@ const defaultInspectedSchemas = [
 ];
 const missingDatabaseUrlMessage = "Missing DATABASE_URL. Add it to root .env.";
 const connectionFailureMessage = "Failed to connect to database. Check DATABASE_URL.";
+const connectRetryCount = 3;
+const connectRetryDelayMs = 750;
+const connectionTimeoutMillis = 20_000;
 
 type DbObject = {
   table_schema: string;
@@ -162,6 +171,73 @@ function shouldUseSsl(connectionString: string): boolean {
   } catch {
     return true;
   }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function createDatabaseClient(connectionString: string): Client {
+  const client = new Client({
+    connectionString,
+    ssl: shouldUseSsl(connectionString) ? { rejectUnauthorized: false } : undefined,
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10_000,
+    connectionTimeoutMillis,
+    application_name: "coremap-generate-erd",
+  });
+
+  // node-postgres emits 'error' on unexpected disconnect. Without a listener,
+  // Node crashes with "Unhandled 'error' event".
+  client.on("error", () => {});
+
+  return client;
+}
+
+async function closeDatabaseClient(client: Client | undefined): Promise<void> {
+  if (!client) {
+    return;
+  }
+
+  try {
+    await client.end();
+  } catch {
+    // Ignore close errors after a dropped connection.
+  }
+}
+
+async function connectDatabase(connectionString: string): Promise<Client> {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= connectRetryCount; attempt++) {
+    const client = createDatabaseClient(connectionString);
+
+    try {
+      await client.connect();
+      await client.query("SET statement_timeout = 0");
+      await client.query("SET idle_in_transaction_session_timeout = 0");
+      return client;
+    } catch (error) {
+      lastError = error;
+      await closeDatabaseClient(client);
+
+      if (attempt < connectRetryCount) {
+        await sleep(connectRetryDelayMs * attempt);
+      }
+    }
+  }
+
+  throw new Error(`${connectionFailureMessage} (${errorMessage(lastError)})`);
+}
+
+function isDisconnectError(error: unknown): boolean {
+  return /connection terminated|connection error|ECONNRESET|EPIPE/i.test(errorMessage(error));
 }
 
 async function discoverUserSchemas(client: Client): Promise<string[]> {
@@ -364,153 +440,229 @@ function renderMermaid(
   return lines.join("\n");
 }
 
+async function loadCatalog(client: Client, inspectedSchemas: string[]): Promise<{
+  objects: DbObject[];
+  columns: Column[];
+  primaryKeys: KeyColumn[];
+  foreignKeys: ForeignKey[];
+  functions: DbFunction[];
+  enums: Array<{ schema_name: string; enum_name: string; enum_labels: string[] }>;
+}> {
+  const objects: DbObject[] = [];
+  const columns: Column[] = [];
+  const primaryKeys: KeyColumn[] = [];
+  const foreignKeys: ForeignKey[] = [];
+  const functions: DbFunction[] = [];
+  const enums: Array<{ schema_name: string; enum_name: string; enum_labels: string[] }> = [];
+
+  // Query one schema at a time so each statement finishes before the pooler
+  // idle-kills a long catalog scan, and so pg starts from pg_namespace.
+  for (const schema of inspectedSchemas) {
+    const params = [schema];
+    process.stdout.write(`${schema}... `);
+    const started = Date.now();
+
+    objects.push(
+      ...(
+        await client.query<DbObject>(
+          `
+            SELECT
+              n.nspname AS table_schema,
+              c.relname AS table_name,
+              CASE c.relkind
+                WHEN 'v' THEN 'VIEW'
+                WHEN 'm' THEN 'MATERIALIZED VIEW'
+                ELSE 'BASE TABLE'
+              END AS table_type
+            FROM pg_namespace AS n
+            JOIN pg_class AS c ON c.relnamespace = n.oid
+            WHERE n.nspname = $1
+              AND c.relkind IN ('r', 'p', 'v', 'm')
+              AND NOT c.relispartition
+            ORDER BY c.relname
+          `,
+          params,
+        )
+      ).rows,
+    );
+
+    columns.push(
+      ...(
+        await client.query<Column>(
+          `
+            SELECT
+              n.nspname AS table_schema,
+              c.relname AS table_name,
+              a.attname AS column_name,
+              CASE
+                WHEN t.typcategory = 'A' THEN 'ARRAY'
+                WHEN t.typtype IN ('e', 'd') OR tn.nspname NOT IN ('pg_catalog', 'information_schema') THEN 'USER-DEFINED'
+                ELSE format_type(a.atttypid, NULL)
+              END AS data_type,
+              t.typname AS udt_name,
+              a.attnum AS ordinal_position
+            FROM pg_namespace AS n
+            JOIN pg_class AS c ON c.relnamespace = n.oid
+            JOIN pg_attribute AS a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+            JOIN pg_type AS t ON t.oid = a.atttypid
+            JOIN pg_namespace AS tn ON tn.oid = t.typnamespace
+            WHERE n.nspname = $1
+              AND c.relkind IN ('r', 'p', 'v', 'm')
+              AND NOT c.relispartition
+            ORDER BY c.relname, a.attnum
+          `,
+          params,
+        )
+      ).rows,
+    );
+
+    primaryKeys.push(
+      ...(
+        await client.query<KeyColumn>(
+          `
+            SELECT
+              n.nspname AS table_schema,
+              c.relname AS table_name,
+              a.attname AS column_name
+            FROM pg_namespace AS n
+            JOIN pg_class AS c ON c.relnamespace = n.oid
+            JOIN pg_index AS i ON i.indrelid = c.oid AND i.indisprimary
+            JOIN LATERAL unnest(i.indkey) WITH ORDINALITY AS k(attnum, ordinal_position) ON true
+            JOIN pg_attribute AS a ON a.attrelid = c.oid AND a.attnum = k.attnum
+            WHERE n.nspname = $1
+              AND NOT c.relispartition
+            ORDER BY c.relname, k.ordinal_position
+          `,
+          params,
+        )
+      ).rows,
+    );
+
+    foreignKeys.push(
+      ...(
+        await client.query<ForeignKey>(
+          `
+            SELECT
+              n.nspname AS constraint_schema,
+              con.conname AS constraint_name,
+              n.nspname AS table_schema,
+              rel.relname AS table_name,
+              att.attname AS column_name,
+              fn.nspname AS foreign_table_schema,
+              frel.relname AS foreign_table_name,
+              fatt.attname AS foreign_column_name
+            FROM pg_namespace AS n
+            JOIN pg_class AS rel ON rel.relnamespace = n.oid
+            JOIN pg_constraint AS con ON con.conrelid = rel.oid AND con.contype = 'f'
+            JOIN pg_class AS frel ON frel.oid = con.confrelid
+            JOIN pg_namespace AS fn ON fn.oid = frel.relnamespace
+            JOIN LATERAL unnest(con.conkey) WITH ORDINALITY AS src(attnum, ordinal_position) ON true
+            JOIN LATERAL unnest(con.confkey) WITH ORDINALITY AS dst(attnum, ordinal_position)
+              ON dst.ordinal_position = src.ordinal_position
+            JOIN pg_attribute AS att ON att.attrelid = rel.oid AND att.attnum = src.attnum
+            JOIN pg_attribute AS fatt ON fatt.attrelid = frel.oid AND fatt.attnum = dst.attnum
+            WHERE n.nspname = $1
+              AND NOT rel.relispartition
+            ORDER BY rel.relname, con.conname, src.ordinal_position
+          `,
+          params,
+        )
+      ).rows,
+    );
+
+    functions.push(
+      ...(
+        await client.query<DbFunction>(
+          `
+            SELECT
+              n.nspname AS schema_name,
+              p.proname AS function_name,
+              pg_get_function_identity_arguments(p.oid) AS arguments,
+              pg_catalog.format_type(p.prorettype, NULL) AS return_type,
+              CASE p.prokind
+                WHEN 'f' THEN 'function'
+                WHEN 'p' THEN 'procedure'
+                WHEN 'a' THEN 'aggregate'
+                WHEN 'w' THEN 'window'
+                ELSE p.prokind::text
+              END AS kind
+            FROM pg_namespace AS n
+            JOIN pg_proc AS p ON p.pronamespace = n.oid
+            JOIN pg_language AS l ON l.oid = p.prolang
+            WHERE n.nspname = $1
+              AND p.prokind IN ('f', 'p', 'a', 'w')
+              AND l.lanname IN ('sql', 'plpgsql')
+            ORDER BY p.proname, p.oid
+          `,
+          params,
+        )
+      ).rows,
+    );
+
+    enums.push(
+      ...(
+        await client.query<{ schema_name: string; enum_name: string; enum_labels: string[] }>(
+          `
+            SELECT
+              n.nspname AS schema_name,
+              t.typname AS enum_name,
+              array_agg(e.enumlabel ORDER BY e.enumsortorder) AS enum_labels
+            FROM pg_namespace AS n
+            JOIN pg_type AS t ON t.typnamespace = n.oid AND t.typtype = 'e'
+            JOIN pg_enum AS e ON e.enumtypid = t.oid
+            WHERE n.nspname = $1
+            GROUP BY n.nspname, t.typname
+            ORDER BY t.typname
+          `,
+          params,
+        )
+      ).rows,
+    );
+
+    console.log(`${Date.now() - started}ms`);
+  }
+
+  return { objects, columns, primaryKeys, foreignKeys, functions, enums };
+}
+
 async function main(): Promise<void> {
   if (!process.env.DATABASE_URL) {
     throw new Error(missingDatabaseUrlMessage);
   }
 
-  const client = new Client({
-    connectionString: process.env.DATABASE_URL,
-    ssl: shouldUseSsl(process.env.DATABASE_URL) ? { rejectUnauthorized: false } : undefined,
-  });
+  const connectionString = process.env.DATABASE_URL;
+  let client: Client | undefined;
   let connected = false;
 
   try {
-    await client.connect();
+    client = await connectDatabase(connectionString);
     connected = true;
 
     const inspectedSchemas = await resolveInspectedSchemas(client);
+    console.log(`connected. inspecting ${inspectedSchemas.length} schemas`);
 
-    const objectsResult = await client.query<DbObject>(
-      `
-        SELECT table_schema, table_name, table_type
-        FROM information_schema.tables
-        WHERE table_schema = ANY($1)
-          AND table_type IN ('BASE TABLE', 'VIEW')
-        UNION ALL
-        SELECT schemaname AS table_schema, matviewname AS table_name, 'MATERIALIZED VIEW' AS table_type
-        FROM pg_matviews
-        WHERE schemaname = ANY($1)
-        ORDER BY
-          table_schema,
-          table_name
-      `,
-      [inspectedSchemas],
-    );
+    let catalog;
+    try {
+      catalog = await loadCatalog(client, inspectedSchemas);
+    } catch (error) {
+      if (!isDisconnectError(error)) {
+        throw error;
+      }
 
-    const columnsResult = await client.query<Column>(
-      `
-        SELECT c.table_schema, c.table_name, c.column_name, c.data_type, c.udt_name, c.ordinal_position
-        FROM information_schema.columns AS c
-        JOIN (
-          SELECT table_schema, table_name
-          FROM information_schema.tables
-          WHERE table_schema = ANY($1)
-            AND table_type IN ('BASE TABLE', 'VIEW')
-          UNION
-          SELECT schemaname AS table_schema, matviewname AS table_name
-          FROM pg_matviews
-          WHERE schemaname = ANY($1)
-        ) AS t
-          ON t.table_schema = c.table_schema
-          AND t.table_name = c.table_name
-        ORDER BY c.table_schema, c.table_name, c.ordinal_position
-      `,
-      [inspectedSchemas],
-    );
+      console.log(`catalog query dropped (${errorMessage(error)}); reconnecting...`);
+      await closeDatabaseClient(client);
+      connected = false;
+      client = await connectDatabase(connectionString);
+      connected = true;
+      catalog = await loadCatalog(client, inspectedSchemas);
+    }
 
-    const primaryKeysResult = await client.query<KeyColumn>(
-      `
-        SELECT tc.table_schema, tc.table_name, kcu.column_name
-        FROM information_schema.table_constraints AS tc
-        JOIN information_schema.key_column_usage AS kcu
-          ON kcu.constraint_schema = tc.constraint_schema
-          AND kcu.constraint_name = tc.constraint_name
-          AND kcu.table_schema = tc.table_schema
-          AND kcu.table_name = tc.table_name
-        WHERE tc.table_schema = ANY($1)
-          AND tc.constraint_type = 'PRIMARY KEY'
-        ORDER BY tc.table_schema, tc.table_name, kcu.ordinal_position
-      `,
-      [inspectedSchemas],
-    );
-
-    const foreignKeysResult = await client.query<ForeignKey>(
-      `
-        SELECT
-          tc.constraint_schema,
-          tc.constraint_name,
-          tc.table_schema,
-          tc.table_name,
-          kcu.column_name,
-          ccu.table_schema AS foreign_table_schema,
-          ccu.table_name AS foreign_table_name,
-          ccu.column_name AS foreign_column_name
-        FROM information_schema.table_constraints AS tc
-        JOIN information_schema.key_column_usage AS kcu
-          ON kcu.constraint_schema = tc.constraint_schema
-          AND kcu.constraint_name = tc.constraint_name
-          AND kcu.table_schema = tc.table_schema
-          AND kcu.table_name = tc.table_name
-        JOIN information_schema.constraint_column_usage AS ccu
-          ON ccu.constraint_schema = tc.constraint_schema
-          AND ccu.constraint_name = tc.constraint_name
-        WHERE tc.constraint_type = 'FOREIGN KEY'
-          AND (
-            tc.table_schema = ANY($1)
-            OR ccu.table_schema = ANY($1)
-          )
-        ORDER BY tc.table_schema, tc.table_name, tc.constraint_name, kcu.ordinal_position
-      `,
-      [inspectedSchemas],
-    );
-
-    const functionsResult = await client.query<DbFunction>(
-      `
-        SELECT
-          n.nspname AS schema_name,
-          p.proname AS function_name,
-          pg_get_function_identity_arguments(p.oid) AS arguments,
-          pg_catalog.format_type(p.prorettype, NULL) AS return_type,
-          CASE p.prokind
-            WHEN 'f' THEN 'function'
-            WHEN 'p' THEN 'procedure'
-            WHEN 'a' THEN 'aggregate'
-            WHEN 'w' THEN 'window'
-            ELSE p.prokind::text
-          END AS kind
-        FROM pg_proc AS p
-        JOIN pg_namespace AS n ON n.oid = p.pronamespace
-        WHERE n.nspname = ANY($1)
-          AND p.prokind IN ('f', 'p', 'a', 'w')
-        ORDER BY n.nspname, p.proname, pg_get_function_identity_arguments(p.oid)
-      `,
-      [inspectedSchemas],
-    );
-
-    const enumsResult = await client.query<{ schema_name: string; enum_name: string; enum_labels: string[] }>(
-      `
-        SELECT
-          n.nspname AS schema_name,
-          t.typname AS enum_name,
-          array_agg(e.enumlabel ORDER BY e.enumsortorder) AS enum_labels
-        FROM pg_type AS t
-        JOIN pg_namespace AS n ON n.oid = t.typnamespace
-        JOIN pg_enum AS e ON e.enumtypid = t.oid
-        WHERE n.nspname = ANY($1)
-          AND t.typtype = 'e'
-        GROUP BY n.nspname, t.typname
-        ORDER BY n.nspname, t.typname
-      `,
-      [inspectedSchemas],
-    );
-
-    const objects = objectsResult.rows;
-    const columns = columnsResult.rows;
-    const primaryKeys = primaryKeysResult.rows;
-    const foreignKeys = foreignKeysResult.rows;
-    const functions = functionsResult.rows;
-    const enums = enumsResult.rows.map((row) => ({
+    const objects = catalog.objects;
+    const columns = catalog.columns;
+    const primaryKeys = catalog.primaryKeys;
+    const foreignKeys = catalog.foreignKeys;
+    const functions = catalog.functions;
+    const enums = catalog.enums.map((row) => ({
       schema_name: row.schema_name,
       enum_name: row.enum_name,
       enum_labels: normalizePgTextArray(row.enum_labels),
@@ -550,12 +702,12 @@ ${mermaid}
     console.log(`output path: ${path.relative(repoRoot, outputPath)}`);
   } catch (error) {
     if (!connected) {
-      throw new Error(connectionFailureMessage);
+      throw error instanceof Error ? error : new Error(connectionFailureMessage);
     }
 
     throw error;
   } finally {
-    await client.end();
+    await closeDatabaseClient(client);
   }
 }
 

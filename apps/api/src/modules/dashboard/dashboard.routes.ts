@@ -3,6 +3,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { DashboardStatsRepository } from "./dashboard.repo.js";
 import { DashboardStatsService } from "./dashboard.service.js";
 import { getDashboardStatsSchema } from "./dashboard.openapi.js";
+import { canDashboardWrite } from "../../plugins/auth.js";
 
 const dashboardRoutes: FastifyPluginAsync = async (app) => {
     const dashboardStatsRepo = new DashboardStatsRepository(app.prisma);
@@ -17,7 +18,11 @@ const dashboardRoutes: FastifyPluginAsync = async (app) => {
         async (request, reply) => {
             console.log("GET /dashboard/stats called");
             try {
-                const stats = await dashboardStatsService.getDashboardStats();
+                const roles = request.user?.roles ?? [];
+                const viewerOnly = roles.includes("viewer") && !canDashboardWrite(roles);
+                const stats = await dashboardStatsService.getDashboardStats({
+                    estimatedOnly: viewerOnly,
+                });
                 return reply.send(stats);
             } catch (err) {
                 console.error("DASHBOARD_STATS_ERROR:", err);

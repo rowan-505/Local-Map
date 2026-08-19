@@ -7,12 +7,11 @@ import { searchAnalyticsQuerySchema } from "./search-analytics-admin.schema.js";
 
 const searchAnalyticsAdminRoutes: FastifyPluginAsync = async (app) => {
     const service = new SearchAnalyticsAdminService(new SearchAnalyticsAdminRepository(app.prisma));
-    const requireAdmin = app.requireRole("admin", "super_admin");
-    const adminGuard = { preHandler: [app.authenticate, requireAdmin] };
+    const readGuard = { preHandler: [app.authenticate, app.requireDashboardAccess] };
 
     app.get(
         "/admin/search/analytics",
-        { ...adminGuard, schema: getSearchAnalyticsDashboardSchema },
+        { ...readGuard, schema: getSearchAnalyticsDashboardSchema },
         async (request, reply) => {
             const parsed = searchAnalyticsQuerySchema.safeParse(request.query);
             if (!parsed.success) {

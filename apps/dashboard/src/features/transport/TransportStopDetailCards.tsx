@@ -40,6 +40,7 @@ export function StopDetailHeader({
     deleteLoading = false,
     deleteAllowed = false,
     deleteBlockMessage = null,
+    canWrite,
 }: {
     readonly stopDisplayName: string;
     readonly detail: TransportStopDetail | null;
@@ -55,6 +56,7 @@ export function StopDetailHeader({
     readonly deleteLoading?: boolean;
     readonly deleteAllowed?: boolean;
     readonly deleteBlockMessage?: string | null;
+    readonly canWrite: boolean;
 }) {
     const deleteTitle = deleteLoading
         ? "Checking delete eligibility…"
@@ -95,7 +97,8 @@ export function StopDetailHeader({
                     <button
                         type="button"
                         onClick={onEdit}
-                        disabled={locEditing}
+                        disabled={!canWrite || locEditing}
+                        title={!canWrite ? "Read-only viewers cannot edit stops" : undefined}
                         className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                     >
                         Edit
@@ -105,8 +108,8 @@ export function StopDetailHeader({
                     <button
                         type="button"
                         onClick={onDelete}
-                        disabled={locEditing || deleteLoading}
-                        title={deleteTitle}
+                        disabled={!canWrite || locEditing || deleteLoading}
+                        title={!canWrite ? "Read-only viewers cannot delete stops" : deleteTitle}
                         className="rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                         {deleteLoading ? "Checking…" : "Delete"}

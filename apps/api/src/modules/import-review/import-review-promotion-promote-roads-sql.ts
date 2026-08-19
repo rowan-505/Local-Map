@@ -177,7 +177,10 @@ export function roadReadyFieldExprs(
         ${roadEffectiveRoadClassIdExpr(alias)} AS road_class_id_ready,
         ${roadEffectiveRoadClassCodeExpr(alias)} AS road_class_code_ready,
         ${roadEffectiveTextFieldExpr(alias, "surface")} AS surface_ready,
-        ${roadEffectiveBoolFieldExpr(alias, "is_oneway", Prisma.sql`false`)} AS is_oneway_ready,
+        CASE
+            WHEN ${roadEffectiveBoolFieldExpr(alias, "is_oneway", Prisma.sql`false`)} THEN 'forward'::text
+            ELSE NULL::text
+        END AS travel_direction_ready,
         ${roadEffectiveBoolFieldExpr(alias, "bridge", Prisma.sql`false`)} AS bridge_ready,
         ${roadEffectiveBoolFieldExpr(alias, "tunnel", Prisma.sql`false`)} AS tunnel_ready,
         ${roadEffectiveIntFieldExpr(alias, "layer", Prisma.sql`0`)} AS layer_ready,

@@ -546,6 +546,7 @@ function familyReadyRow(
             return {
                 ...row,
                 geom: "present",
+                water_class_id: 7n,
                 class_code: "river",
                 name_en: "River",
                 geomDiagnostics: okGeom("ST_LineString"),
@@ -555,6 +556,7 @@ function familyReadyRow(
             return {
                 ...row,
                 geom: "present",
+                water_class_id: 8n,
                 class_code: "lake",
                 name_en: "Lake",
                 geomDiagnostics: okGeom("ST_Polygon"),

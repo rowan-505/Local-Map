@@ -224,8 +224,9 @@ export class ImportReviewAddressValidationRepository {
                     AND c.matched_admin_area_id IS NOT NULL
                     AND a.admin_area_id = c.matched_admin_area_id::bigint
                     AND (
-                        (c.postcode IS NOT NULL AND btrim(c.postcode) <> '' AND a.postcode = c.postcode)
-                        OR (c.postcode IS NOT NULL AND btrim(c.postcode) <> '' AND a.postal_code = c.postcode)
+                        c.postcode IS NOT NULL
+                        AND btrim(c.postcode) <> ''
+                        AND a.postal_code = c.postcode
                     )
                     AND (
                         c.house_number IS NULL

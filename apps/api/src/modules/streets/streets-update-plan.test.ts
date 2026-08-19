@@ -20,6 +20,7 @@ const baseRow = {
     road_class: "residential",
     road_class_name: "Residential",
     surface: "paved",
+    travel_direction: null,
     is_oneway: false,
     bridge: false,
     tunnel: false,

@@ -221,9 +221,7 @@ export class ReverseAddressRepository {
                             n.search_weight DESC NULLS LAST,
                             n.id ASC
                         LIMIT 1
-                    ),
-                    -- deprecated: legacy core_buildings.name
-                    NULLIF(btrim(b.name), '')
+                    )
                 ) AS name,
                 a.id AS linked_address_id,
                 a.public_id::text AS linked_address_public_id
@@ -425,7 +423,17 @@ export class ReverseAddressRepository {
             SELECT
                 lu.id,
                 lu.public_id::text AS public_id,
-                lu.name,
+                COALESCE(
+                    (SELECT n.name FROM core.core_land_area_names AS n
+                     WHERE n.land_area_id = lu.id
+                     ORDER BY
+                       CASE WHEN n.language_code = 'en' THEN 0
+                            WHEN n.language_code = 'my' THEN 1 ELSE 2 END,
+                       n.is_primary DESC, n.search_weight DESC NULLS LAST, n.id
+                     LIMIT 1),
+                    lc.name_en,
+                    lc.name_mm
+                ) AS name,
                 lc.code AS class_code,
                 lc.name AS class_name
             FROM core.core_land_areas AS lu

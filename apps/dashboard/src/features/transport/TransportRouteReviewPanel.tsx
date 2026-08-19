@@ -34,6 +34,7 @@ export default function TransportRouteReviewPanel({
     readinessUnavailable: readinessUnavailableProp,
     onReadinessReload,
     onReadinessApplied,
+    canWrite,
 }: {
     readonly route: TransportRouteDetail;
     readonly path: TransportRoutePath | null;
@@ -45,6 +46,7 @@ export default function TransportRouteReviewPanel({
     readonly onReadinessReload?: () => Promise<void>;
     /** Apply readiness from a mutation response without a second GET. */
     readonly onReadinessApplied?: (readiness: RouteReviewReadiness) => void;
+    readonly canWrite: boolean;
 }) {
     const [localReadiness, setLocalReadiness] = useState<RouteReviewReadiness | null>(null);
     const [localLoading, setLocalLoading] = useState(true);
@@ -204,6 +206,7 @@ export default function TransportRouteReviewPanel({
                 currentStatus={route.review_status}
                 blockers={readiness?.blockers ?? []}
                 markReviewedBlockers={readiness?.mark_reviewed_blockers ?? []}
+                disabled={!canWrite}
                 onAction={handleAction}
             />
         </AdvancedToolSection>

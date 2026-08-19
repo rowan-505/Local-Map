@@ -140,9 +140,9 @@ describe("road promoteAndCommitItem smoke", () => {
 });
 
 describe("road promoteAndCommitItem live DB (optional)", () => {
-    it("promotes one pending road on batch 24 when DATABASE_URL is set", async (t) => {
-        if (!process.env.DATABASE_URL) {
-            t.skip("DATABASE_URL not set");
+    it("promotes one pending road on batch 24 only with explicit live-write opt-in", async (t) => {
+        if (process.env.IMPORT_REVIEW_LIVE_DB_SMOKE !== "1" || !process.env.DATABASE_URL) {
+            t.skip("IMPORT_REVIEW_LIVE_DB_SMOKE=1 and DATABASE_URL are required");
             return;
         }
         const { prisma } = await import("../../db/prisma.js");

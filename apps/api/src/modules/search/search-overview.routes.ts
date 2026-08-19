@@ -9,12 +9,11 @@ const searchOverviewRoutes: FastifyPluginAsync = async (app) => {
         new SearchOverviewRepository(app.prisma),
         app.prisma,
     );
-    const requireAdmin = app.requireRole("admin", "super_admin");
-    const adminGuard = { preHandler: [app.authenticate, requireAdmin] };
+    const readGuard = { preHandler: [app.authenticate, app.requireDashboardAccess] };
 
     app.get(
         "/admin/search/overview",
-        { ...adminGuard, schema: getSearchOverviewSchema },
+        { ...readGuard, schema: getSearchOverviewSchema },
         async (_request, reply) => {
             return reply.send(await service.getOverview());
         },

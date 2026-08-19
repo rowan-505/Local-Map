@@ -110,7 +110,6 @@ export type UpdatePlaceInput = {
     isPublic?: boolean;
     is_public?: boolean;
     verification_status?: string;
-    is_verified?: boolean;
     source_type_id?: bigint | null;
     publish_status_id?: bigint | null;
 };
@@ -131,7 +130,6 @@ export type CreatePlaceInput = {
     isPublic?: boolean;
     is_public?: boolean;
     verification_status?: string;
-    is_verified?: boolean;
     source_type_id?: bigint | null;
     publish_status_id?: bigint | null;
 };
@@ -574,7 +572,6 @@ export class PlacesRepository {
                     popularity_score,
                     confidence_score,
                     is_public,
-                    is_verified,
                     verification_status,
                     source_type_id,
                     publish_status_id,
@@ -595,7 +592,6 @@ export class PlacesRepository {
                     ${input.popularity_score ?? 0},
                     ${input.confidence_score ?? 50},
                     ${input.is_public ?? true},
-                    ${input.is_verified ?? false},
                     ${input.verification_status ?? "unverified"},
                     ${input.source_type_id},
                     ${input.publish_status_id ?? null},
@@ -656,10 +652,6 @@ export class PlacesRepository {
 
         if (input.is_public !== undefined) {
             assignments.push(Prisma.sql`is_public = ${input.is_public}`);
-        }
-
-        if (input.is_verified !== undefined) {
-            assignments.push(Prisma.sql`is_verified = ${input.is_verified}`);
         }
 
         if (input.verification_status !== undefined) {

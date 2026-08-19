@@ -95,7 +95,8 @@ export default function StatsPage() {
         );
     }
 
-    const { overview, main, metadata, transit, health } = data;
+    const { countsMode, overview, main, metadata, transit, health } = data;
+    const showHealth = countsMode === "exact";
 
     return (
         <main className="p-6">
@@ -105,8 +106,9 @@ export default function StatsPage() {
                         <div>
                             <h1 className="text-2xl font-bold text-gray-900">Statistics</h1>
                             <p className="mt-1 max-w-2xl text-sm text-gray-600">
-                                Row counts and health splits from the API. Figures reflect the database
-                                at fetch time.
+                                {countsMode === "estimated"
+                                    ? "Fast approximate row counts for read-only viewers."
+                                    : "Row counts and health splits from the API. Figures reflect the database at fetch time."}
                             </p>
                         </div>
                         {lastUpdated ? (
@@ -250,13 +252,14 @@ export default function StatsPage() {
                     </div>
                 </section>
 
-                <section aria-labelledby="stats-health-heading">
-                    <SectionTitle
-                        title="Data Health"
-                        id="stats-health-heading"
-                        subtitle="Active, deleted, and verification splits where applicable."
-                    />
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                {showHealth ? (
+                    <section aria-labelledby="stats-health-heading">
+                        <SectionTitle
+                            title="Data Health"
+                            id="stats-health-heading"
+                            subtitle="Active, deleted, and verification splits where applicable."
+                        />
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                         <StatsCard
                             title="Places (active)"
                             value={health.places_active}
@@ -302,8 +305,9 @@ export default function StatsPage() {
                             value={health.streets_inactive}
                             statusColor="warning"
                         />
-                    </div>
-                </section>
+                        </div>
+                    </section>
+                ) : null}
             </div>
         </main>
     );

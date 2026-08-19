@@ -36,9 +36,7 @@ const LIFECYCLE_BY_SLUG: Record<CoreReviewEntitySlug, CoreReviewLifecycleConfig>
         softDeleteExtraSets: [
             Prisma.sql`last_edited_at = now()`,
             Prisma.sql`manual_override = true`,
-            Prisma.sql`routing_status = 'needs_rebuild'`,
         ],
-        restoreExtraSets: [Prisma.sql`routing_status = 'needs_rebuild'`],
     },
     "land-areas": {
         table: "core.core_land_areas",

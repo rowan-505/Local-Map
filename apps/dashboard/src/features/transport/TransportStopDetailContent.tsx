@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { isAbortError } from "@/src/lib/api";
 import { transportPath } from "@/src/lib/dashboardNavigation";
+import { useDashboardRoleAccess } from "@/src/hooks/useDashboardRoleAccess";
 import ArchiveStopDialog from "./ArchiveStopDialog";
 import PermanentDeleteStopDialog from "./PermanentDeleteStopDialog";
 import TransportPreviewMap from "./TransportPreviewMap";
@@ -186,6 +187,7 @@ export default function TransportStopDetailContent({
     afterSave,
     hideHeader = false,
 }: TransportStopDetailContentProps) {
+    const { canWrite } = useDashboardRoleAccess();
     const [detail, setDetail] = useState<TransportStopDetail | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
@@ -770,6 +772,7 @@ export default function TransportStopDetailContent({
                 deleteLoading={deleteEligibilityLoading}
                 deleteAllowed={stopDeleteAllowed}
                 deleteBlockMessage={stopDeleteBlockMessage}
+                canWrite={canWrite}
             />
 
             {stopDeleteBlockMessage && !usageDialogOpen ? (
@@ -971,8 +974,8 @@ export default function TransportStopDetailContent({
                             externalId={detail.public_id}
                             editablePoint={activePoint}
                             editablePointColor="#1d4ed8"
-                            pointDraggable={mapEditing}
-                            onPointChange={handlePointChange}
+                            pointDraggable={canWrite && mapEditing}
+                            onPointChange={canWrite ? handlePointChange : undefined}
                             pointZoom={MAP_DEFAULT_ZOOM}
                             autoFitKey={publicId}
                             editingHint="Click the map or drag the marker to set this stop's location."
@@ -1146,7 +1149,8 @@ export default function TransportStopDetailContent({
                                             <button
                                                 type="button"
                                                 onClick={startLocEdit}
-                                                disabled={editing}
+                                                disabled={!canWrite || editing}
+                                                title={!canWrite ? "Read-only viewers cannot edit stop locations" : undefined}
                                                 className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
                                             >
                                                 Edit location
@@ -1156,7 +1160,7 @@ export default function TransportStopDetailContent({
                                                 <button
                                                     type="button"
                                                     onClick={cancelLocEdit}
-                                                    disabled={locSaving}
+                                                    disabled={!canWrite || locSaving}
                                                     className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                                                 >
                                                     Cancel
@@ -1164,7 +1168,7 @@ export default function TransportStopDetailContent({
                                                 <button
                                                     type="button"
                                                     onClick={() => void saveLocation()}
-                                                    disabled={locSaving || !locPoint}
+                                                    disabled={!canWrite || locSaving || !locPoint}
                                                     className="rounded-md bg-gray-900 px-2.5 py-1 text-xs font-medium text-white hover:bg-gray-800 disabled:opacity-50"
                                                 >
                                                     {locSaving ? "Saving…" : "Save location"}
@@ -1249,8 +1253,8 @@ export default function TransportStopDetailContent({
                                         externalId={detail.public_id}
                                         editablePoint={activePoint}
                                         editablePointColor="#1d4ed8"
-                                        pointDraggable={mapEditing}
-                                        onPointChange={handlePointChange}
+                                        pointDraggable={canWrite && mapEditing}
+                                        onPointChange={canWrite ? handlePointChange : undefined}
                                         pointZoom={MAP_DEFAULT_ZOOM}
                                         autoFitKey={publicId}
                                         editingHint={
@@ -1279,6 +1283,7 @@ export default function TransportStopDetailContent({
                                 </h3>
                                 <TransportReviewActionBar
                                     currentStatus={detail.review_status}
+                                    disabled={!canWrite}
                                     onAction={handleStopReviewAction}
                                 />
                             </section>
@@ -1286,7 +1291,11 @@ export default function TransportStopDetailContent({
 
                         {detail && !archived ? (
                             <div className="mb-4">
-                                <TransportStopMergePanel stop={detail} onMerged={handleStopMerged} />
+                                <TransportStopMergePanel
+                                    stop={detail}
+                                    onMerged={handleStopMerged}
+                                    canWrite={canWrite}
+                                />
                             </div>
                         ) : null}
 
@@ -1300,7 +1309,8 @@ export default function TransportStopDetailContent({
                                     <button
                                         type="button"
                                         onClick={startTermEdit}
-                                        disabled={editing}
+                                        disabled={!canWrite || editing}
+                                        title={!canWrite ? "Read-only viewers cannot edit terminals" : undefined}
                                         className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                                     >
                                         Edit
@@ -1310,7 +1320,7 @@ export default function TransportStopDetailContent({
                                         <button
                                             type="button"
                                             onClick={cancelTermEdit}
-                                            disabled={termSaving}
+                                            disabled={!canWrite || termSaving}
                                             className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                                         >
                                             Cancel
@@ -1318,7 +1328,7 @@ export default function TransportStopDetailContent({
                                         <button
                                             type="button"
                                             onClick={() => void saveTerminal()}
-                                            disabled={termSaving}
+                                            disabled={!canWrite || termSaving}
                                             className="rounded-md bg-indigo-700 px-2.5 py-1 text-xs font-medium text-white hover:bg-indigo-800 disabled:opacity-50"
                                         >
                                             {termSaving ? "Saving…" : "Save"}
@@ -1543,12 +1553,14 @@ export default function TransportStopDetailContent({
                         <button
                             type="button"
                             disabled={
+                                !canWrite ||
                                 archiveBlockedByRoutes ||
                                 editing ||
                                 locEditing ||
                                 archiving ||
                                 archived
                             }
+                            title={!canWrite ? "Read-only viewers cannot archive stops" : undefined}
                             onClick={() => {
                                 setArchiveError("");
                                 setArchiveReason("");
@@ -1602,6 +1614,7 @@ export default function TransportStopDetailContent({
                 permanentDeleteLoading={permanentDeleting}
                 deleteBlockMessage={stopDeleteBlockMessage}
                 deleteAllowed={stopDeleteAllowed}
+                canWrite={canWrite}
             />
 
             <PermanentDeleteStopDialog

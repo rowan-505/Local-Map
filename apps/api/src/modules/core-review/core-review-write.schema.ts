@@ -14,6 +14,7 @@ import {
 } from "../../lib/geo/core-geometry.schema.js";
 import type { CoreReviewEntitySlug } from "./core-review.types.js";
 import { coreReviewVerificationWriteFields } from "./core-review-verification-write.js";
+import { STREET_TRAVEL_DIRECTIONS } from "../streets/streets-direction.js";
 
 export const EDIT_CORE_REVIEW_ROLES = new Set(["admin", "editor"]);
 
@@ -193,6 +194,9 @@ export const coreReviewCreateStreetSchema = z
         road_class_id: requiredBigintId,
         adminAreaId: nullableBigintId,
         admin_area_id: nullableBigintId,
+        travelDirection: z.enum(["both", ...STREET_TRAVEL_DIRECTIONS]).nullable().optional(),
+        travel_direction: z.enum(["both", ...STREET_TRAVEL_DIRECTIONS]).nullable().optional(),
+        /** @deprecated Prefer travelDirection/travel_direction. */
         isOneway: optionalBoolean,
         is_oneway: optionalBoolean,
         surface: nullableTrimmedString,
@@ -220,6 +224,9 @@ export const coreReviewPatchStreetSchema = z
         road_class_id: nullableBigintId,
         adminAreaId: nullableBigintId,
         admin_area_id: nullableBigintId,
+        travelDirection: z.enum(["both", ...STREET_TRAVEL_DIRECTIONS]).nullable().optional(),
+        travel_direction: z.enum(["both", ...STREET_TRAVEL_DIRECTIONS]).nullable().optional(),
+        /** @deprecated Prefer travelDirection/travel_direction. */
         isOneway: optionalBoolean,
         is_oneway: optionalBoolean,
         surface: nullableTrimmedString,

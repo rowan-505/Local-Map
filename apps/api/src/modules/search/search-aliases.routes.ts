@@ -39,12 +39,12 @@ const searchAliasesRoutes: FastifyPluginAsync = async (app) => {
         new SearchAliasesRepository(app.prisma),
         app.prisma,
     );
-    const requireAdmin = app.requireRole("admin", "super_admin");
-    const adminGuard = { preHandler: [app.authenticate, requireAdmin] };
+    const readGuard = { preHandler: [app.authenticate, app.requireDashboardAccess] };
+    const writeGuard = { preHandler: [app.authenticate, app.requireDashboardWrite] };
 
     app.get(
         "/admin/search/aliases",
-        { ...adminGuard, schema: getSearchAliasesSchema },
+        { ...readGuard, schema: getSearchAliasesSchema },
         async (request, reply) => {
             const parsed = listSearchAliasesQuerySchema.safeParse(request.query);
             if (!parsed.success) {
@@ -59,7 +59,7 @@ const searchAliasesRoutes: FastifyPluginAsync = async (app) => {
 
     app.post(
         "/admin/search/aliases",
-        { ...adminGuard, schema: postSearchAliasSchema },
+        { ...writeGuard, schema: postSearchAliasSchema },
         async (request, reply) => {
             const body = createSearchAliasBodySchema.safeParse(request.body);
             if (!body.success) {
@@ -79,7 +79,7 @@ const searchAliasesRoutes: FastifyPluginAsync = async (app) => {
 
     app.patch(
         "/admin/search/aliases/:id",
-        { ...adminGuard, schema: patchSearchAliasSchema },
+        { ...writeGuard, schema: patchSearchAliasSchema },
         async (request, reply) => {
             const params = searchAliasIdParamSchema.safeParse(request.params);
             if (!params.success) {
@@ -106,7 +106,7 @@ const searchAliasesRoutes: FastifyPluginAsync = async (app) => {
 
     app.delete(
         "/admin/search/aliases/:id",
-        { ...adminGuard, schema: deleteSearchAliasSchema },
+        { ...writeGuard, schema: deleteSearchAliasSchema },
         async (request, reply) => {
             const params = searchAliasIdParamSchema.safeParse(request.params);
             if (!params.success) {

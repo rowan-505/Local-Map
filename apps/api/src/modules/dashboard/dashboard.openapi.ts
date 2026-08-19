@@ -4,8 +4,9 @@ import { Tags, bearerAuth, messageSchema } from "../../lib/openapi/common.js";
 
 const dashboardStatsResponseSchema = {
     type: "object",
-    required: ["overview", "main", "metadata", "transit", "health"],
+    required: ["countsMode", "overview", "main", "metadata", "transit", "health"],
     properties: {
+        countsMode: { type: "string", enum: ["exact", "estimated"] },
         overview: {
             type: "object",
             required: ["total_main_rows", "total_metadata_rows", "total_transit_rows"],

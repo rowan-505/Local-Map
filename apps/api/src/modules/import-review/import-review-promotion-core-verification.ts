@@ -198,29 +198,31 @@ function coreVerificationAlreadyVerifiedSql(
     return Prisma.join(checks, " OR ");
 }
 
-/** Comma-prefixed column list for INSERT, e.g. ", is_verified, verification_status". */
+/**
+ * Comma-prefixed authoritative verification columns for INSERT.
+ * `is_verified` is omitted because the database derives that compatibility flag.
+ */
 export function coreVerificationInsertColumnsSql(
     columns: readonly CoreVerificationColumn[]
 ): Prisma.Sql {
-    if (columns.length === 0) {
+    const writeColumns = columns.filter((column) => column !== "is_verified");
+    if (writeColumns.length === 0) {
         return Prisma.empty;
     }
-    return Prisma.sql`, ${Prisma.raw(columns.join(", "))}`;
+    return Prisma.sql`, ${Prisma.raw(writeColumns.join(", "))}`;
 }
 
 /** SELECT value list aligned with {@link coreVerificationInsertColumnsSql}. */
 export function coreVerificationInsertValuesSql(
     columns: readonly CoreVerificationColumn[]
 ): Prisma.Sql {
-    if (columns.length === 0) {
+    const writeColumns = columns.filter((column) => column !== "is_verified");
+    if (writeColumns.length === 0) {
         return Prisma.empty;
     }
     const parts: Prisma.Sql[] = [];
-    for (const col of columns) {
+    for (const col of writeColumns) {
         switch (col) {
-            case "is_verified":
-                parts.push(Prisma.sql`false`);
-                break;
             case "verification_status":
                 parts.push(Prisma.sql`'unverified'`);
                 break;
@@ -245,19 +247,15 @@ export function coreVerificationUpdateSetSql(
     tableAlias: string,
     columns: readonly CoreVerificationColumn[]
 ): Prisma.Sql {
-    if (columns.length === 0) {
+    const writeColumns = columns.filter((column) => column !== "is_verified");
+    if (writeColumns.length === 0) {
         return Prisma.empty;
     }
     const guard = coreVerificationAlreadyVerifiedSql(tableAlias, columns);
     const a = tableAlias;
     const parts: Prisma.Sql[] = [];
-    for (const col of columns) {
+    for (const col of writeColumns) {
         switch (col) {
-            case "is_verified":
-                parts.push(
-                    Prisma.sql`is_verified = CASE WHEN ${guard} THEN ${Prisma.raw(a)}.is_verified ELSE false END`
-                );
-                break;
             case "verification_status":
                 parts.push(
                     Prisma.sql`verification_status = CASE WHEN ${guard} THEN ${Prisma.raw(a)}.verification_status ELSE 'unverified' END`

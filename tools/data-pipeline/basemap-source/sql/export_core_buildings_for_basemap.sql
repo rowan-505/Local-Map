@@ -20,7 +20,18 @@ SELECT
   b.deleted_at,
   b.is_geometry_manually_edited,
   b.is_attributes_manually_edited,
-  b.name AS core_name,
+  (
+    SELECT n.name
+    FROM core.core_building_names n
+    WHERE n.building_id = b.id
+    ORDER BY
+      CASE WHEN n.language_code = 'en' THEN 0
+           WHEN n.language_code = 'my' THEN 1 ELSE 2 END,
+      n.is_primary DESC,
+      n.search_weight DESC NULLS LAST,
+      n.id
+    LIMIT 1
+  ) AS core_name,
   COALESCE(b.source_refs, '{}'::jsonb) AS source_refs,
   COALESCE(b.normalized_data, '{}'::jsonb) AS normalized_data,
   ST_AsEWKT(b.geom) AS geom_ewkt,

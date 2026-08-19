@@ -270,7 +270,6 @@ export class PlacesService {
             confidence_score: body.confidenceScore ?? 50,
             is_public: body.isPublic ?? true,
             verification_status: verification.verificationStatus,
-            is_verified: verification.isVerified,
             source_type_id: resolvedSourceTypeId,
             publish_status_id: publishStatusId,
         });
@@ -448,7 +447,6 @@ function mapUpdateBodyToRepo(body: UpdatePlaceBody): UpdatePlaceInput {
     const pickedVerification = pickCoreReviewVerificationWrite(body as unknown as Record<string, unknown>);
     if (pickedVerification) {
         patch.verification_status = pickedVerification.verificationStatus;
-        patch.is_verified = pickedVerification.isVerified;
     }
 
     if (body.sourceTypeId !== undefined) {

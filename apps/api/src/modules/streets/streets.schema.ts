@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { coreReviewVerificationStatusWriteSchema } from "../core-review/core-review-verification-write.js";
+import { STREET_TRAVEL_DIRECTIONS } from "./streets-direction.js";
 
 export const streetsSortBySchema = z.enum(["name", "admin_area", "created", "updated", "updated_at"]);
 export const listSortOrderSchema = z.enum(["asc", "desc"]);
@@ -274,7 +275,10 @@ export const createStreetBodySchema = z
         myanmarName: optionalNameSchema,
         englishName: optionalNameSchema,
         road_class_id: requiredBigintBodySchema,
-        is_oneway: z.boolean().optional().default(false),
+        travel_direction: z.enum(["both", ...STREET_TRAVEL_DIRECTIONS]).nullable().optional(),
+        travelDirection: z.enum(["both", ...STREET_TRAVEL_DIRECTIONS]).nullable().optional(),
+        /** @deprecated Prefer travel_direction. */
+        is_oneway: z.boolean().optional(),
         surface: optionalSurfaceSchema,
         admin_area_id: nullableBigintBodySchema,
         adminAreaId: nullableBigintBodySchema,
@@ -304,7 +308,11 @@ export const updateStreetBodySchema = z
         geometry: lineStringGeometrySchema.optional(),
         road_class_id: nullableBigintBodySchema,
         roadClassId: nullableBigintBodySchema,
+        travel_direction: z.enum(["both", ...STREET_TRAVEL_DIRECTIONS]).nullable().optional(),
+        travelDirection: z.enum(["both", ...STREET_TRAVEL_DIRECTIONS]).nullable().optional(),
+        /** @deprecated Prefer travel_direction. */
         is_oneway: z.boolean().optional(),
+        /** @deprecated Prefer travelDirection. */
         isOneway: z.boolean().optional(),
         surface: patchSurfaceSchema,
         admin_area_id: nullableBigintBodySchema,

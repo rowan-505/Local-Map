@@ -123,7 +123,9 @@ SELECT s.*,c.id target_id,c.deleted_at target_deleted_at,
    OR c.source_refs@>'{"source":"dashboard"}'::jsonb OR c.source_refs@>'{"source":"manual"}'::jsonb)
    THEN 'safe_update target is manual-protected'END,
   CASE WHEN s.classification='safe_new'AND c.id IS NOT NULL AND(
-   c.name IS DISTINCT FROM coalesce(s.name_my,s.name_en,s.name_und)
+   (coalesce(s.name_my,s.name_en,s.name_und) IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM core.core_land_area_names n
+      WHERE n.land_area_id=c.id AND n.name=coalesce(s.name_my,s.name_en,s.name_und)))
    OR c.land_area_class_id IS DISTINCT FROM s.land_area_class_id
    OR c.admin_area_id IS DISTINCT FROM s.admin_area_id
    OR c.confidence_score IS DISTINCT FROM s.confidence_score
@@ -154,16 +156,16 @@ BEGIN
  END IF;
 END $$;
 WITH ins AS(
- INSERT INTO core.core_land_areas(external_id,name,land_area_class_id,admin_area_id,
+ INSERT INTO core.core_land_areas(external_id,land_area_class_id,admin_area_id,
   geom,centroid,area_m2,confidence_score,detail_level,source_tags,source_refs,
-  normalized_data,is_active,is_verified,manual_override,verification_status,
+  normalized_data,is_active,manual_override,verification_status,
   source_registry_id,source_snapshot_id,region_code)
- SELECT s.external_id,s.resolved_name,s.land_area_class_id,s.admin_area_id,
+ SELECT s.external_id,s.land_area_class_id,s.admin_area_id,
   s.geom::geometry(MultiPolygon,4326),s.centroid,s.area_m2,s.confidence_score,
   s.detail_level,s.source_tags,s.source_refs||jsonb_build_object('external_id',s.external_id,
    'source_snapshot_version',p.snapshot_version,'region_code',p.region_code,'loader','direct_core.landuse'),
   s.normalized_data||jsonb_build_object('local_staging_id',s.local_staging_id,
-   'import_class',s.classification),true,false,false,'unverified',
+   'import_class',s.classification),true,false,'unverified',
   p.source_registry_id,p.source_snapshot_id,p.region_code
  FROM direct_landuse_plan s CROSS JOIN direct_landuse_params p
  WHERE s.classification='safe_new'AND s.target_id IS NULL RETURNING id,external_id
@@ -171,8 +173,7 @@ WITH ins AS(
 INSERT INTO direct_landuse_changes(action,entity_id,external_id,before_data,after_data)
 SELECT 'insert',i.id,i.external_id,NULL,NULL FROM ins i;
 WITH upd AS(
- UPDATE core.core_land_areas c SET name=s.resolved_name,
-  land_area_class_id=s.land_area_class_id,admin_area_id=s.admin_area_id,
+ UPDATE core.core_land_areas c SET land_area_class_id=s.land_area_class_id,admin_area_id=s.admin_area_id,
   geom=s.geom::geometry(MultiPolygon,4326),centroid=s.centroid,area_m2=s.area_m2,
   confidence_score=s.confidence_score,detail_level=s.detail_level,source_tags=s.source_tags,
   source_refs=c.source_refs||s.source_refs||jsonb_build_object('external_id',s.external_id,
@@ -181,9 +182,9 @@ WITH upd AS(
    'local_staging_id',s.local_staging_id,'import_class',s.classification),updated_at=now()
  FROM direct_landuse_plan s CROSS JOIN direct_landuse_params p
  WHERE c.id=s.target_id AND s.classification='safe_update'
-  AND(c.name,c.land_area_class_id,c.admin_area_id,c.geom,c.centroid,c.area_m2,
+  AND(c.land_area_class_id,c.admin_area_id,c.geom,c.centroid,c.area_m2,
    c.confidence_score,c.detail_level,c.source_tags,c.source_refs,c.normalized_data)
-  IS DISTINCT FROM(s.resolved_name,s.land_area_class_id,s.admin_area_id,s.geom,
+  IS DISTINCT FROM(s.land_area_class_id,s.admin_area_id,s.geom,
    s.centroid,s.area_m2,s.confidence_score,s.detail_level,s.source_tags,
    c.source_refs||s.source_refs||jsonb_build_object('external_id',s.external_id,
     'source_snapshot_version',p.snapshot_version,'region_code',p.region_code,'loader','direct_core.landuse'),

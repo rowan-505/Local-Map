@@ -446,7 +446,10 @@ export class ImportReviewAddressMatchesRepository {
                 SELECT
                     b.id,
                     COALESCE(
-                        NULLIF(btrim(b.name), ''),
+                        (SELECT n.name FROM core.core_building_names AS n
+                         WHERE n.building_id = b.id
+                         ORDER BY n.is_primary DESC, n.search_weight DESC NULLS LAST, n.id
+                         LIMIT 1),
                         'Building #' || b.id::text
                     ) AS label,
                     bt.code AS building_type,
@@ -464,7 +467,10 @@ export class ImportReviewAddressMatchesRepository {
                 SELECT
                     b.id,
                     COALESCE(
-                        NULLIF(btrim(b.name), ''),
+                        (SELECT n.name FROM core.core_building_names AS n
+                         WHERE n.building_id = b.id
+                         ORDER BY n.is_primary DESC, n.search_weight DESC NULLS LAST, n.id
+                         LIMIT 1),
                         'Building #' || b.id::text
                     ) AS label,
                     bt.code AS building_type,

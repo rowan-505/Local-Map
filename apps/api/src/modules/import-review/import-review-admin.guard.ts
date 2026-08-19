@@ -55,8 +55,11 @@ function timingSafeOpaqueEqual(receivedUtf8: string, expectedUtf8: string): bool
  * Runs very early (`onRequest` on the import_review plugin subtree) — **before** Fastify validates
  * query/body/params schemas for those routes.
  *
- * - **IMPORT_REVIEW_ADMIN_TOKEN unset:** Bearer JWT verified; missing/invalid JWT → **401**; role capability is checked by {@link requireImportReviewRouteAccess}.
- * - **IMPORT_REVIEW_ADMIN_TOKEN set (temporary symmetric guard):** header must match env byte‑for‑byte; missing/blank → **401**, wrong → **403**; bypasses Bearer entirely.
+ * - **Bearer JWT present:** JWT is verified first, even when the temporary header token is configured;
+ *   role capability is checked by {@link requireImportReviewRouteAccess}.
+ * - **No Bearer JWT + IMPORT_REVIEW_ADMIN_TOKEN set (temporary symmetric guard):** header must
+ *   match env byte‑for‑byte; missing/blank → **401**, wrong → **403**.
+ * - **No Bearer JWT + IMPORT_REVIEW_ADMIN_TOKEN unset:** missing credentials → **401**.
  *
  * IMPORTANT: **`AUTH_BYPASS` does not affect import_review** — unauthenticated PATCH was previously possible solely because AUTH_BYPASS short‑circuited JWT.
  *
@@ -65,6 +68,18 @@ function timingSafeOpaqueEqual(receivedUtf8: string, expectedUtf8: string): bool
 export async function authenticateImportReview(request: FastifyRequest, reply: FastifyReply): Promise<void> {
     /** CORS preflight must not hit JWT / symmetric checks (browser sends no Authorization / admin header). */
     if (request.method === "OPTIONS") {
+        return;
+    }
+
+    const authorization = request.headers.authorization?.trim() ?? "";
+    const hasBearerJwt = /^Bearer\s+\S+/i.test(authorization);
+
+    if (hasBearerJwt) {
+        try {
+            await request.jwtVerify();
+        } catch {
+            void reply.code(401).send({ message: "Unauthorized" });
+        }
         return;
     }
 

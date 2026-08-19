@@ -173,6 +173,8 @@ export type Street = {
     road_class: string | null;
     road_class_name: string | null;
     surface: string | null;
+    travel_direction: "forward" | "reverse" | "reversible" | "alternating" | "unknown" | null;
+    /** @deprecated Derived from travel_direction. */
     is_oneway: boolean;
     bridge: boolean;
     tunnel: boolean;
@@ -196,6 +198,8 @@ export type UpdateStreetPayload = {
     admin_area_manual_override?: boolean;
     geometry?: StreetLineStringGeoJson;
     road_class_id?: string | null;
+    travel_direction?: "both" | "forward" | "reverse" | "reversible" | "alternating" | "unknown" | null;
+    /** @deprecated Prefer travel_direction. */
     is_oneway?: boolean;
     surface?: string | null;
     edit_reason?: string;
@@ -209,6 +213,8 @@ export type CreateStreetPayload = {
     englishName?: string;
     admin_area_id?: string | null;
     road_class_id: string;
+    travel_direction?: "both" | "forward" | "reverse" | "reversible" | "alternating" | "unknown" | null;
+    /** @deprecated Prefer travel_direction. */
     is_oneway?: boolean;
     surface?: string | null;
     bridge?: boolean;
@@ -487,6 +493,7 @@ export type DashboardStatsOverview = {
 };
 
 export type DashboardStatsResponse = {
+    countsMode: "exact" | "estimated";
     overview: DashboardStatsOverview;
     main: DashboardStatsMainCounts;
     metadata: DashboardStatsMetadataCounts;
@@ -1145,7 +1152,7 @@ export type PatchPlaceBuildingResponse = LinkPlaceBuildingResponse;
 /** POST/PATCH bodies — snake_case matches API JSON */
 export type CreateBuildingPayload = {
     geometry: BuildingGeometry;
-    /** Fallback/imported label (core_buildings.name). */
+    /** Compatibility input normalized by the API into core_building_names. */
     name?: string | null;
     name_mm?: string | null;
     name_en?: string | null;
@@ -1506,22 +1513,14 @@ async function apiFetchInternal<T>(
     const headers = new Headers(init.headers);
     headers.set("Accept", "application/json");
 
-    const importReviewHeaderFallbackOk = attachImportReviewDevAdminTokenHeader(headers, path);
-    const adminHeaderFallbackOk = importReviewHeaderFallbackOk;
     const accessToken = getAccessToken();
+    const importReviewHeaderFallbackOk =
+        !accessToken && attachImportReviewDevAdminTokenHeader(headers, path);
+    const adminHeaderFallbackOk = importReviewHeaderFallbackOk;
     const importPipelineApiDevAuth = adminHeaderFallbackOk && isImportReviewApiPath(path);
 
-    if (accessToken && !importPipelineApiDevAuth) {
+    if (accessToken) {
         headers.set("Authorization", `Bearer ${accessToken}`);
-    } else if (accessToken && importPipelineApiDevAuth) {
-        logImportReviewAuthDecision(
-            "apiFetch",
-            "omit-bearer-for-import-pipeline-dev-admin-header",
-            readImportReviewAuthDebugState(
-                typeof window !== "undefined" ? window.location.pathname : "",
-                false
-            )
-        );
     }
 
     if (!accessToken && !adminHeaderFallbackOk) {

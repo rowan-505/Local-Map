@@ -341,7 +341,6 @@ Explicit upload (any file path):
 
 ```bash
 npm run tiles:upload:r2 -- infrastructure/tiles/pmtiles/regions/yangon/yangon-v2.pmtiles yangon v2
-npm run tiles:upload:yangon:v2
 ```
 
 Verify after upload:

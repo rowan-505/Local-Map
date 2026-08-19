@@ -45,14 +45,14 @@ function maintenanceLog(request: FastifyRequest) {
 
 const searchIndexHealthAdminRoutes: FastifyPluginAsync = async (app) => {
     const service = new SearchIndexMaintenanceService(app.prisma);
-    const requireAdmin = app.requireRole("admin", "super_admin");
     const requireSuperAdmin = app.requireRole("super_admin");
-    const adminGuard = { preHandler: [app.authenticate, requireAdmin] };
+    const readGuard = { preHandler: [app.authenticate, app.requireDashboardAccess] };
+    const writeGuard = { preHandler: [app.authenticate, app.requireDashboardWrite] };
     const superAdminGuard = { preHandler: [app.authenticate, requireSuperAdmin] };
 
     app.get(
         "/admin/search/index-health",
-        { ...adminGuard, schema: getSearchIndexHealthSchema },
+        { ...readGuard, schema: getSearchIndexHealthSchema },
         async (request, reply) => {
             const parsed = z.object({ refresh: queryBooleanSchema.optional() }).safeParse(request.query);
             const refresh = parsed.success ? parsed.data.refresh === true : false;
@@ -62,7 +62,7 @@ const searchIndexHealthAdminRoutes: FastifyPluginAsync = async (app) => {
 
     app.post(
         "/admin/search/index-health/check",
-        { ...adminGuard, schema: postSearchIndexHealthCheckSchema },
+        { ...writeGuard, schema: postSearchIndexHealthCheckSchema },
         async (request, reply) => {
             try {
                 return reply.send(await service.runHealthCheck(toActor(request)));

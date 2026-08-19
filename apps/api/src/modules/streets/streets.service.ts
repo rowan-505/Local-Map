@@ -33,6 +33,12 @@ import type {
     ValidateStreetGeometryExcludeRef,
 } from "./streets.schema.js";
 import {
+    legacyIsOnewayFromTravelDirection,
+    normalizeStreetTravelDirection,
+    resolveStreetTravelDirectionWrite,
+    type StreetTravelDirection,
+} from "./streets-direction.js";
+import {
     assertRoadTownshipAdminArea,
     StreetAdminAreaValidationError,
 } from "./street-admin-area.js";
@@ -139,6 +145,7 @@ type StreetResponse = {
     road_class: string | null;
     road_class_name: string | null;
     surface: string | null;
+    travel_direction: StreetTravelDirection;
     is_oneway: boolean;
     bridge: boolean;
     tunnel: boolean;
@@ -247,7 +254,8 @@ export class StreetsService {
             road_class: street.road_class,
             road_class_name: street.road_class_name,
             surface: street.surface,
-            is_oneway: street.is_oneway,
+            travel_direction: street.travel_direction,
+            is_oneway: legacyIsOnewayFromTravelDirection(street.travel_direction),
             bridge: street.bridge,
             tunnel: street.tunnel,
             manual_override: street.manual_override,
@@ -752,6 +760,16 @@ export class StreetsService {
             const verification = resolveCoreReviewVerificationWrite(
                 body as unknown as Record<string, unknown>,
             );
+            const requestedTravelDirection =
+                body.travel_direction !== undefined
+                    ? body.travel_direction
+                    : body.travelDirection;
+            const travelDirection = resolveStreetTravelDirectionWrite({
+                travel_direction: normalizeStreetTravelDirection(
+                    requestedTravelDirection,
+                ),
+                is_oneway: body.is_oneway,
+            }) ?? null;
 
             const street = await this.streetsRepo.createStreet({
                 myanmarName: names.myanmarName,
@@ -761,14 +779,13 @@ export class StreetsService {
                 manual_override: manualOverride,
                 source_type_id: sourceTypeId,
                 road_class_id: body.road_class_id,
-                is_oneway: body.is_oneway,
+                travel_direction: travelDirection,
                 surface: body.surface ?? null,
                 bridge: body.bridge,
                 tunnel: body.tunnel,
                 geometry: body.geometry,
                 is_active: body.is_active,
                 verification_status: verification.verificationStatus,
-                is_verified: verification.isVerified,
             });
 
             if (!street) {
@@ -794,7 +811,16 @@ export class StreetsService {
             body.explicit_clear_admin_area ?? body.explicitClearAdminArea,
         );
         const roadClassId = body.road_class_id ?? body.roadClassId;
-        const isOneway = body.is_oneway ?? body.isOneway;
+        const requestedTravelDirection =
+            body.travel_direction !== undefined
+                ? body.travel_direction
+                : body.travelDirection;
+        const travelDirection = resolveStreetTravelDirectionWrite({
+            travel_direction: normalizeStreetTravelDirection(
+                requestedTravelDirection,
+            ),
+            is_oneway: body.is_oneway ?? body.isOneway,
+        });
 
         const existing = await this.streetsRepo.getStreetByPublicId(publicId);
         if (!existing) {
@@ -837,7 +863,7 @@ export class StreetsService {
             englishName: body.englishName,
             geometry: body.geometry,
             road_class_id: roadClassId,
-            is_oneway: isOneway,
+            travel_direction: travelDirection,
             surface: body.surface,
             bridge: body.bridge,
             tunnel: body.tunnel,
@@ -853,7 +879,6 @@ export class StreetsService {
         const pickedVerification = pickCoreReviewVerificationWrite(body as unknown as Record<string, unknown>);
         if (pickedVerification) {
             input.verification_status = pickedVerification.verificationStatus;
-            input.is_verified = pickedVerification.isVerified;
         }
 
         try {

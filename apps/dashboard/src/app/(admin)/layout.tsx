@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import DashboardQueryProvider from "@/src/components/providers/DashboardQueryProvider";
 import DashboardSidebar from "@/src/components/layout/DashboardSidebar";
 import { BuildingTileVersionProvider } from "@/src/components/map/BuildingTileVersionContext";
+import DashboardViewerRouteGate from "@/src/components/viewer/DashboardViewerRouteGate";
 
 /**
  * Shared shell for authenticated data modules (`/dashboard`, `/places`, `/streets`, etc.).
@@ -14,7 +15,9 @@ export default function AdminModuleLayout({ children }: { children: ReactNode })
             <BuildingTileVersionProvider>
                 <div className="flex min-h-screen bg-gray-100">
                     <DashboardSidebar />
-                    <div className="min-w-0 flex-1">{children}</div>
+                    <div className="min-w-0 flex-1">
+                        <DashboardViewerRouteGate>{children}</DashboardViewerRouteGate>
+                    </div>
                 </div>
             </BuildingTileVersionProvider>
         </DashboardQueryProvider>

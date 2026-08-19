@@ -163,6 +163,7 @@ SELECT 'function', n.nspname, p.proname || '(' || pg_get_function_identity_argum
 FROM pg_proc AS p
 JOIN pg_namespace AS n ON n.oid = p.pronamespace
 WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+  AND p.prokind <> 'a'
   AND pg_get_functiondef(p.oid) ~* '\m(road_class|class_code)\M'
 ORDER BY kind, schema_name, object_name;
 

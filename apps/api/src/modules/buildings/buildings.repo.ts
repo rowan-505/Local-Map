@@ -179,8 +179,6 @@ function buildingsListOrderBy(
                     ORDER BY n.search_weight DESC NULLS LAST, n.id ASC
                     LIMIT 1
                 ),
-                -- deprecated: legacy column soft fallback
-                b.name,
                 ''
             )) ${dir} NULLS LAST, b.public_id ASC`;
         case "building_type":
@@ -231,8 +229,7 @@ function activeBuildingsWhereClause(
             parts.push(Prisma.sql`b.public_id = CAST(${exactId.publicId} AS uuid)`);
         } else {
             parts.push(Prisma.sql`(
-                    COALESCE(b.name, '') ILIKE ${`%${params.q}%`}
-                    OR EXISTS (
+                    EXISTS (
                         SELECT 1
                         FROM core.core_building_names AS n
                         WHERE n.building_id = b.id
@@ -668,7 +665,6 @@ export class BuildingsRepository {
                 area_m2,
                 confidence_score,
                 verification_status,
-                is_verified,
                 is_active,
                 created_at,
                 updated_at,
@@ -688,7 +684,6 @@ export class BuildingsRepository {
                 ready.area_m2,
                 ${snapshot.confidence_score},
                 ${snapshot.verification_status},
-                ${snapshot.is_verified},
                 TRUE,
                 NOW(),
                 NOW(),
@@ -782,7 +777,6 @@ export class BuildingsRepository {
                     height_m = ${snapshot.height_m},
                     confidence_score = ${snapshot.confidence_score},
                     verification_status = ${snapshot.verification_status},
-                    is_verified = ${snapshot.is_verified},
                     is_geometry_manually_edited =
                         coalesce(b.is_geometry_manually_edited, false)
                         OR NOT ST_Equals(b.geom, ready.geom),
@@ -835,7 +829,6 @@ export class BuildingsRepository {
                 height_m = ${snapshot.height_m},
                 confidence_score = ${snapshot.confidence_score},
                 verification_status = ${snapshot.verification_status},
-                is_verified = ${snapshot.is_verified},
                 is_attributes_manually_edited =
                     coalesce(b.is_attributes_manually_edited, false)
                     OR ${audit.protectAttributes},

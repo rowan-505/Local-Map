@@ -156,8 +156,7 @@ function listFilters(params: CoreReviewLandAreasListParams): Prisma.Sql {
         } else {
             const q = `%${params.search}%`;
             parts.push(Prisma.sql`(
-                COALESCE(lu.name, '') ILIKE ${q}
-                OR COALESCE(lc.code, '') ILIKE ${q}
+                COALESCE(lc.code, '') ILIKE ${q}
                 OR COALESCE(lc.name_en, '') ILIKE ${q}
                 OR COALESCE(lc.name_mm, '') ILIKE ${q}
                 OR COALESCE(lu.external_id, '') ILIKE ${q}
@@ -195,7 +194,9 @@ function listOrder(params: CoreReviewLandAreasListParams): Prisma.Sql {
                 (SELECT n.name FROM core.core_land_area_names AS n
                  WHERE n.land_area_id = lu.id AND n.is_primary IS TRUE AND n.name_type = 'official'
                    AND lower(trim(n.language_code)) = 'en' LIMIT 1),
-                lu.name, ''
+                (SELECT n.name FROM core.core_land_area_names AS n
+                 WHERE n.land_area_id = lu.id
+                 ORDER BY n.is_primary DESC, n.search_weight DESC NULLS LAST, n.id LIMIT 1), ''
             )) ${sortDir(params.sortOrder)} NULLS LAST`;
         case "class_code":
         case "land_area_class":
@@ -421,7 +422,7 @@ export class CoreReviewLandAreasRepository {
             name_und: (pickAlias<string | null>(body, "nameUnd", "name_und") ?? null) as string | null,
         };
         const legacyName = legacyDisplayName(nameSlots);
-        const { isVerified, verificationStatus } = resolveCoreReviewVerificationWrite(body);
+        const { verificationStatus } = resolveCoreReviewVerificationWrite(body);
 
         return this.prisma.$transaction(async (tx) => {
             const rows = await tx.$queryRaw<{ public_id: string; id: bigint }[]>`
@@ -430,7 +431,7 @@ export class CoreReviewLandAreasRepository {
                     public_id, name, land_area_class_id, admin_area_id,
                     geom, centroid, area_m2, confidence_score, manual_override,
                     source_tags, crop_code, irrigated, seasonality, detail_level,
-                    is_active, is_verified, verification_status, source_refs, normalized_data,
+                    is_active, verification_status, source_refs, normalized_data,
                     created_at, updated_at
                 ) VALUES (
                     NULL,
@@ -449,7 +450,6 @@ export class CoreReviewLandAreasRepository {
                     ${pickAlias<string | null>(body, "seasonality", "seasonality") ?? null},
                     ${detailLevel},
                     true,
-                    ${isVerified},
                     ${verificationStatus},
                     ${DASHBOARD_SOURCE_REFS}::jsonb,
                     jsonb_build_object('source', 'dashboard'),

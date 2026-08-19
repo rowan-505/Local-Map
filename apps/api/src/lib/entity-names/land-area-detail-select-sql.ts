@@ -38,7 +38,19 @@ export const landAreaNameLabelSelectSql = Prisma.sql`
         ORDER BY n.search_weight DESC, n.id ASC
         LIMIT 1
     ) AS name_und,
-    NULLIF(btrim(lu.name), '') AS fallback_name
+    (
+        SELECT n.name
+        FROM core.core_land_area_names AS n
+        WHERE n.land_area_id = lu.id
+          AND nullif(btrim(n.name), '') IS NOT NULL
+        ORDER BY
+            CASE WHEN n.language_code = 'en' THEN 0
+                 WHEN n.language_code = 'my' THEN 1 ELSE 2 END,
+            n.is_primary DESC,
+            n.search_weight DESC NULLS LAST,
+            n.id ASC
+        LIMIT 1
+    ) AS fallback_name
 `;
 
 export function mapLandAreaNameFields(row: {

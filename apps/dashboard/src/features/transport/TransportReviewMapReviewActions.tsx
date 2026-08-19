@@ -20,6 +20,7 @@ export type TransportReviewMapReviewActionsProps = {
     readonly readiness: RouteReviewReadiness | null;
     readonly pathEditActive?: boolean;
     readonly busy?: boolean;
+    readonly disabled?: boolean;
     /** Hide the stop button when the host renders it in a selected-stop area. */
     readonly showStopAction?: boolean;
     readonly onMarkStopReviewed?: () => Promise<void>;
@@ -34,6 +35,7 @@ export default function TransportReviewMapReviewActions({
     readiness,
     pathEditActive = false,
     busy = false,
+    disabled = false,
     showStopAction = true,
     onMarkStopReviewed,
     onMarkPathReviewed,
@@ -88,7 +90,7 @@ export default function TransportReviewMapReviewActions({
         }
     };
 
-    const anyBusy = busy || actionBusy !== null;
+    const anyBusy = disabled || busy || actionBusy !== null;
 
     const blockerCount =
         readiness && !routeReviewed ? readiness.mark_reviewed_blockers.length : 0;

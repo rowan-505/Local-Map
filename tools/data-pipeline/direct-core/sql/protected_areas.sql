@@ -253,7 +253,6 @@ WITH ins AS (
     normalized_data,
     confidence_score,
     is_active,
-    is_verified,
     manual_override,
     verification_status
   )
@@ -282,7 +281,6 @@ WITH ins AS (
     ),
     s.confidence_score,
     true,
-    false,
     false,
     'unverified'
   FROM direct_protected_areas_plan s

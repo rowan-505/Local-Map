@@ -108,7 +108,6 @@ import {
 } from "./import-review-promotion-promote-sql.js";
 import {
     promotionBuildingNamesUpsertSql,
-    promotionTypedBuildingNameExpr,
 } from "./import-review-promotion-typed-promote-sql.js";
 import { getPromotionFamilyConfig } from "./import-review-promotion-simple-config.js";
 import {
@@ -1426,14 +1425,13 @@ export class ImportReviewPromotionPromoteRepository {
                 )
             )
             INSERT INTO core.core_buildings (
-                external_id, name, normalized_data, source_refs,
+                external_id, normalized_data, source_refs,
                 geom, building_type_id, admin_area_id, levels, height_m,
                 centroid, area_m2, confidence_score${coreVerificationInsertColumnsSql(BUILDING_VERIFICATION_COLUMNS)}, is_active,
                 created_at, updated_at, deleted_at
             )
             SELECT
                 nullif(trim(g.external_id), ''),
-                ${promotionTypedBuildingNameExpr("g")},
                 ${buildingNormalizedDataMergeExpr("g", batchId)},
                 ${sourceRefsMergeExpr("g", batchId, "buildings")},
                 g.geom,
@@ -1449,7 +1447,7 @@ export class ImportReviewPromotionPromoteRepository {
                 now(),
                 NULL::timestamptz
             FROM guard AS g
-            RETURNING id, external_id, name, normalized_data->>'class_code' AS class_code
+            RETURNING id, external_id, NULL::text AS name, normalized_data->>'class_code' AS class_code
         `;
 
         if (rows.length === 0) {
@@ -1465,6 +1463,7 @@ export class ImportReviewPromotionPromoteRepository {
 
         const row = rows[0]!;
         await this.upsertBuildingNames(publishItemId, row.id);
+        row.name = await this.loadBuildingDisplayName(row.id);
         const verificationMeta = buildVerificationMetadataTracking({
             outcome: "inserted",
             beforeData: null,
@@ -1544,7 +1543,6 @@ export class ImportReviewPromotionPromoteRepository {
             UPDATE core.core_buildings AS c
             SET
                 external_id = nullif(trim(r.external_id), ''),
-                name = ${promotionTypedBuildingNameExpr("r")},
                 normalized_data = ${buildingNormalizedDataMergeExpr("r", batchId)},
                 source_refs = ${sourceRefsMergeExpr("r", batchId, "buildings")},
                 geom = r.geom,
@@ -1562,7 +1560,7 @@ export class ImportReviewPromotionPromoteRepository {
             WHERE c.id = r.matched_core_id
               AND coalesce(c.is_active, true) AND c.deleted_at IS NULL
               AND NOT (c.source_refs @> '{"source":"dashboard"}'::jsonb)
-            RETURNING c.id, c.external_id, c.name, c.normalized_data->>'class_code' AS class_code
+            RETURNING c.id, c.external_id, NULL::text AS name, c.normalized_data->>'class_code' AS class_code
         `;
 
         if (rows.length === 0) {
@@ -1578,6 +1576,7 @@ export class ImportReviewPromotionPromoteRepository {
 
         const row = rows[0]!;
         await this.upsertBuildingNames(publishItemId, row.id);
+        row.name = await this.loadBuildingDisplayName(row.id);
         const verificationMeta = buildVerificationMetadataTracking({
             outcome: "updated",
             beforeData,
@@ -1599,7 +1598,21 @@ export class ImportReviewPromotionPromoteRepository {
         };
     }
 
-    /** Write approved names to core.core_building_names (legacy buildings.name stays NULL). */
+    private async loadBuildingDisplayName(buildingId: bigint): Promise<string | null> {
+        const rows = await this.prisma.$queryRaw<{ name: string }[]>`
+            SELECT n.name
+            FROM core.core_building_names AS n
+            WHERE n.building_id = ${buildingId}
+            ORDER BY
+                CASE WHEN n.language_code = 'en' THEN 0
+                     WHEN n.language_code = 'my' THEN 1 ELSE 2 END,
+                n.is_primary DESC, n.search_weight DESC NULLS LAST, n.id
+            LIMIT 1
+        `;
+        return rows[0]?.name ?? null;
+    }
+
+    /** Write approved names to core.core_building_names. */
     private async upsertBuildingNames(publishItemId: bigint, buildingId: bigint): Promise<void> {
         await this.prisma.$executeRaw(
             promotionBuildingNamesUpsertSql({

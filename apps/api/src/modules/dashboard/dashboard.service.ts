@@ -14,10 +14,11 @@ function sumValues(record: Record<string, number>): number {
 export class DashboardStatsService {
     constructor(private readonly dashboardStatsRepo: DashboardStatsRepository) {}
 
-    async getDashboardStats(): Promise<DashboardStatsResponse> {
-        const { main, metadata, transit, health } = await this.dashboardStatsRepo.fetchStatsSnapshot();
+    async getDashboardStats(options: { estimatedOnly?: boolean } = {}): Promise<DashboardStatsResponse> {
+        const { main, metadata, transit, health } = await this.dashboardStatsRepo.fetchStatsSnapshot(options);
 
         return {
+            countsMode: options.estimatedOnly ? "estimated" : "exact",
             overview: {
                 total_main_rows: sumValues(main),
                 total_metadata_rows: sumValues(metadata),

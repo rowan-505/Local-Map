@@ -184,12 +184,12 @@ CREATE TEMP TABLE direct_places_changes (
 WITH ins AS (
   INSERT INTO core.core_places (
     primary_name, display_name, category_id, admin_area_id, point_geom, lat, lng,
-    importance_score, popularity_score, confidence_score, is_public, is_verified,
+    importance_score, popularity_score, confidence_score, is_public,
     source_type_id, external_id, source_refs, normalized_data, verification_status
   )
   SELECT p.primary_name, p.primary_name, p.category_id, p.admin_area_id,
          p.point_geom::geometry(Point,4326), ST_Y(p.point_geom), ST_X(p.point_geom),
-         p.importance_score, p.popularity_score, p.confidence_score, true, false,
+         p.importance_score, p.popularity_score, p.confidence_score, true,
          q.source_type_id, p.external_id,
          p.source_refs || jsonb_build_object(
            'external_id',p.external_id,'source_snapshot_version',q.snapshot_version,

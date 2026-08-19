@@ -7,12 +7,11 @@ import {
     dashboardSidebarItems,
     sidebarModuleFromPathname,
     userManagementSidebarItems,
+    viewerDashboardModules,
     type DashboardSidebarItem,
     type DashboardSidebarModuleKey,
 } from "@/src/lib/dashboardNavigation";
 import { useDashboardRoleAccess } from "@/src/hooks/useDashboardRoleAccess";
-
-const VIEWER_MODULES = new Set(["core-review", "import-review", "references", "stats"]);
 
 function NavItem({
     item,
@@ -47,7 +46,7 @@ export default function DashboardSidebar() {
     const moduleItems = !access.ready
         ? []
         : access.isViewer
-          ? dashboardSidebarItems.filter((item) => VIEWER_MODULES.has(item.moduleKey))
+          ? dashboardSidebarItems.filter((item) => viewerDashboardModules.has(item.moduleKey))
           : dashboardSidebarItems;
 
     return (
@@ -60,10 +59,12 @@ export default function DashboardSidebar() {
                 >
                     Local Map
                 </Link>
-                <p className="mt-1 text-xs text-gray-500">Admin</p>
+                <p className="mt-1 text-xs text-gray-500">
+                    {access.ready ? (access.isViewer ? "Viewer" : "Admin") : "Dashboard"}
+                </p>
                 {access.isViewer ? (
                     <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs leading-4 text-amber-900">
-                        Read-only demo — changes are disabled.
+                        Read-only viewer — changes are disabled.
                     </p>
                 ) : null}
             </div>

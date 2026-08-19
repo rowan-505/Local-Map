@@ -250,7 +250,7 @@ export class RoutingGraphBuildRepository {
                 s.geom AS raw_geom,
                 s.road_class_id,
                 coalesce(rc.code, 'unknown') AS road_class_code,
-                s.is_oneway,
+                s.travel_direction,
                 s.source_refs,
                 s.canonical_name,
                 s.normalized_data,
@@ -290,7 +290,7 @@ export class RoutingGraphBuildRepository {
                     sr.core_street_id,
                     sr.road_class_id,
                     sr.road_class_code,
-                    sr.is_oneway,
+                    sr.travel_direction,
                     sr.source_refs,
                     sr.canonical_name,
                     sr.normalized_data,
@@ -394,7 +394,7 @@ export class RoutingGraphBuildRepository {
                     p.length_m,
                     p.road_class_id,
                     p.road_class_code,
-                    p.is_oneway,
+                    p.travel_direction,
                     p.source_refs,
                     p.speed_kph_hint,
                     ST_StartPoint(p.line_geom) AS start_pt,
@@ -446,9 +446,9 @@ export class RoutingGraphBuildRepository {
                 r.line_geom,
                 r.length_m,
                 r.road_class_id,
-                r.is_oneway,
-                true AS forward_allowed,
-                CASE WHEN coalesce(r.is_oneway, false) THEN false ELSE true END AS backward_allowed,
+                COALESCE(r.travel_direction IN ('forward', 'reverse'), false) AS is_oneway,
+                (r.travel_direction IS DISTINCT FROM 'reverse') AS forward_allowed,
+                (r.travel_direction IS DISTINCT FROM 'forward') AS backward_allowed,
                 r.walk_allowed,
                 r.drive_allowed,
                 r.bus_allowed,
@@ -526,15 +526,6 @@ export class RoutingGraphBuildRepository {
         `;
 
         await this.insertPostBuildValidationReports(buildJobId, validationCodes);
-
-        if (!input.dryRun) {
-            await this.prisma.$executeRaw`
-                UPDATE core.core_streets AS s
-                SET routing_status = 'synced', updated_at = now()
-                FROM _rg_selected_roads AS sr
-                WHERE s.id = sr.core_street_id
-            `;
-        }
 
         const nodeCount = await this.countForJob("routing.routing_nodes", buildJobId);
         const edgeCount = await this.countForJob("routing.routing_edges", buildJobId);
@@ -680,11 +671,11 @@ export class RoutingGraphBuildRepository {
                 ${buildJobId},
                 'warning',
                 'ONEWAY_UNKNOWN',
-                'Core street oneway flag is null; treated as bidirectional.',
+                'Core street travel direction is explicitly unknown; treated as bidirectional.',
                 sr.core_street_id,
                 '{}'::jsonb
             FROM _rg_selected_roads AS sr
-            WHERE sr.is_oneway IS NULL
+            WHERE sr.travel_direction = 'unknown'
         `;
 
         await this.prisma.$executeRaw`

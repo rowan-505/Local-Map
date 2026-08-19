@@ -641,7 +641,6 @@ Shared AI docs and skills live under [`docs/ai/`](docs/ai/README.md).
 | `.claude/skills/` | Claude skill mirror (sync from `docs/ai/skills/`) |
 | `.cursor/rules/` | Cursor-specific rules (architecture, workflow, setup) |
 | `.cursor/mcp.json` | Cursor MCP configuration |
-| `.agents/` | Legacy optional layout; see `.agents/README.md` |
 
 Implementation workflow rules for Cursor are in `.cursor/rules/07-agent-workflow-safety.mdc`. Tool-neutral checklists: [`docs/ai/workflows/`](docs/ai/workflows/).
 

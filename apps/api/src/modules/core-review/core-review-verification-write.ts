@@ -78,7 +78,6 @@ export function appendCoreReviewVerificationSets(sets: Prisma.Sql[], body: Recor
         return;
     }
     sets.push(Prisma.sql`verification_status = ${picked.verificationStatus}`);
-    sets.push(Prisma.sql`is_verified = ${picked.isVerified}`);
 }
 
 export function effectiveVerificationStatusFromRow(row: {

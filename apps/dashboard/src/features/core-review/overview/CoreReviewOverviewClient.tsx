@@ -3,6 +3,7 @@
 import CoreReviewHeaderCard from "@/src/components/core-review/CoreReviewHeaderCard";
 import CoreReviewPageShell from "@/src/components/core-review/CoreReviewPageShell";
 import { useCoreReviewVerificationSummary } from "@/src/features/core-review/hooks/useCoreReviewVerificationSummary";
+import { useDashboardRoleAccess } from "@/src/hooks/useDashboardRoleAccess";
 import {
     coreReviewModuleHref,
     coreReviewStatusFilterHref,
@@ -14,6 +15,7 @@ import {
 } from "@/src/features/core-review/overview/verificationSummaryUi";
 
 export default function CoreReviewOverviewClient() {
+    const access = useDashboardRoleAccess();
     const { data: summary, error: queryError, isLoading } = useCoreReviewVerificationSummary();
     const error = queryError instanceof Error ? queryError.message : queryError ? "Request failed." : null;
 
@@ -46,6 +48,7 @@ export default function CoreReviewOverviewClient() {
                         families={summary?.families ?? []}
                         buildModuleHref={(family) => coreReviewModuleHref(family.path)}
                         buildStatusHref={(family, status) => coreReviewStatusFilterHref(family.path, status)}
+                        readOnly={access.isViewer}
                     />
                 )}
             </section>

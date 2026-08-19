@@ -102,7 +102,7 @@ const ADDRESS_SELECT = Prisma.sql`
     a.full_address AS cached_full_address,
     a.house_number,
     a.unit_number,
-    coalesce(a.postal_code, a.postcode) AS postal_code,
+    a.postal_code,
     a.street_id,
     s.public_id::text AS street_public_id,
     sn_en.name AS street_name_en,

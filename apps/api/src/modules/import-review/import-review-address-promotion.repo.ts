@@ -30,10 +30,10 @@ export type CoreAddressColumnCaps = {
     hasUnitNumber: boolean;
     hasEntranceGeom: boolean;
     hasPostalCode: boolean;
-    hasPostcode: boolean;
     hasIsPublic: boolean;
     hasConfidenceScore: boolean;
     hasNormalizedData: boolean;
+    hasVerificationStatus: boolean;
 };
 
 export type CoreAddressComponentColumnCaps = {
@@ -182,10 +182,10 @@ export class ImportReviewAddressPromotionRepository {
             hasUnitNumber: cols.has("unit_number"),
             hasEntranceGeom: cols.has("entrance_geom"),
             hasPostalCode: cols.has("postal_code"),
-            hasPostcode: cols.has("postcode"),
             hasIsPublic: cols.has("is_public"),
             hasConfidenceScore: cols.has("confidence_score"),
             hasNormalizedData: cols.has("normalized_data"),
+            hasVerificationStatus: cols.has("verification_status"),
         };
     }
 
@@ -254,14 +254,12 @@ export class ImportReviewAddressPromotionRepository {
             Prisma.sql`full_address`,
             Prisma.sql`house_number`,
             Prisma.sql`point_geom`,
-            Prisma.sql`is_verified`,
             Prisma.sql`source_refs`,
         ];
         const vals: Prisma.Sql[] = [
             Prisma.sql`${args.fullAddress}`,
             Prisma.sql`${args.houseNumber}`,
             Prisma.sql`ST_GeomFromText(${args.pointWkt}, 4326)`,
-            Prisma.sql`true`,
             Prisma.sql`${args.sourceRefsJson}::jsonb`,
         ];
 
@@ -284,9 +282,6 @@ export class ImportReviewAddressPromotionRepository {
         if (args.caps.hasPostalCode) {
             cols.push(Prisma.sql`postal_code`);
             vals.push(Prisma.sql`${args.postalCode}`);
-        } else if (args.caps.hasPostcode) {
-            cols.push(Prisma.sql`postcode`);
-            vals.push(Prisma.sql`${args.postalCode}`);
         }
         if (args.caps.hasIsPublic) {
             cols.push(Prisma.sql`is_public`);
@@ -295,6 +290,10 @@ export class ImportReviewAddressPromotionRepository {
         if (args.caps.hasConfidenceScore) {
             cols.push(Prisma.sql`confidence_score`);
             vals.push(Prisma.sql`${args.confidenceScore}`);
+        }
+        if (args.caps.hasVerificationStatus) {
+            cols.push(Prisma.sql`verification_status`);
+            vals.push(Prisma.sql`'verified'`);
         }
         cols.push(Prisma.sql`source_type_id`);
         vals.push(Prisma.sql`${args.sourceTypeId}`);

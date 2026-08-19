@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 
 import { isAbortError } from "@/src/lib/api";
 import { transportPath } from "@/src/lib/dashboardNavigation";
+import { useDashboardRoleAccess } from "@/src/hooks/useDashboardRoleAccess";
 import {
     applyTransportRoutePathReviewAction,
     applyTransportRouteReviewAction,
@@ -433,6 +434,7 @@ export default function TransportRouteDetailContent({
     onOpenStopDetail,
     hideHeader = false,
 }: TransportRouteDetailContentProps) {
+    const { canWrite } = useDashboardRoleAccess();
     const [route, setRoute] = useState<TransportRouteDetail | null>(null);
     const [routeLoading, setRouteLoading] = useState(true);
     const [routeError, setRouteError] = useState("");
@@ -2117,6 +2119,7 @@ export default function TransportRouteDetailContent({
                 onReviewMap={toggleReviewMap}
                 onEditInfo={toggleEditInfo}
                 onClose={onClose}
+                canWrite={canWrite}
             />
 
             {routeError ? (
@@ -2143,6 +2146,7 @@ export default function TransportRouteDetailContent({
                         route={route}
                         routeLoading={routeLoading}
                         onSaved={handleMetadataSaved}
+                        canWrite={canWrite}
                     />
                     <RouteVariantsCard
                         variants={variants}
@@ -2158,6 +2162,7 @@ export default function TransportRouteDetailContent({
                             setVariantActionError("");
                             setAddingVariant(true);
                         }}
+                        canWrite={canWrite}
                         addVariantSlot={
                             <TransportVariantForm
                                 routePublicId={publicId}
@@ -2195,6 +2200,7 @@ export default function TransportRouteDetailContent({
                                 readinessUnavailable={readinessUnavailable}
                                 onReadinessReload={reloadReadiness}
                                 onReadinessApplied={applyReadinessFromMutation}
+                                canWrite={canWrite}
                             />
                         ) : null}
 
@@ -2209,11 +2215,15 @@ export default function TransportRouteDetailContent({
                                         <>
                                             <TransportToolbarButton
                                                 onClick={startEditPath}
+                                                disabled={!canWrite}
+                                                title={!canWrite ? "Read-only viewers cannot edit route paths" : undefined}
                                             >
                                                 Edit path
                                             </TransportToolbarButton>
                                             <TransportToolbarButton
                                                 variant="danger"
+                                                disabled={!canWrite}
+                                                title={!canWrite ? "Read-only viewers cannot delete route paths" : undefined}
                                                 onClick={() => {
                                                     setPathError("");
                                                     setConfirmDeletePath(true);
@@ -2223,7 +2233,11 @@ export default function TransportRouteDetailContent({
                                             </TransportToolbarButton>
                                         </>
                                     ) : (
-                                        <TransportToolbarButton onClick={startCreatePath}>
+                                        <TransportToolbarButton
+                                            onClick={startCreatePath}
+                                            disabled={!canWrite}
+                                            title={!canWrite ? "Read-only viewers cannot create route paths" : undefined}
+                                        >
                                             Create path
                                         </TransportToolbarButton>
                                     )}
@@ -2243,20 +2257,20 @@ export default function TransportRouteDetailContent({
                                         <span className="flex-1" />
                                         <TransportToolbarButton
                                             onClick={undoDraftPoint}
-                                            disabled={pathMutating || draftPath.length === 0}
+                                            disabled={!canWrite || pathMutating || draftPath.length === 0}
                                         >
                                             Undo
                                         </TransportToolbarButton>
                                         <TransportToolbarButton
                                             onClick={cancelPathEdit}
-                                            disabled={pathMutating}
+                                            disabled={!canWrite || pathMutating}
                                         >
                                             Cancel
                                         </TransportToolbarButton>
                                         <TransportToolbarButton
                                             variant="accent"
                                             onClick={savePath}
-                                            disabled={pathMutating || draftPath.length < 2}
+                                            disabled={!canWrite || pathMutating || draftPath.length < 2}
                                         >
                                             {pathMutating ? "Saving…" : "Save path"}
                                         </TransportToolbarButton>
@@ -2273,6 +2287,8 @@ export default function TransportRouteDetailContent({
                                 {!editingVariant ? (
                                     <div className="mb-3 flex flex-wrap justify-end gap-2">
                                         <TransportToolbarButton
+                                            disabled={!canWrite}
+                                            title={!canWrite ? "Read-only viewers cannot edit route variants" : undefined}
                                             onClick={() => {
                                                 setVariantActionError("");
                                                 setConfirmDeleteVariant(false);
@@ -2283,6 +2299,8 @@ export default function TransportRouteDetailContent({
                                         </TransportToolbarButton>
                                         <TransportToolbarButton
                                             variant="danger"
+                                            disabled={!canWrite}
+                                            title={!canWrite ? "Read-only viewers cannot delete route variants" : undefined}
                                             onClick={() => {
                                                 setVariantActionError("");
                                                 setConfirmDeleteVariant(true);
@@ -2310,14 +2328,14 @@ export default function TransportRouteDetailContent({
                                         <div className="mt-2 flex justify-end gap-2">
                                             <TransportToolbarButton
                                                 onClick={() => setConfirmDeleteVariant(false)}
-                                                disabled={variantMutating}
+                                                disabled={!canWrite || variantMutating}
                                             >
                                                 Cancel
                                             </TransportToolbarButton>
                                             <TransportToolbarButton
                                                 variant="danger"
                                                 onClick={confirmDeleteSelectedVariant}
-                                                disabled={variantMutating}
+                                                disabled={!canWrite || variantMutating}
                                             >
                                                 {variantMutating ? "Deleting…" : "Delete variant"}
                                             </TransportToolbarButton>
@@ -2359,6 +2377,7 @@ export default function TransportRouteDetailContent({
             )}
 
             <TransportRouteReviewMapShell
+                canWrite={canWrite}
                 open={reviewMapOpen}
                 onExit={closeReviewMap}
                 routeCode={route?.route_code ?? ""}
@@ -2493,6 +2512,7 @@ export default function TransportRouteDetailContent({
                 permanentDeleteLoading={permanentDeleting}
                 deleteBlockMessage={selectedStopDeleteBlockMessage}
                 deleteAllowed={selectedStopDeleteAllowed}
+                canWrite={canWrite}
                 onClose={() => setUsageDialogTarget(null)}
             />
 

@@ -141,18 +141,17 @@ export class CoreReviewEntitiesWriteRepository {
         const waterClassId = await this.resolveActiveWaterClassId(body);
         const normalizedGeom = await this.validatePolygon(this.prisma, geom);
         const geojson = geojsonSqlParam(normalizedGeom);
-        const { isVerified, verificationStatus } = resolveCoreReviewVerificationWrite(body);
+        const { verificationStatus } = resolveCoreReviewVerificationWrite(body);
         const rows = await this.prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
             INSERT INTO core.core_water_polygons (
                 external_id,
-                name, water_class_id, geom, is_active, is_verified, verification_status, source_refs, normalized_data
+                name, water_class_id, geom, is_active, verification_status, source_refs, normalized_data
             ) VALUES (
                 NULL,
                 ${pickAlias(body, "name", "name") ?? null},
                 ${waterClassId},
                 ${polygonGeomExpr(geojson)},
                 ${boolOr(pickAlias(body, "isActive", "is_active"), true)},
-                ${isVerified},
                 ${verificationStatus},
                 ${DASHBOARD_SOURCE_REFS}::jsonb,
                 jsonb_build_object('source', 'dashboard')
@@ -211,18 +210,17 @@ export class CoreReviewEntitiesWriteRepository {
         const waterClassId = await this.resolveActiveWaterClassId(body);
         await this.validateLineString(this.prisma, geom, true);
         const geojson = geojsonSqlParam(geom);
-        const { isVerified, verificationStatus } = resolveCoreReviewVerificationWrite(body);
+        const { verificationStatus } = resolveCoreReviewVerificationWrite(body);
         const rows = await this.prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
             INSERT INTO core.core_water_lines (
                 external_id,
-                name, water_class_id, geom, is_active, is_verified, verification_status, source_refs, normalized_data
+                name, water_class_id, geom, is_active, verification_status, source_refs, normalized_data
             ) VALUES (
                 NULL,
                 ${pickAlias(body, "name", "name") ?? null},
                 ${waterClassId},
                 ${multiLineStringGeomExpr(geojson)},
                 ${boolOr(pickAlias(body, "isActive", "is_active"), true)},
-                ${isVerified},
                 ${verificationStatus},
                 ${DASHBOARD_SOURCE_REFS}::jsonb,
                 jsonb_build_object('source', 'dashboard')
@@ -282,13 +280,13 @@ export class CoreReviewEntitiesWriteRepository {
             ? pointGeomExpr(geojsonSqlParam(entrance))
             : Prisma.sql`NULL::geometry(Point, 4326)`;
 
-        const { isVerified, verificationStatus } = resolveCoreReviewVerificationWrite(body);
+        const { verificationStatus } = resolveCoreReviewVerificationWrite(body);
 
         const rows = await this.prisma.$queryRaw<{ public_id: string }[]>(Prisma.sql`
             INSERT INTO core.core_addresses (
                 public_id, full_address, house_number, unit_number, postal_code,
                 street_id, admin_area_id, source_type_id, point_geom, entrance_geom,
-                is_public, is_verified, verification_status, source_refs
+                is_public, verification_status, source_refs
             ) VALUES (
                 gen_random_uuid(),
                 ${pickAlias(body, "fullAddress", "full_address") ?? null},
@@ -301,7 +299,6 @@ export class CoreReviewEntitiesWriteRepository {
                 ${pointGeomExpr(pointJson)},
                 ${entranceSql},
                 ${boolOr(pickAlias(body, "isPublic", "is_public"), true)},
-                ${isVerified},
                 ${verificationStatus},
                 ${DASHBOARD_SOURCE_REFS}::jsonb
             )
@@ -397,7 +394,7 @@ export class CoreReviewEntitiesWriteRepository {
             "boundary_confidence_score",
         );
         const boundaryNote = pickAlias<string | null>(body, "boundaryNote", "boundary_note") ?? null;
-        const { isVerified, verificationStatus } = resolveCoreReviewVerificationWrite(body);
+        const { verificationStatus } = resolveCoreReviewVerificationWrite(body);
         const nameSlots = pickAdminAreaNameSlots(body, { omitEmpty: true });
         const hasNameUpdate = nameSlots.name_mm !== undefined || nameSlots.name_en !== undefined;
 
@@ -405,7 +402,7 @@ export class CoreReviewEntitiesWriteRepository {
             const rows = await tx.$queryRaw<{ id: bigint; public_id: string }[]>(Prisma.sql`
                 INSERT INTO core.core_admin_areas (
                     public_id, canonical_name, slug, parent_id, admin_level_id,
-                    source_type_id, geom, centroid, is_active, is_verified, verification_status, source_refs,
+                    source_type_id, geom, centroid, is_active, verification_status, source_refs,
                     boundary_status, is_official_boundary, boundary_confidence_score,
                     address_usage, boundary_note
                 ) VALUES (
@@ -418,7 +415,6 @@ export class CoreReviewEntitiesWriteRepository {
                     ${geomExpr},
                     ${centroidFromGeomExpr(geomExpr)},
                     ${boolOr(pickAlias(body, "isActive", "is_active"), true)},
-                    ${isVerified},
                     ${verificationStatus},
                     ${DASHBOARD_SOURCE_REFS}::jsonb,
                     ${boundaryStatus},

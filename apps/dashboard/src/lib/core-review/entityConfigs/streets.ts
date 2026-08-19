@@ -40,7 +40,7 @@ function streetFormSchema(mode: CoreEntityFormMode) {
         admin_area_id: nullableStringIdSchema,
         admin_area_manual_override: z.boolean().optional(),
         admin_area_explicit_clear: z.boolean().optional(),
-        is_oneway: z.boolean(),
+        travel_direction: z.enum(["both", "forward", "reverse", "reversible", "alternating", "unknown"]),
         bridge: z.boolean(),
         tunnel: z.boolean(),
         surface: z.string(),
@@ -76,7 +76,7 @@ function formValuesToStreetCreatePayload(values: CoreEntityFormValues): CreateSt
             ? { admin_area_id: entityAdminAreaIdForPayload(values, "admin_area_id") as string | null }
             : {}),
         road_class_id: String(values.road_class_id),
-        is_oneway: Boolean(values.is_oneway),
+        travel_direction: String(values.travel_direction ?? "both") as CreateStreetPayload["travel_direction"],
         bridge: Boolean(values.bridge),
         tunnel: Boolean(values.tunnel),
         surface: surfaceTrimmed || undefined,
@@ -101,7 +101,7 @@ function formValuesToStreetUpdatePayload(values: CoreEntityFormValues): UpdateSt
         ...streetNamePayload(values),
         ...roadAdminAreaForStreetUpdatePayload(values),
         road_class_id: String(values.road_class_id).trim() || null,
-        is_oneway: Boolean(values.is_oneway),
+        travel_direction: String(values.travel_direction ?? "both") as UpdateStreetPayload["travel_direction"],
         bridge: Boolean(values.bridge),
         tunnel: Boolean(values.tunnel),
         surface: surfaceTrimmed || null,
@@ -153,7 +153,20 @@ export const STREETS_ENTITY_CONFIG: CoreEntityConfig<Street, CreateStreetPayload
             geometryFieldKey: GEOM_FIELD,
             adminAreaIdKey: "admin_area_id",
         }),
-        { key: "is_oneway", label: "One-way", type: "boolean" },
+        {
+            key: "travel_direction",
+            label: "Travel direction",
+            type: "select",
+            helpText: "Authoritative direction. Legacy one-way output is derived from this value.",
+            selectOptions: [
+                { value: "both", label: "Both directions" },
+                { value: "forward", label: "Forward" },
+                { value: "reverse", label: "Reverse" },
+                { value: "reversible", label: "Reversible" },
+                { value: "alternating", label: "Alternating" },
+                { value: "unknown", label: "Unknown" },
+            ],
+        },
         { key: "bridge", label: "Bridge", type: "boolean" },
         { key: "tunnel", label: "Tunnel", type: "boolean" },
         verificationStatusFormField(),
@@ -168,8 +181,8 @@ export const STREETS_ENTITY_CONFIG: CoreEntityConfig<Street, CreateStreetPayload
     readonlyMetadata: [
         { key: "public_id", label: "Public ID", type: "text", detailPath: "public_id" },
         { key: "canonical_name", label: "Canonical name", type: "text", detailPath: "canonical_name" },
-        { key: "routing_status", label: "Routing status", type: "text", detailPath: "routing_status" },
-        { key: "edit_status", label: "Edit status", type: "text", detailPath: "edit_status" },
+        { key: "routing_status", label: "Legacy routing status", type: "text", detailPath: "routing_status" },
+        { key: "edit_status", label: "Legacy edit status", type: "text", detailPath: "edit_status" },
         {
             key: "manual_override",
             label: "Manual override",
@@ -215,7 +228,7 @@ export const STREETS_ENTITY_CONFIG: CoreEntityConfig<Street, CreateStreetPayload
         admin_area_id: "",
         admin_area_manual_override: false,
         admin_area_explicit_clear: false,
-        is_oneway: false,
+        travel_direction: "both",
         bridge: false,
         tunnel: false,
         surface: "",
@@ -242,6 +255,7 @@ export const STREETS_ENTITY_CONFIG: CoreEntityConfig<Street, CreateStreetPayload
             adminAreaId?: string | null;
             manualOverride?: boolean;
             isOneway?: boolean;
+            travelDirection?: Street["travel_direction"];
         };
         return {
             myanmarName: detailRecord.myanmarName ?? detailRecord.name_mm ?? "",
@@ -252,7 +266,10 @@ export const STREETS_ENTITY_CONFIG: CoreEntityConfig<Street, CreateStreetPayload
                 detailRecord.manual_override ?? detailRecord.manualOverride,
             ),
             admin_area_explicit_clear: false,
-            is_oneway: detailRecord.is_oneway ?? detailRecord.isOneway ?? false,
+            travel_direction:
+                detailRecord.travel_direction ??
+                detailRecord.travelDirection ??
+                ((detailRecord.is_oneway ?? detailRecord.isOneway) ? "forward" : "both"),
             bridge: detailRecord.bridge ?? false,
             tunnel: detailRecord.tunnel ?? false,
             surface: detailRecord.surface ?? "",

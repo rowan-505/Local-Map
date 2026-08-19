@@ -282,6 +282,7 @@ function ReviewMapPathControls({
 }
 
 export type TransportRouteReviewMapShellProps = {
+    readonly canWrite: boolean;
     readonly open: boolean;
     readonly onExit: () => void;
     readonly routeCode: string;
@@ -390,6 +391,7 @@ export type TransportRouteReviewMapShellProps = {
  * while open; unmounts on exit so the basemap is not kept alive behind the drawer.
  */
 export default function TransportRouteReviewMapShell({
+    canWrite,
     open,
     onExit,
     routeCode,
@@ -547,15 +549,19 @@ export default function TransportRouteReviewMapShell({
         showRoutePath && hasSavedRoutePath ? (routePathInfo?.geometry ?? null) : null;
 
     const generatePathDisabled =
-        !canGeneratePathFromStops || pathDrawing || pathEditActive;
-    const generatePathTitle = canGeneratePathFromStops
-        ? "Generate a road-following path from ordered stops"
-        : generatePathFromStopsDisabledReason || "Cannot generate path yet";
+        !canWrite || !canGeneratePathFromStops || pathDrawing || pathEditActive;
+    const generatePathTitle = !canWrite
+        ? "Read-only viewers cannot generate route paths"
+        : canGeneratePathFromStops
+          ? "Generate a road-following path from ordered stops"
+          : generatePathFromStopsDisabledReason || "Cannot generate path yet";
 
-    const editPathDisabled = !canEditPath || pathDrawing || pathEditActive;
-    const editPathTitle = canEditPath
-        ? "Edit the saved route path"
-        : "Save a route path before editing";
+    const editPathDisabled = !canWrite || !canEditPath || pathDrawing || pathEditActive;
+    const editPathTitle = !canWrite
+        ? "Read-only viewers cannot edit route paths"
+        : canEditPath
+          ? "Edit the saved route path"
+          : "Save a route path before editing";
 
     const canGoPrev = stops.length > 0 && selectedIndex > 0;
     const canGoNext = stops.length > 0 && (selectedIndex < 0 || selectedIndex < stops.length - 1);
@@ -649,9 +655,9 @@ export default function TransportRouteReviewMapShell({
     }, [onMarkStopReviewed]);
 
     const stopListRowHeight = VIRTUAL_STOP_ROW_HEIGHT;
-    const canEditStopSequence =
-        Boolean(onInsertAtStart || onInsertAfter) && !insertDisabled;
-    const stopListUnitHeight = canEditStopSequence
+    const showStopSequenceActions = Boolean(onInsertAtStart || onInsertAfter);
+    const canEditStopSequence = canWrite && showStopSequenceActions && !insertDisabled;
+    const stopListUnitHeight = showStopSequenceActions
         ? stopListRowHeight + VIRTUAL_STOP_INSERT_GAP_HEIGHT
         : stopListRowHeight;
 
@@ -812,7 +818,7 @@ export default function TransportRouteReviewMapShell({
     const selectedRouteStopReviewed =
         selectedRouteStop?.stop.review_status === "reviewed" ||
         selectedRouteStop?.stop.review_status === "verified";
-    const routeStopActionBlocked = pathEditLoading || stopPreviewSaveBusy;
+    const routeStopActionBlocked = !canWrite || pathEditLoading || stopPreviewSaveBusy;
     const routeStopDeleteTitle = routeUsageLoading
         ? "Checking delete eligibility..."
         : deleteBlockMessage
@@ -948,8 +954,10 @@ export default function TransportRouteReviewMapShell({
         return {
             label: "Keep current stop",
             onClick: onCandidateKeepCurrent,
+            disabled: !canWrite,
+            title: !canWrite ? "Read-only viewers cannot change stop review decisions" : undefined,
         };
-    }, [activeCandidateDetail, onCandidateKeepCurrent]);
+    }, [activeCandidateDetail, canWrite, onCandidateKeepCurrent]);
 
     const candidateKeepCandidateAction = useMemo<TransportMapStopDetailCardAction | null>(() => {
         if (!activeCandidateDetail || !onCandidateKeepCandidate) {
@@ -958,9 +966,11 @@ export default function TransportRouteReviewMapShell({
         return {
             label: "Keep candidate stop",
             onClick: () => onCandidateKeepCandidate(activeCandidateDetail),
+            disabled: !canWrite,
+            title: !canWrite ? "Read-only viewers cannot replace route stops" : undefined,
             variant: "primary",
         };
-    }, [activeCandidateDetail, onCandidateKeepCandidate]);
+    }, [activeCandidateDetail, canWrite, onCandidateKeepCandidate]);
 
     const candidateCompareMergeAction = useMemo<TransportMapStopDetailCardAction | null>(() => {
         if (!activeCandidateDetail || !onCandidateCompareMerge) {
@@ -969,8 +979,10 @@ export default function TransportRouteReviewMapShell({
         return {
             label: "Compare & merge",
             onClick: () => onCandidateCompareMerge(activeCandidateDetail),
+            disabled: !canWrite,
+            title: !canWrite ? "Read-only viewers cannot merge stops" : undefined,
         };
-    }, [activeCandidateDetail, onCandidateCompareMerge]);
+    }, [activeCandidateDetail, canWrite, onCandidateCompareMerge]);
 
     const contextCardMode: TransportStopContextCardMode =
         activeDetailSource === "nearby_candidate"
@@ -1034,7 +1046,7 @@ export default function TransportRouteReviewMapShell({
     const renderStopWithGap = (stop: TransportRouteStopItem, stopIndex: number) => (
         <Fragment key={stop.id}>
             {renderStopRow(stop, stopIndex)}
-            {canEditStopSequence
+            {showStopSequenceActions
                 ? renderStopInsertGap(
                       stopIndex === stops.length - 1 ? "Add final stop" : "Insert stop here",
                       () => onInsertAfter?.(stop, stopIndex),
@@ -1222,6 +1234,7 @@ export default function TransportRouteReviewMapShell({
                                 type="button"
                                 onClick={onDeleteSelectedPathVertex}
                                 disabled={
+                                    !canWrite ||
                                     pathEditLoading ||
                                     selectedPathVertexIndex === null ||
                                     (pathEditDraftCoords?.length ?? 0) <= 2
@@ -1235,7 +1248,7 @@ export default function TransportRouteReviewMapShell({
                             <button
                                 type="button"
                                 onClick={onSavePathEdit}
-                                disabled={pathEditLoading || !pathEditHasUnsavedChanges}
+                                disabled={!canWrite || pathEditLoading || !pathEditHasUnsavedChanges}
                                 className="rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
                             >
                                 {pathEditLoading ? "Saving…" : "Save path"}
@@ -1322,9 +1335,9 @@ export default function TransportRouteReviewMapShell({
                         selectedCandidateId={selectedCandidateId}
                         onCandidateSelect={onCandidateSelect}
                         onCandidateSearchRequest={mapCandidateSearchRequest}
-                        editablePoint={pickingInsertLocation ? insertPickPoint : null}
-                        pointDraggable={pickingInsertLocation}
-                        onPointChange={pickingInsertLocation ? onInsertPickPointChange : undefined}
+                        editablePoint={canWrite && pickingInsertLocation ? insertPickPoint : null}
+                        pointDraggable={canWrite && pickingInsertLocation}
+                        onPointChange={canWrite && pickingInsertLocation ? onInsertPickPointChange : undefined}
                         editingHint={
                             pickingInsertLocation
                                 ? "Click the map to set the new stop location"
@@ -1338,7 +1351,7 @@ export default function TransportRouteReviewMapShell({
                         pathEditHint={pathEditActive ? pathEditHint : null}
                         draftPath={draftPath}
                         pathDrawing={pathDrawing}
-                        onDraftPathAddPoint={onDraftPathAddPoint}
+                        onDraftPathAddPoint={canWrite ? onDraftPathAddPoint : undefined}
                         mapCenterGetterRef={mapCenterGetterRef}
                         emptyHint={
                             variants.length === 0
@@ -1416,7 +1429,7 @@ export default function TransportRouteReviewMapShell({
                                                 }
                                                 departureTimeText={variantDepartureAnchor}
                                                 disabled={
-                                                    pathEditLoading || stopPreviewSaveBusy
+                                                    !canWrite || pathEditLoading || stopPreviewSaveBusy
                                                 }
                                                 onUpdated={onStopTimingUpdated}
                                             />
@@ -1436,6 +1449,7 @@ export default function TransportRouteReviewMapShell({
                         readiness={reviewReadiness}
                         pathEditActive={pathEditActive}
                         busy={pathEditLoading}
+                        disabled={!canWrite}
                         showStopAction={false}
                         onMarkStopReviewed={onMarkStopReviewed}
                         onMarkPathReviewed={onMarkPathReviewed}
@@ -1484,7 +1498,7 @@ export default function TransportRouteReviewMapShell({
                                 <ReviewMapVariantDepartureTimeEditor
                                     variantPublicId={selectedVariantId}
                                     departureTimeText={variantDepartureTimeText}
-                                    disabled={pathEditLoading || pathEditActive}
+                                    disabled={!canWrite || pathEditLoading || pathEditActive}
                                     onUpdated={onVariantDepartureTimeUpdated}
                                 />
                             </div>

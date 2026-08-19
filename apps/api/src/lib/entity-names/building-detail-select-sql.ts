@@ -31,7 +31,6 @@ export const buildingNameTypePriorityOrderSql = Prisma.sql`
 
 /**
  * Display name from core.core_building_names (canonical).
- * Soft-fallback to deprecated b.name only when names table has nothing.
  */
 export const buildingDisplayNameCoalesceSql = Prisma.sql`COALESCE(
     (
@@ -50,9 +49,7 @@ export const buildingDisplayNameCoalesceSql = Prisma.sql`COALESCE(
             n.search_weight DESC NULLS LAST,
             n.id ASC
         LIMIT 1
-    ),
-    -- deprecated: legacy core_buildings.name; do not write new values
-    NULLIF(btrim(b.name), '')
+    )
 )`;
 
 export const buildingNameLabelSelectSql = Prisma.sql`

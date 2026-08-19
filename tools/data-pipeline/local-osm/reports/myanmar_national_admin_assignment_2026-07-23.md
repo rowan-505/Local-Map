@@ -9,9 +9,7 @@
 - On a **500-point** national raw sample: fine/township-like assign hit **85.2%**; **14.8%** null (no unique township-like cover; also no district cover in this sample’s nulls).
 - Yangon-style mechanical township inference remains the right **rule set**; country-wide **data repair** is the blocker for higher precision.
 
-Evidence run log: `tools/data-pipeline/local-osm/reports/_myanmar_national_admin_assignment_run.txt`  
-SQL: `tools/data-pipeline/local-osm/reports/myanmar_national_admin_assignment_report.sql`  
-Yangon pilot (PASS): `yangon_admin_assignment_2026-07-23.md`
+SQL: `tools/data-pipeline/local-osm/reports/myanmar_national_admin_assignment_report.sql`
 
 ---
 
@@ -163,8 +161,7 @@ Suspicion flags for national Stage 18:
 ```bash
 # While Stage 05 may lock staging — this SQL avoids staging tables
 PAGER=cat psql "$LOCAL_DATABASE_URL" -v ON_ERROR_STOP=1 \
-  -f tools/data-pipeline/local-osm/reports/myanmar_national_admin_assignment_report.sql \
-  | tee tools/data-pipeline/local-osm/reports/_myanmar_national_admin_assignment_run.txt
+  -f tools/data-pipeline/local-osm/reports/myanmar_national_admin_assignment_report.sql
 ```
 
 Do **not** run `pipeline_township_assignment.sql` (CREATE OR REPLACE) while a long Stage 05 transaction is open — it waits on locks.

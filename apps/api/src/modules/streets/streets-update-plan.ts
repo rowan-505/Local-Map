@@ -1,4 +1,5 @@
 import type { StreetRow, UpdateStreetInput } from "./streets.repo.js";
+import { legacyIsOnewayFromTravelDirection } from "./streets-direction.js";
 
 function deriveStreetCanonicalName(names: { myanmarName?: string; englishName?: string }) {
     const en = names.englishName?.trim();
@@ -60,7 +61,10 @@ export function streetUpdateTouchesRoutingGraph(
     if (roadClassIdChanged) {
         return true;
     }
-    if (input.is_oneway !== undefined && input.is_oneway !== existing.is_oneway) {
+    if (
+        input.travel_direction !== undefined &&
+        input.travel_direction !== existing.travel_direction
+    ) {
         return true;
     }
     if (input.bridge !== undefined && input.bridge !== existing.bridge) {
@@ -132,11 +136,20 @@ export function applyStreetRowAfterScalarUpdate(
                 ? (input.admin_area_id?.toString() ?? null)
                 : existing.admin_area_id,
         surface: input.surface !== undefined ? input.surface : existing.surface,
-        is_oneway: input.is_oneway !== undefined ? input.is_oneway : existing.is_oneway,
+        travel_direction:
+            input.travel_direction !== undefined
+                ? input.travel_direction
+                : existing.travel_direction,
+        is_oneway: legacyIsOnewayFromTravelDirection(
+            input.travel_direction !== undefined
+                ? input.travel_direction
+                : existing.travel_direction,
+        ),
         bridge: input.bridge !== undefined ? input.bridge : existing.bridge,
         tunnel: input.tunnel !== undefined ? input.tunnel : existing.tunnel,
         verification_status: input.verification_status ?? existing.verification_status,
-        is_verified: input.is_verified !== undefined ? input.is_verified : existing.is_verified,
+        is_verified:
+            (input.verification_status ?? existing.verification_status) === "verified",
         manual_override: patch.manual_override ?? existing.manual_override,
         routing_status: patch.routing_status ?? existing.routing_status,
         myanmar_name: patch.myanmar_name ?? existing.myanmar_name,

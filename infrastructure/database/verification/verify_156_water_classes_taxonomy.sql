@@ -21,10 +21,11 @@ FROM ref.ref_water_classes c
 LEFT JOIN ref.ref_water_classes p ON p.id = c.parent_id
 ORDER BY COALESCE(p.sort_order, c.sort_order), c.sort_order, c.code;
 
-SELECT reason, resolved_code, count(*) AS n
-FROM system.migration_156_water_class_anomalies
-GROUP BY 1, 2
-ORDER BY n DESC;
+-- Phase 7 archived and removed the one-time anomaly table after migration 156
+-- and Phase 4 verification completed. Historical rows are recoverable from:
+-- infrastructure/database/archives/phase7_system_repair_20260819/system_repair_backup_tables.dump
+SELECT to_regclass('system.migration_156_water_class_anomalies') IS NULL
+  AS historical_anomaly_table_archived;
 
 SELECT
   count(*) FILTER (WHERE source_registry_id IS NOT NULL) AS lines_registry,

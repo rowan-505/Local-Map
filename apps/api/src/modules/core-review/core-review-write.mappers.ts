@@ -1,4 +1,5 @@
 import { pickAlias } from "./core-review-write.schema.js";
+import { resolveStreetTravelDirectionWrite } from "../streets/streets-direction.js";
 
 type PointGeometry = { type: "Point"; coordinates: [number, number] };
 
@@ -189,13 +190,28 @@ function hasStreetNameAlias(body: Record<string, unknown>, kind: "myanmar" | "en
 }
 
 export function mapCoreReviewStreetCreate(body: Record<string, unknown>) {
+    const rawTravelDirection = (
+        body.travelDirection !== undefined ? body.travelDirection : body.travel_direction
+    ) as
+        | "both"
+        | "forward"
+        | "reverse"
+        | "reversible"
+        | "alternating"
+        | "unknown"
+        | null
+        | undefined;
+    const travelDirection = resolveStreetTravelDirectionWrite({
+        travel_direction: rawTravelDirection,
+        is_oneway: pickAlias<boolean | undefined>(body, "isOneway", "is_oneway"),
+    });
     return {
         geometry: body.geometry,
         myanmarName: pickStreetNameAlias(body, "myanmar"),
         englishName: pickStreetNameAlias(body, "en"),
         road_class_id: pickAlias<bigint>(body, "roadClassId", "road_class_id"),
         admin_area_id: pickAlias<bigint | null | undefined>(body, "adminAreaId", "admin_area_id"),
-        is_oneway: pickAlias<boolean | undefined>(body, "isOneway", "is_oneway") ?? false,
+        travel_direction: travelDirection ?? null,
         surface: pickAlias<string | null | undefined>(body, "surface", "surface") ?? null,
         bridge: pickAlias<boolean | undefined>(body, "bridge", "bridge") ?? false,
         tunnel: pickAlias<boolean | undefined>(body, "tunnel", "tunnel") ?? false,
@@ -234,8 +250,23 @@ export function mapCoreReviewStreetPatch(body: Record<string, unknown>) {
             "explicit_clear_admin_area",
         );
     }
-    if (pickAlias(body, "isOneway", "is_oneway") !== undefined) {
-        out.is_oneway = pickAlias(body, "isOneway", "is_oneway");
+    const rawTravelDirection = (
+        body.travelDirection !== undefined ? body.travelDirection : body.travel_direction
+    ) as
+        | "both"
+        | "forward"
+        | "reverse"
+        | "reversible"
+        | "alternating"
+        | "unknown"
+        | null
+        | undefined;
+    const legacyIsOneway = pickAlias<boolean | undefined>(body, "isOneway", "is_oneway");
+    if (rawTravelDirection !== undefined || legacyIsOneway !== undefined) {
+        out.travel_direction = resolveStreetTravelDirectionWrite({
+            travel_direction: rawTravelDirection,
+            is_oneway: legacyIsOneway,
+        });
     }
     if (pickAlias(body, "surface", "surface") !== undefined) {
         out.surface = pickAlias(body, "surface", "surface");

@@ -40,7 +40,6 @@ MapLibre + PMTiles = public map rendering
 | `docs/ai/` | Shared canonical AI docs, skills, workflows |
 | `.claude/skills/` | Claude skill mirror |
 | `.cursor/rules/` | Cursor-specific rules (if you also use Cursor) |
-| `.agents/` | Legacy optional layout; see `.agents/README.md` |
 
 ## Implementation discipline
 

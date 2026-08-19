@@ -62,9 +62,9 @@ describe("core-review verification write helpers", () => {
         );
     });
 
-    it("appendCoreReviewVerificationSets writes paired columns", () => {
+    it("appendCoreReviewVerificationSets writes only the authoritative status", () => {
         const sets: import("@prisma/client").Prisma.Sql[] = [];
         appendCoreReviewVerificationSets(sets, { verification_status: "verified" });
-        assert.equal(sets.length, 2);
+        assert.equal(sets.length, 1);
     });
 });

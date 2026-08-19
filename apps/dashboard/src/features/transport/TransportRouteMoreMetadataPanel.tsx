@@ -33,6 +33,7 @@ export type TransportRouteMoreMetadataPanelProps = {
     readonly routeLoading: boolean;
     readonly defaultOpen?: boolean;
     readonly onSaved?: (updated: TransportRouteDetail) => void;
+    readonly canWrite: boolean;
 };
 
 export default function TransportRouteMoreMetadataPanel({
@@ -40,6 +41,7 @@ export default function TransportRouteMoreMetadataPanel({
     routeLoading,
     defaultOpen = false,
     onSaved,
+    canWrite,
 }: TransportRouteMoreMetadataPanelProps) {
     const [open, setOpen] = useState(defaultOpen);
     const [editOpen, setEditOpen] = useState(false);
@@ -80,11 +82,13 @@ export default function TransportRouteMoreMetadataPanel({
                     {route && !routeLoading ? (
                         <button
                             type="button"
+                            disabled={!canWrite}
+                            title={!canWrite ? "Read-only viewers cannot edit route metadata" : undefined}
                             onClick={(event) => {
                                 event.stopPropagation();
                                 setEditOpen(true);
                             }}
-                            className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                            className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                             Edit metadata
                         </button>

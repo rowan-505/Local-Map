@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { transportPath } from "@/src/lib/dashboardNavigation";
+import { useDashboardRoleAccess } from "@/src/hooks/useDashboardRoleAccess";
 import { getTransportRoutes } from "./api";
 import { useTransportListQuery } from "./transportListQuery";
 import {
@@ -111,6 +112,7 @@ function TriSelect({
 }
 
 export default function TransportRoutesPage() {
+    const { canWrite } = useDashboardRoleAccess();
     const router = useRouter();
     const searchParams = useSearchParams();
 
@@ -274,8 +276,10 @@ export default function TransportRoutesPage() {
                     </div>
                     <button
                         type="button"
+                        disabled={!canWrite}
+                        title={!canWrite ? "Read-only viewers cannot create routes" : undefined}
                         onClick={() => setCreateOpen(true)}
-                        className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800"
+                        className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                         + New route
                     </button>
@@ -633,7 +637,7 @@ export default function TransportRoutesPage() {
                 ) : null}
             </TransportDetailDrawer>
 
-            {createOpen ? (
+            {canWrite && createOpen ? (
                 <NewTransportRouteDialog
                     onClose={() => setCreateOpen(false)}
                     onCreated={handleCreated}

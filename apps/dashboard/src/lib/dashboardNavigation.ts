@@ -79,6 +79,17 @@ export type DashboardSidebarItem = {
     Icon: LucideIcon;
 };
 
+/** Non-sensitive dashboard modules exposed to read-only dashboard viewers. */
+export const viewerDashboardModules: ReadonlySet<DashboardSidebarModuleKey> = new Set([
+    "core-review",
+    "import-review",
+    "references",
+    "routing",
+    "stats",
+    "transport",
+    "search",
+]);
+
 export function sidebarModuleFromPathname(pathname: string): DashboardSidebarModuleKey | null {
     const match = pathname.match(/^\/dashboard\/([^/]+)/);
     const key = match?.[1];

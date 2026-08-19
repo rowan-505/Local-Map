@@ -1,6 +1,8 @@
 import { Prisma } from "@prisma/client";
 
 import type { PromotionDb } from "./import-review-promotion-db.js";
+import { syncWaterFeatureNames } from "../../lib/entity-names/sync-primary-names.js";
+import { deriveImportReviewNames, type ImportReviewNameCandidate } from "./import-review-name-fields.js";
 
 import type { PromotablePublishEntityFamily } from "./import-review-promotion-config.js";
 import {
@@ -24,7 +26,6 @@ import {
 } from "./import-review-promotion-promote-sql.js";
 import {
     promotionTypedExternalIdExpr,
-    promotionTypedNameExpr,
     promotionTypedWaterClassCodeExpr,
     promotionTypedWaterClassIdExpr,
 } from "./import-review-promotion-typed-promote-sql.js";
@@ -76,6 +77,29 @@ function geomCaseSql(config: MapEntityConfig): Prisma.Sql {
 
 export class ImportReviewPromotionPromoteMapRepository {
     constructor(private readonly prisma: PromotionDb) {}
+
+    private async syncCandidateNames(
+        tx: PromotionDb,
+        config: MapEntityConfig,
+        publishItemId: bigint,
+        entityId: bigint
+    ): Promise<string | null> {
+        const rows = await tx.$queryRaw<ImportReviewNameCandidate[]>(Prisma.sql`
+            SELECT c.canonical_name, c.normalized_data, c.external_id, c.class_code,
+                   c.name, c.name_mm, c.name_en
+            FROM system.system_publish_items AS spi
+            JOIN ${Prisma.raw(config.candidateTable)} AS c ON c.id = spi.review_candidate_id
+            WHERE spi.id = ${publishItemId}
+            LIMIT 1
+        `);
+        const derived = deriveImportReviewNames(rows[0] ?? {});
+        await syncWaterFeatureNames(tx, config.entityFamily, entityId, {
+            name_mm: derived.name_mm,
+            name_en: derived.name_en,
+            name_und: derived.name_und,
+        });
+        return derived.name_en ?? derived.name_mm ?? derived.name_und ?? null;
+    }
 
     async checkMapCoreExists(entityFamily: MapEntityFamily, targetId: bigint): Promise<boolean> {
         const config = MAP_ENTITY_CONFIG[entityFamily];
@@ -160,13 +184,12 @@ export class ImportReviewPromotionPromoteMapRepository {
                   )
             )
             INSERT INTO ${Prisma.raw(config.coreTable)} (
-                external_id, name, water_class_id, normalized_data, source_refs,
+                external_id, water_class_id, normalized_data, source_refs,
                 geom${coreVerificationInsertColumnsSql(verificationColumns)}, is_active,
                 created_at, updated_at
             )
             SELECT
                 g.resolved_external_id,
-                ${promotionTypedNameExpr("g")},
                 g.resolved_water_class_id,
                 ${normalizedDataMergeExpr("g", batchId)},
                 ${sourceRefsMergeExpr("g", batchId, config.entityFamily)},
@@ -175,7 +198,7 @@ export class ImportReviewPromotionPromoteMapRepository {
                 now(),
                 now()
             FROM guard AS g
-            RETURNING id, external_id, name, water_class_id
+            RETURNING id, external_id, NULL::text AS name, water_class_id
         `;
 
         if (rows.length === 0) {
@@ -191,6 +214,7 @@ export class ImportReviewPromotionPromoteMapRepository {
         }
 
         const row = rows[0]!;
+        row.name = await this.syncCandidateNames(tx, config, publishItemId, row.id);
         const classRows = await tx.$queryRaw<{ code: string }[]>`
             SELECT code FROM ref.ref_water_classes WHERE id = ${row.water_class_id} LIMIT 1
         `;
@@ -299,7 +323,6 @@ export class ImportReviewPromotionPromoteMapRepository {
             UPDATE ${Prisma.raw(config.coreTable)} AS c
             SET
                 external_id = r.resolved_external_id,
-                name = ${promotionTypedNameExpr("r")},
                 water_class_id = r.resolved_water_class_id,
                 normalized_data = ${normalizedDataMergeExpr("r", batchId)},
                 source_refs = ${sourceRefsMergeExpr("r", batchId, config.entityFamily)},
@@ -312,7 +335,7 @@ export class ImportReviewPromotionPromoteMapRepository {
               AND r.resolved_external_id IS NOT NULL
               AND r.resolved_water_class_id IS NOT NULL
               AND r.resolved_class_code IS NOT NULL
-            RETURNING c.id, c.external_id, c.name, c.water_class_id
+            RETURNING c.id, c.external_id, NULL::text AS name, c.water_class_id
         `;
 
         if (rows.length === 0) {
@@ -327,6 +350,7 @@ export class ImportReviewPromotionPromoteMapRepository {
         }
 
         const row = rows[0]!;
+        row.name = await this.syncCandidateNames(tx, config, publishItemId, row.id);
         const classRows = await tx.$queryRaw<{ code: string }[]>`
             SELECT code FROM ref.ref_water_classes WHERE id = ${row.water_class_id} LIMIT 1
         `;

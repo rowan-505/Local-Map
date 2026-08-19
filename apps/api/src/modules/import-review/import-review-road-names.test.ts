@@ -60,11 +60,9 @@ describe("import-review road name fields on API responses", () => {
         const mapped = applyImportReviewEffectiveFields(
             "roads",
             minimalRoadItem({
-                normalized_data: {
-                    name_mm: "မြန်မာလမ်း",
-                    name_en: "Myanmar Street",
-                    tags: {},
-                },
+                name_mm: "မြန်မာလမ်း",
+                name_en: "Myanmar Street",
+                normalized_data: { tags: {} },
             })
         );
 

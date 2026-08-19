@@ -46,6 +46,7 @@ export type DashboardStatsOverview = {
 };
 
 export type DashboardStatsResponse = {
+    countsMode: "exact" | "estimated";
     overview: DashboardStatsOverview;
     main: DashboardStatsMainCounts;
     metadata: DashboardStatsMetadataCounts;

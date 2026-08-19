@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import { isAbortError } from "@/src/lib/api";
+import { useDashboardRoleAccess } from "@/src/hooks/useDashboardRoleAccess";
 import {
     getAdminRoutingBuilds,
     getAdminRoutingFeedback,
@@ -56,6 +57,7 @@ function StatusPill({ status }: { readonly status: string }) {
 }
 
 export default function RoutingAdminPage() {
+    const { canWrite } = useDashboardRoleAccess();
     const [health, setHealth] = useState<RoutingAdminHealthResponse | null>(null);
     const [builds, setBuilds] = useState<readonly RoutingAdminBuildSummary[]>([]);
     const [buildsTotal, setBuildsTotal] = useState(0);
@@ -391,9 +393,9 @@ export default function RoutingAdminPage() {
                                             </td>
                                             <td className="px-2 py-2">
                                                 <select
-                                                    className="rounded border border-gray-300 text-xs"
+                                                    className="rounded border border-gray-300 text-xs disabled:cursor-not-allowed disabled:opacity-50"
                                                     value={row.status}
-                                                    disabled={feedbackBusyId === row.publicId}
+                                                    disabled={!canWrite || feedbackBusyId === row.publicId}
                                                     onChange={(event) => {
                                                         void onFeedbackStatusChange(
                                                             row,

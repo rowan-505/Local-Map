@@ -31,6 +31,7 @@ import {
     RoutingEngineTimeoutError,
     RoutingEngineUnavailableError,
 } from "../routing/routing.errors.js";
+import { hasDashboardAccess } from "../../plugins/auth.js";
 import {
     deleteRouteStopSchema,
     deleteTransportStopSchema,
@@ -141,12 +142,6 @@ import {
 } from "./transport-public-visibility.js";
 import type { TransportAuditContext } from "./transport-audit.js";
 
-const ADMIN_ROLES = new Set(["admin"]);
-
-function requireAdminRole(roles: string[] | undefined): boolean {
-    return (roles ?? []).some((role) => ADMIN_ROLES.has(role));
-}
-
 /** Transport path without query string (plugin is mounted at /transport). */
 function transportPath(request: FastifyRequest): string {
     const url = request.url.split("?")[0] ?? request.url;
@@ -155,7 +150,7 @@ function transportPath(request: FastifyRequest): string {
 
 /**
  * Public read endpoints accept anonymous callers. Optional JWT lets the dashboard
- * reuse the same URLs with admin-only data when the caller is an admin.
+ * reuse the same URLs with dashboard data when the caller has dashboard access.
  */
 function isOptionalAuthTransportGet(request: FastifyRequest): boolean {
     if (request.method !== "GET") {
@@ -321,9 +316,10 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
         if (reply.sent) {
             return;
         }
-        if (!requireAdminRole(request.user?.roles)) {
-            return reply.code(403).send({ message: "Transport endpoints require admin role." });
+        if (request.method === "GET" || request.method === "HEAD") {
+            return app.requireDashboardAccess(request, reply);
         }
+        return app.requireDashboardWrite(request, reply);
     });
 
     app.get("/overview", { schema: getTransportOverviewSchema }, async (_request, reply) => {
@@ -410,7 +406,7 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
     );
 
     app.get("/routes", { schema: getTransportRoutesSchema }, async (request, reply) => {
-        if (requireAdminRole(request.user?.roles)) {
+        if (hasDashboardAccess(request.user?.roles)) {
             let query;
             try {
                 query = listTransportRoutesQuerySchema.parse(request.query);
@@ -811,7 +807,7 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
             try {
                 const { publicId } = transportPublicIdParamSchema.parse(request.params);
                 const query = stopRoutesQuerySchema.parse(request.query);
-                if (requireAdminRole(request.user?.roles)) {
+                if (hasDashboardAccess(request.user?.roles)) {
                     const result = await service.listRoutesForStop(publicId, query);
                     return reply.send(result);
                 }
@@ -948,7 +944,7 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
                 const result = await publicService.getRouteByCode(param);
                 return reply.send(result);
             }
-            if (!requireAdminRole(request.user?.roles)) {
+            if (!hasDashboardAccess(request.user?.roles)) {
                 return reply.code(404).send({ message: "Route not found." });
             }
             const { publicId } = transportPublicIdParamSchema.parse(request.params);
@@ -988,7 +984,7 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
                     const items = await publicService.listVariantsForRouteCode(param);
                     return reply.send({ items, total: items.length });
                 }
-                if (!requireAdminRole(request.user?.roles)) {
+                if (!hasDashboardAccess(request.user?.roles)) {
                     return reply.code(404).send({ message: "Route not found." });
                 }
                 const { publicId } = transportPublicIdParamSchema.parse(request.params);

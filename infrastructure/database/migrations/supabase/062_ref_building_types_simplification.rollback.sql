@@ -22,6 +22,11 @@
 --   system.backup_ref_building_types_before_simplification
 --   system.backup_core_map_buildings_before_building_type_simplification
 --
+-- Phase 7 archived and removed these production backup tables. Before using
+-- this historical rollback, restore only those two tables into a controlled
+-- maintenance environment from:
+-- infrastructure/database/archives/phase7_system_repair_20260819/system_repair_backup_tables.dump
+--
 -- Apply manually in SQL Editor (not part of numbered forward migration chain).
 --
 -- =============================================================================

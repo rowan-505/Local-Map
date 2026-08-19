@@ -86,7 +86,7 @@ test("buildSearchIndexHealthReport aggregates totals and status", () => {
             finished_at: new Date("2026-07-08T02:00:00.000Z"),
             entity_counts: { place: 10 },
         },
-    });
+    }, { now: new Date("2026-07-10T12:00:00.000Z") });
 
     assert.equal(report.overall_status, "unhealthy");
     assert.equal(report.overall_severity, "critical");

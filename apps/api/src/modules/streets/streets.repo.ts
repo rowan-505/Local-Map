@@ -25,6 +25,7 @@ import {
     streetUpdateNeedsDetailReload,
     streetUpdateTouchesRoutingGraph,
 } from "./streets-update-plan.js";
+import type { StreetTravelDirection } from "./streets-direction.js";
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
@@ -95,6 +96,7 @@ export type StreetCoreReviewListRow = {
     road_class: string | null;
     road_class_name: string | null;
     surface: string | null;
+    travel_direction: StreetTravelDirection;
     is_oneway: boolean;
     bridge: boolean;
     tunnel: boolean;
@@ -118,6 +120,7 @@ type StreetCoreReviewListCoreRow = {
     road_class_id: string | null;
     road_class: string | null;
     surface: string | null;
+    travel_direction: StreetTravelDirection;
     is_oneway: boolean;
     bridge: boolean;
     tunnel: boolean;
@@ -159,6 +162,7 @@ export type StreetRow = {
     road_class: string | null;
     road_class_name: string | null;
     surface: string | null;
+    travel_direction: StreetTravelDirection;
     is_oneway: boolean;
     bridge: boolean;
     tunnel: boolean;
@@ -184,12 +188,11 @@ export type UpdateStreetInput = {
     geometry?: StreetCenterlineGeoJson;
     road_class_id?: bigint | null;
     admin_area_id?: bigint | null;
-    is_oneway?: boolean;
+    travel_direction?: StreetTravelDirection;
     surface?: string | null;
     bridge?: boolean;
     tunnel?: boolean;
     verification_status?: string;
-    is_verified?: boolean;
     manual_override?: boolean;
 };
 
@@ -202,14 +205,13 @@ export type CreateStreetInput = {
     admin_area_id?: bigint | null;
     source_type_id: bigint;
     road_class_id: bigint;
-    is_oneway: boolean;
+    travel_direction: StreetTravelDirection;
     surface?: string | null;
     bridge: boolean;
     tunnel: boolean;
     geometry: StreetCenterlineGeoJson;
     is_active?: boolean;
     verification_status?: string;
-    is_verified?: boolean;
     manual_override?: boolean;
 };
 
@@ -670,7 +672,8 @@ export class StreetsRepository {
                 rc.code AS road_class,
                 rc.name AS road_class_name,
                 s.surface,
-                s.is_oneway,
+                s.travel_direction,
+                COALESCE(s.travel_direction IN ('forward', 'reverse'), false) AS is_oneway,
                 s.bridge,
                 s.tunnel,
                 s.manual_override,
@@ -820,7 +823,8 @@ export class StreetsRepository {
                     s.road_class_id::text AS road_class_id,
                     rc.code AS road_class,
                     s.surface,
-                    s.is_oneway,
+                    s.travel_direction,
+                    COALESCE(s.travel_direction IN ('forward', 'reverse'), false) AS is_oneway,
                     s.bridge,
                     s.tunnel,
                     s.routing_status,
@@ -880,7 +884,8 @@ export class StreetsRepository {
                     s.road_class_id::text AS road_class_id,
                     rc.code AS road_class,
                     s.surface,
-                    s.is_oneway,
+                    s.travel_direction,
+                    COALESCE(s.travel_direction IN ('forward', 'reverse'), false) AS is_oneway,
                     s.bridge,
                     s.tunnel,
                     s.routing_status,
@@ -1168,7 +1173,8 @@ export class StreetsRepository {
                 rc.code AS road_class,
                 rc.name AS road_class_name,
                 s.surface,
-                s.is_oneway,
+                s.travel_direction,
+                COALESCE(s.travel_direction IN ('forward', 'reverse'), false) AS is_oneway,
                 s.bridge,
                 s.tunnel,
                 s.manual_override,
@@ -1259,15 +1265,12 @@ export class StreetsRepository {
                     road_class_id,
                     road_class,
                     surface,
-                    is_oneway,
+                    travel_direction,
                     bridge,
                     tunnel,
                     manual_override,
-                    edit_status,
-                    routing_status,
                     last_edited_at,
                     verification_status,
-                    is_verified,
                     created_at,
                     updated_at
                 )
@@ -1280,15 +1283,12 @@ export class StreetsRepository {
                     ${input.road_class_id},
                     ${roadClassCode},
                     ${input.surface ?? null},
-                    ${input.is_oneway},
+                    ${input.travel_direction},
                     ${input.bridge},
                     ${input.tunnel},
                     ${input.manual_override ?? false},
-                    'published',
-                    'needs_rebuild',
                     now(),
                     ${input.verification_status ?? "unverified"},
-                    ${input.is_verified ?? false},
                     now(),
                     now()
                 )
@@ -1315,7 +1315,7 @@ export class StreetsRepository {
         options?: { existing?: StreetRow | null },
     ): Promise<StreetRow | null> {
         const roadClassId = input.road_class_id;
-        const isOneway = input.is_oneway;
+        const travelDirection = input.travel_direction;
 
         const existing = await timeStreetUpdateStep("prefetch_existing", { publicId }, async () => {
             if (options?.existing) {
@@ -1391,10 +1391,6 @@ export class StreetsRepository {
                         Prisma.sql`manual_override = ${input.manual_override ?? true}`,
                     ];
 
-                    if (routingGraphTouched) {
-                        assignments.push(Prisma.sql`routing_status = 'needs_rebuild'`);
-                    }
-
                     if (myanmarChanged || englishChanged) {
                         const canonicalName = deriveCanonicalNameAfterNameEdits({
                             existing,
@@ -1428,8 +1424,8 @@ export class StreetsRepository {
                         }
                     }
 
-                    if (isOneway !== undefined) {
-                        assignments.push(Prisma.sql`is_oneway = ${isOneway}`);
+                    if (travelDirection !== undefined) {
+                        assignments.push(Prisma.sql`travel_direction = ${travelDirection}`);
                     }
 
                     if (input.surface !== undefined) {
@@ -1446,10 +1442,6 @@ export class StreetsRepository {
 
                     if (input.verification_status !== undefined) {
                         assignments.push(Prisma.sql`verification_status = ${input.verification_status}`);
-                    }
-
-                    if (input.is_verified !== undefined) {
-                        assignments.push(Prisma.sql`is_verified = ${input.is_verified}`);
                     }
 
                     const updatedCount = await timeStreetUpdateStep("street_update", { publicId }, () =>
@@ -1484,7 +1476,6 @@ export class StreetsRepository {
                                 : undefined,
                         myanmar_name: myanmarChanged ? (input.myanmarName?.trim() ?? null) : undefined,
                         english_name: englishChanged ? (input.englishName?.trim() ?? null) : undefined,
-                        routing_status: routingGraphTouched ? "needs_rebuild" : undefined,
                         manual_override: input.manual_override ?? true,
                     });
                 }),
@@ -1507,8 +1498,7 @@ export class StreetsRepository {
                     deleted_at = now(),
                     updated_at = now(),
                     last_edited_at = now(),
-                    manual_override = true,
-                    routing_status = 'needs_rebuild'
+                    manual_override = true
                 WHERE public_id = CAST(${publicId} AS uuid)
                   AND deleted_at IS NULL
             `);
@@ -1537,8 +1527,7 @@ export class StreetsRepository {
                     deleted_at = null,
                     updated_at = now(),
                     last_edited_at = now(),
-                    manual_override = true,
-                    routing_status = 'needs_rebuild'
+                    manual_override = true
                 WHERE public_id = CAST(${publicId} AS uuid)
                   AND (deleted_at IS NOT NULL OR is_active IS FALSE)
             `);
@@ -1574,12 +1563,12 @@ export class StreetsRepository {
             road_class_id: string | null;
             road_class: string | null;
             surface: string | null;
-            is_oneway: boolean;
+            travel_direction: StreetTravelDirection;
             bridge: boolean;
             tunnel: boolean;
             layer: number;
             source_tags: Prisma.JsonValue | null;
-            is_verified: boolean;
+            verification_status: string;
             seg_a_geojson: Prisma.JsonValue;
             seg_b_geojson: Prisma.JsonValue;
         };
@@ -1597,12 +1586,12 @@ export class StreetsRepository {
                         s_inner.road_class_id,
                         s_inner.road_class,
                         s_inner.surface,
-                        s_inner.is_oneway,
+                        s_inner.travel_direction,
                         s_inner.bridge,
                         s_inner.tunnel,
                         s_inner.layer,
                         s_inner.source_tags,
-                        s_inner.is_verified,
+                        s_inner.verification_status,
                         CASE
                             WHEN ST_GeometryType(s_inner.geom::geometry) = 'ST_LineString'
                                 THEN s_inner.geom::geometry
@@ -1628,12 +1617,12 @@ export class StreetsRepository {
                         s.road_class_id,
                         s.road_class,
                         s.surface,
-                        s.is_oneway,
+                        s.travel_direction,
                         s.bridge,
                         s.tunnel,
                         s.layer,
                         s.source_tags,
-                        s.is_verified,
+                        s.verification_status,
                         s.line_g,
                         ST_ClosestPoint(s.line_g, (SELECT q_geom FROM param)) AS snap_pt,
                         ST_LineLocatePoint(s.line_g, ST_ClosestPoint(s.line_g, (SELECT q_geom FROM param))) AS frac
@@ -1663,12 +1652,12 @@ export class StreetsRepository {
                     CASE WHEN m.road_class_id IS NULL THEN NULL ELSE m.road_class_id::text END AS road_class_id,
                     m.road_class,
                     m.surface,
-                    m.is_oneway,
+                    m.travel_direction,
                     m.bridge,
                     m.tunnel,
                     m.layer::int AS layer,
                     m.source_tags,
-                    m.is_verified,
+                    m.verification_status,
                     ST_AsGeoJSON(m.seg_a)::json AS seg_a_geojson,
                     ST_AsGeoJSON(m.seg_b)::json AS seg_b_geojson
                 FROM measured AS m
@@ -1721,8 +1710,7 @@ export class StreetsRepository {
                     deleted_at = now(),
                     updated_at = now(),
                     last_edited_at = now(),
-                    manual_override = true,
-                    routing_status = 'needs_rebuild'
+                    manual_override = true
                 WHERE id = ${oldStreetId}
                   AND deleted_at IS NULL
                   AND is_active IS TRUE
@@ -1746,15 +1734,13 @@ export class StreetsRepository {
                         road_class_id,
                         road_class,
                         surface,
-                        is_oneway,
+                        travel_direction,
                         bridge,
                         tunnel,
                         layer,
                         source_tags,
-                        is_verified,
+                        verification_status,
                         manual_override,
-                        edit_status,
-                        routing_status,
                         last_edited_at,
                         created_at,
                         updated_at
@@ -1768,15 +1754,13 @@ export class StreetsRepository {
                         ${roadClassDb},
                         ${row.road_class},
                         ${row.surface},
-                        ${row.is_oneway},
+                        ${row.travel_direction},
                         ${row.bridge},
                         ${row.tunnel},
                         ${row.layer},
                         ${sourceTagsSql},
-                        ${row.is_verified},
+                        ${row.verification_status},
                         true,
-                        'published',
-                        'needs_rebuild',
                         now(),
                         now(),
                         now()

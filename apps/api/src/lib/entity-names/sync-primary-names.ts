@@ -41,7 +41,7 @@ async function insertPrimaryOfficial(
     config: EntityNamesTableConfig,
     args: {
         languageCode: string;
-        scriptCode: string;
+        scriptCode: string | null;
         name: string;
         searchWeight: number;
     }
@@ -142,6 +142,27 @@ export type LandAreaFeatureNameSlots = PrimaryNameSlots & {
     name_und?: string | null | undefined;
 };
 
+export type MapFeatureNameSlots = LandAreaFeatureNameSlots;
+
+async function syncUndPrimaryName(
+    tx: DbClient,
+    config: EntityNamesTableConfig,
+    value: string | null | undefined
+): Promise<void> {
+    if (value === undefined) return;
+
+    await clearPrimaryOfficial(tx, config, Prisma.sql`lower(trim(n.language_code)) = 'und'`);
+    const und = trimName(value);
+    if (und) {
+        await insertPrimaryOfficial(tx, config, {
+            languageCode: "und",
+            scriptCode: null,
+            name: und,
+            searchWeight: 80,
+        });
+    }
+}
+
 /** Upserts primary official my/en/und feature names for one land area polygon. */
 export const ADMIN_AREA_NAMES_CONFIG = (adminAreaId: bigint): EntityNamesTableConfig => ({
     namesTable: "core.core_admin_area_names",
@@ -169,33 +190,34 @@ export async function syncLandAreaFeatureNames(
         name_en: slots.name_en,
     });
 
-    if (slots.name_und === undefined) {
-        return;
-    }
+    await syncUndPrimaryName(tx, LAND_AREA_NAMES_CONFIG(landAreaId), slots.name_und);
+}
 
-    await tx.$executeRaw(Prisma.sql`
-        DELETE FROM core.core_land_area_names AS n
-        WHERE n.land_area_id = ${landAreaId}
-          AND n.name_type = 'official'
-          AND n.is_primary IS TRUE
-          AND lower(trim(n.language_code)) = 'und'
-    `);
+function waterNamesConfig(entityFamily: "water_lines" | "water_polygons", entityId: bigint) {
+    return entityFamily === "water_lines"
+        ? {
+              namesTable: "core.core_water_line_names",
+              fkColumn: "water_line_id",
+              entityId,
+              myanmarScriptCode: "MYMR",
+              englishScriptCode: "LATN",
+          }
+        : {
+              namesTable: "core.core_water_polygon_names",
+              fkColumn: "water_polygon_id",
+              entityId,
+              myanmarScriptCode: "MYMR",
+              englishScriptCode: "LATN",
+          };
+}
 
-    const und = trimName(slots.name_und);
-    if (und) {
-        await tx.$executeRaw(Prisma.sql`
-            INSERT INTO core.core_land_area_names (
-                land_area_id, name, language_code, script_code, name_type, is_primary, search_weight
-            )
-            VALUES (
-                ${landAreaId},
-                ${und},
-                'und',
-                NULL,
-                'official',
-                TRUE,
-                80
-            )
-        `);
-    }
+export async function syncWaterFeatureNames(
+    tx: DbClient,
+    entityFamily: "water_lines" | "water_polygons",
+    entityId: bigint,
+    slots: MapFeatureNameSlots
+): Promise<void> {
+    const config = waterNamesConfig(entityFamily, entityId);
+    await syncPrimaryOfficialNames(tx, config, slots);
+    await syncUndPrimaryName(tx, config, slots.name_und);
 }

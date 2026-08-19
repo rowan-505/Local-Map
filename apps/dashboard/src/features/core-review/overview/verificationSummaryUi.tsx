@@ -87,6 +87,7 @@ export function VerificationSummaryFamilyCards({
     families,
     buildModuleHref,
     buildStatusHref,
+    readOnly = false,
 }: {
     families: VerificationSummaryFamilyCard[];
     buildModuleHref: (family: VerificationSummaryFamilyCard) => string;
@@ -94,6 +95,7 @@ export function VerificationSummaryFamilyCards({
         family: VerificationSummaryFamilyCard,
         status: CoreReviewVerificationStatus
     ) => string;
+    readOnly?: boolean;
 }) {
     return (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -103,9 +105,10 @@ export function VerificationSummaryFamilyCards({
                     buildStatusHref?.(family, status);
                 const moduleMeta = getCoreReviewOverviewModuleByPath(family.path);
                 const sourceSchema = coreReviewSourceSchemaFromTable(family.table);
-                const access =
-                    moduleMeta?.access ??
-                    (family.support.verification_supported ? "editable" : "read-only");
+                const access = readOnly
+                    ? "read-only"
+                    : moduleMeta?.access ??
+                      (family.support.verification_supported ? "editable" : "read-only");
 
                 return (
                     <article

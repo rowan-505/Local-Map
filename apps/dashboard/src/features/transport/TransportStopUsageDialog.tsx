@@ -38,6 +38,7 @@ export type TransportStopUsageDialogProps = {
     /** Backend eligibility message when delete is blocked for non-route reasons. */
     readonly deleteBlockMessage?: string | null;
     readonly deleteAllowed?: boolean;
+    readonly canWrite: boolean;
 };
 
 function variantLabel(route: TransportStopRouteUsage): string {
@@ -67,6 +68,7 @@ export default function TransportStopUsageDialog({
     permanentDeleteLoading = false,
     deleteBlockMessage = null,
     deleteAllowed: deleteAllowedProp,
+    canWrite,
 }: TransportStopUsageDialogProps) {
     const titleId = useId();
     const [routes, setRoutes] = useState<readonly TransportStopRouteUsage[]>([]);
@@ -293,7 +295,8 @@ export default function TransportStopUsageDialog({
                                                     <>
                                                         <button
                                                             type="button"
-                                                            disabled={busy}
+                                                            disabled={!canWrite || busy}
+                                                            title={!canWrite ? "Read-only viewers cannot disconnect stops" : undefined}
                                                             onClick={() =>
                                                                 void handleDisconnect(route)
                                                             }
@@ -315,7 +318,8 @@ export default function TransportStopUsageDialog({
                                                 ) : (
                                                     <button
                                                         type="button"
-                                                        disabled={Boolean(disconnectingId)}
+                                                        disabled={!canWrite || Boolean(disconnectingId)}
+                                                        title={!canWrite ? "Read-only viewers cannot disconnect stops" : undefined}
                                                         onClick={() =>
                                                             setConfirmDisconnectId(
                                                                 route.route_stop_id,
@@ -383,7 +387,8 @@ export default function TransportStopUsageDialog({
                             </button>
                             <button
                                 type="button"
-                                disabled={!deleteAllowed || permanentDeleteLoading}
+                                disabled={!canWrite || !deleteAllowed || permanentDeleteLoading}
+                                title={!canWrite ? "Read-only viewers cannot delete stops" : undefined}
                                 onClick={onPermanentDeleteRequest}
                                 className="rounded-lg bg-red-700 px-4 py-2 text-sm font-medium text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-40"
                             >

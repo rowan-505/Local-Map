@@ -183,6 +183,26 @@ function countFrom(
     return Prisma.sql`(SELECT COUNT(*)::bigint FROM ${Prisma.raw(qualifiedRelation)}) AS ${Prisma.raw(alias)}`;
 }
 
+/** Fast planner estimate for dashboard totals; avoids full scans of large geometry/history tables. */
+function estimatedCountFrom(
+    alias: keyof StatsSnapshotRow,
+    schemaName: string,
+    tableName: string,
+    hasTable: boolean
+): Prisma.Sql {
+    if (!hasTable) {
+        return zeroAs(alias);
+    }
+    return Prisma.sql`(
+        SELECT GREATEST(ROUND(c.reltuples), 0)::bigint
+        FROM pg_class AS c
+        JOIN pg_namespace AS n ON n.oid = c.relnamespace
+        WHERE n.nspname = ${schemaName}
+          AND c.relname = ${tableName}
+          AND c.relkind = 'r'
+    ) AS ${Prisma.raw(alias)}`;
+}
+
 function healthCount(
     alias: keyof StatsSnapshotRow,
     qualifiedRelation: string,
@@ -262,13 +282,43 @@ function buildSnapshotQuery(f: CatalogFlagRow): Prisma.Sql {
     return Prisma.sql`SELECT ${Prisma.join(parts, ", ")}`;
 }
 
+function buildEstimatedSnapshotQuery(f: CatalogFlagRow): Prisma.Sql {
+    const parts: Prisma.Sql[] = [
+        estimatedCountFrom("places", "core", "core_places", f.t_core_places),
+        estimatedCountFrom("map_buildings", "core", "core_buildings", f.t_core_buildings),
+        estimatedCountFrom("streets", "core", "core_streets", f.t_core_streets),
+        estimatedCountFrom("admin_areas", "core", "core_admin_areas", f.t_core_admin_areas),
+        estimatedCountFrom("addresses", "core", "core_addresses", f.t_core_addresses),
+        estimatedCountFrom("place_names", "core", "core_place_names", f.t_core_place_names),
+        estimatedCountFrom("street_names", "core", "core_street_names", f.t_core_street_names),
+        estimatedCountFrom("admin_area_names", "core", "core_admin_area_names", f.t_core_admin_area_names),
+        estimatedCountFrom("place_contacts", "core", "core_place_contacts", f.t_core_place_contacts),
+        estimatedCountFrom("place_sources", "core", "core_place_sources", f.t_core_place_sources),
+        estimatedCountFrom("place_media", "core", "core_place_media", f.t_core_place_media),
+        estimatedCountFrom("place_versions", "core", "core_place_versions", f.t_core_place_versions),
+        estimatedCountFrom("bus_routes", "transport", "routes", f.t_transport_routes),
+        estimatedCountFrom("bus_route_variants", "transport", "route_variants", f.t_transport_route_variants),
+        estimatedCountFrom("bus_stops", "transport", "stops", f.t_transport_stops),
+        estimatedCountFrom("bus_route_stops", "transport", "route_stops", f.t_transport_route_stops),
+        zeroAs("places_active"),
+        zeroAs("places_deleted"),
+        zeroAs("places_verified"),
+        zeroAs("places_unverified"),
+        zeroAs("buildings_active"),
+        zeroAs("buildings_deleted"),
+        zeroAs("streets_active"),
+        zeroAs("streets_inactive"),
+    ];
+    return Prisma.sql`SELECT ${Prisma.join(parts, ", ")}`;
+}
+
 export class DashboardStatsRepository {
     constructor(private readonly prisma: PrismaClient) {}
 
     /**
      * Two sequential SQL round-trips: catalog flags (no optional table FROM), then counts only for present tables.
      */
-    async fetchStatsSnapshot(): Promise<{
+    async fetchStatsSnapshot(options: { estimatedOnly?: boolean } = {}): Promise<{
         main: DashboardStatsMainCounts;
         metadata: DashboardStatsMetadataCounts;
         transit: DashboardStatsTransitCounts;
@@ -280,7 +330,10 @@ export class DashboardStatsRepository {
             throw new Error("Dashboard stats catalog flags returned no row");
         }
 
-        const rows = await this.prisma.$queryRaw<StatsSnapshotRow[]>(buildSnapshotQuery(flags));
+        const query = options.estimatedOnly
+            ? buildEstimatedSnapshotQuery(flags)
+            : buildSnapshotQuery(flags);
+        const rows = await this.prisma.$queryRaw<StatsSnapshotRow[]>(query);
         const row = rows[0];
         if (row === undefined) {
             throw new Error("Dashboard stats snapshot returned no row");

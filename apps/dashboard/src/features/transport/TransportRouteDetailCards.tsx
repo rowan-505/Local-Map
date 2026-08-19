@@ -162,11 +162,13 @@ export function TransportToolbarButton({
     children,
     onClick,
     disabled,
+    title,
     variant = "default",
 }: {
     readonly children: ReactNode;
     readonly onClick: () => void;
     readonly disabled?: boolean;
+    readonly title?: string;
     readonly variant?: "default" | "primary" | "danger" | "accent";
 }) {
     const variantClass =
@@ -183,6 +185,7 @@ export function TransportToolbarButton({
             type="button"
             onClick={onClick}
             disabled={disabled}
+            title={title}
             className={`rounded-md border px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${variantClass}`}
         >
             {children}
@@ -345,6 +348,7 @@ export function RouteDetailHeader({
     onReviewMap,
     onEditInfo,
     onClose,
+    canWrite,
 }: {
     readonly route: TransportRouteDetail | null;
     readonly routeDisplayName: string;
@@ -354,6 +358,7 @@ export function RouteDetailHeader({
     readonly onReviewMap: () => void;
     readonly onEditInfo: () => void;
     readonly onClose?: () => void;
+    readonly canWrite: boolean;
 }) {
     return (
         <header className="flex flex-col gap-2 border-b border-gray-200 pb-3 sm:flex-row sm:items-start sm:justify-between">
@@ -384,7 +389,8 @@ export function RouteDetailHeader({
                 <button
                     type="button"
                     onClick={onEditInfo}
-                    disabled={!route || routeLoading}
+                    disabled={!canWrite || !route || routeLoading}
+                    title={!canWrite ? "Read-only viewers cannot edit routes" : undefined}
                     className={`rounded-md border px-3 py-1.5 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 ${
                         editingRoute
                             ? "border-gray-900 bg-gray-900 text-white"
@@ -537,6 +543,7 @@ export function RouteVariantsCard({
     onStartAddVariant,
     directionSwapPair = null,
     onChangeDirection,
+    canWrite,
 }: {
     readonly variants: readonly TransportVariantSummary[];
     readonly routeLoading: boolean;
@@ -546,6 +553,7 @@ export function RouteVariantsCard({
     readonly onStartAddVariant: () => void;
     readonly directionSwapPair?: RouteDirectionSwapPair | null;
     readonly onChangeDirection?: () => void;
+    readonly canWrite: boolean;
 }) {
     return (
         <section className={`${CARD_CLASS} p-0`}>
@@ -558,7 +566,9 @@ export function RouteVariantsCard({
                         <button
                             type="button"
                             onClick={onChangeDirection}
-                            className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                            disabled={!canWrite}
+                            title={!canWrite ? "Read-only viewers cannot change route direction" : undefined}
+                            className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                             Change direction
                         </button>
@@ -567,7 +577,9 @@ export function RouteVariantsCard({
                         <button
                             type="button"
                             onClick={onStartAddVariant}
-                            className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                            disabled={!canWrite}
+                            title={!canWrite ? "Read-only viewers cannot add route variants" : undefined}
+                            className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                             + Add variant
                         </button>

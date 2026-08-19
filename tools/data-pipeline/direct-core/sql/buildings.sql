@@ -314,7 +314,7 @@ BEGIN
       INSERT INTO core.core_buildings(
         external_id,name,building_type_id,admin_area_id,geom,centroid,area_m2,
         levels,height_m,confidence_score,normalized_data,source_refs,is_active,
-        is_verified,verification_status,source_registry_id,source_snapshot_id,
+        verification_status,source_registry_id,source_snapshot_id,
         source_feature_type,source_feature_id,region_code)
       SELECT s.external_id,NULL,s.building_type_id,s.admin_area_id,
         s.geom::geometry(MultiPolygon,4326),
@@ -325,7 +325,7 @@ BEGIN
           'local_staging_id',s.local_staging_id,'import_class',s.classification),
         s.source_refs||jsonb_build_object('external_id',s.external_id,
           'source_snapshot_version',p.snapshot_version,'region_code',p.region_code,
-          'loader','direct_core.buildings'),true,false,'unverified',
+          'loader','direct_core.buildings'),true,'unverified',
         p.source_registry_id,p.source_snapshot_id,s.source_feature_type,
         s.source_feature_id,p.region_code
       FROM direct_buildings_ready s

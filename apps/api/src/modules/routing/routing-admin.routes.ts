@@ -24,12 +24,6 @@ import {
 } from "./routing-admin.schema.js";
 import { RoutingAdminService } from "./routing-admin.service.js";
 
-const ADMIN_ROLES = new Set(["admin"]);
-
-function requireAdminRole(roles: string[] | undefined): boolean {
-    return (roles ?? []).some((role) => ADMIN_ROLES.has(role));
-}
-
 function sendAdminRoutingError(reply: import("fastify").FastifyReply, error: unknown) {
     if (error instanceof ZodError) {
         return reply.code(400).send({
@@ -61,9 +55,10 @@ const routingAdminRoutes: FastifyPluginAsync = async (app) => {
         if (reply.sent) {
             return;
         }
-        if (!requireAdminRole(request.user?.roles)) {
-            return reply.code(403).send({ message: "Routing admin endpoints require admin role." });
+        if (request.method === "GET" || request.method === "HEAD") {
+            return app.requireDashboardAccess(request, reply);
         }
+        return app.requireDashboardWrite(request, reply);
     });
 
     app.get("/builds", { schema: getAdminRoutingBuildsSchema }, async (request, reply) => {

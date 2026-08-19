@@ -1028,7 +1028,7 @@ BEGIN
                 road_class_id,
                 road_class,
                 surface,
-                is_oneway,
+                travel_direction,
                 bridge,
                 tunnel,
                 layer,
@@ -1036,10 +1036,7 @@ BEGIN
                 external_id,
                 source_refs,
                 normalized_data,
-                is_verified,
-                manual_override,
-                edit_status,
-                routing_status
+                manual_override
                 %s,
                 created_at,
                 updated_at,
@@ -1055,7 +1052,7 @@ BEGIN
                 r.effective_road_class_id,
                 r.effective_road_class,
                 nullif(btrim(coalesce(r.surface, '')), ''),
-                coalesce(r.is_oneway, false),
+                CASE WHEN coalesce(r.is_oneway, false) THEN 'forward' ELSE NULL END,
                 coalesce(r.bridge, false),
                 coalesce(r.tunnel, false),
                 coalesce(r.layer, 0),
@@ -1063,10 +1060,7 @@ BEGIN
                 r.external_id_ready,
                 r.merged_source_refs,
                 r.normalized_data_ready,
-                false,
-                false,
-                'published',
-                'needs_rebuild'
+                false
                 %s,
                 now(),
                 now(),

@@ -56,7 +56,8 @@ function adminAreaSearchClause(search?: string): Prisma.Sql {
 function numericMapFeatureSearchClause(
     alias: string,
     search?: string,
-    canonicalClassCode: Prisma.Sql = Prisma.sql`NULL::text`
+    canonicalClassCode: Prisma.Sql = Prisma.sql`NULL::text`,
+    normalizedNameMatch: Prisma.Sql = Prisma.sql`FALSE`
 ): Prisma.Sql {
     if (!search) {
         return Prisma.empty;
@@ -66,7 +67,7 @@ function numericMapFeatureSearchClause(
         return Prisma.sql`AND ${Prisma.raw(alias)}.id = ${exactId.numericId}`;
     }
     return Prisma.sql`AND (
-        COALESCE(${Prisma.raw(alias)}.name, '') ILIKE ${`%${search}%`}
+        ${normalizedNameMatch}
         OR COALESCE(${canonicalClassCode}, '') ILIKE ${`%${search}%`}
         OR COALESCE(${Prisma.raw(alias)}.external_id, '') ILIKE ${`%${search}%`}
     )`;
@@ -344,7 +345,18 @@ export class CoreReviewEntitiesRepository {
     ) {
         const isWater = table === "core.core_water_polygons";
         const canonicalClassCode = isWater ? Prisma.sql`wc.code` : Prisma.sql`lc.code`;
-        const search = numericMapFeatureSearchClause(alias, params.search, canonicalClassCode);
+        const nameTable = isWater ? "core.core_water_polygon_names" : "core.core_land_area_names";
+        const nameFk = isWater ? "water_polygon_id" : "land_area_id";
+        const search = numericMapFeatureSearchClause(
+            alias,
+            params.search,
+            canonicalClassCode,
+            Prisma.sql`EXISTS (
+                SELECT 1 FROM ${Prisma.raw(nameTable)} AS sn
+                WHERE sn.${Prisma.raw(nameFk)} = ${Prisma.raw(alias)}.id
+                  AND sn.name ILIKE ${`%${params.search ?? ""}%`}
+            )`
+        );
         const order = Prisma.sql`${Prisma.raw(alias)}.updated_at ${sortDir(params.sortOrder)} NULLS LAST`;
         const waterSelect = isWater
             ? Prisma.sql`
@@ -360,12 +372,23 @@ export class CoreReviewEntitiesRepository {
             : Prisma.sql`
             LEFT JOIN ref.ref_land_area_classes AS lc
               ON lc.id = ${Prisma.raw(alias)}.land_area_class_id`;
+        const nameJoin = Prisma.sql`
+            LEFT JOIN LATERAL (
+                SELECT n.name
+                FROM ${Prisma.raw(nameTable)} AS n
+                WHERE n.${Prisma.raw(nameFk)} = ${Prisma.raw(alias)}.id
+                ORDER BY
+                    CASE WHEN n.language_code = 'en' THEN 0
+                         WHEN n.language_code = 'my' THEN 1 ELSE 2 END,
+                    n.is_primary DESC, n.search_weight DESC NULLS LAST, n.id
+                LIMIT 1
+            ) AS resolved_name ON true`;
 
         return this.prisma.$queryRaw<Record<string, unknown>[]>(Prisma.sql`
             SELECT
                 ${Prisma.raw(alias)}.id::text AS id,
                 ${Prisma.raw(alias)}.external_id AS "externalId",
-                ${Prisma.raw(alias)}.name,
+                resolved_name.name,
                 ${canonicalClassCode} AS "classCode",
                 ${waterSelect}
                 ${Prisma.raw(alias)}.is_active AS "isActive",
@@ -376,6 +399,7 @@ export class CoreReviewEntitiesRepository {
                 ST_AsGeoJSON(${Prisma.raw(alias)}.geom)::json AS geometry
             FROM ${Prisma.raw(table)} AS ${Prisma.raw(alias)}
             ${classificationJoin}
+            ${nameJoin}
             WHERE ${genericListStatusClause(
                   table === "core.core_land_areas" ? "land-areas" : "water-polygons",
                   alias,
@@ -396,7 +420,18 @@ export class CoreReviewEntitiesRepository {
     ): Promise<number> {
         const isWater = table === "core.core_water_polygons";
         const canonicalClassCode = isWater ? Prisma.sql`wc.code` : Prisma.sql`lc.code`;
-        const search = numericMapFeatureSearchClause(alias, params.search, canonicalClassCode);
+        const nameTable = isWater ? "core.core_water_polygon_names" : "core.core_land_area_names";
+        const nameFk = isWater ? "water_polygon_id" : "land_area_id";
+        const search = numericMapFeatureSearchClause(
+            alias,
+            params.search,
+            canonicalClassCode,
+            Prisma.sql`EXISTS (
+                SELECT 1 FROM ${Prisma.raw(nameTable)} AS sn
+                WHERE sn.${Prisma.raw(nameFk)} = ${Prisma.raw(alias)}.id
+                  AND sn.name ILIKE ${`%${params.search ?? ""}%`}
+            )`
+        );
         const classificationJoin = isWater
             ? Prisma.sql`LEFT JOIN ref.ref_water_classes AS wc ON wc.id = ${Prisma.raw(alias)}.water_class_id`
             : Prisma.sql`LEFT JOIN ref.ref_land_area_classes AS lc ON lc.id = ${Prisma.raw(alias)}.land_area_class_id`;
@@ -436,11 +471,24 @@ export class CoreReviewEntitiesRepository {
             LEFT JOIN ref.ref_land_area_classes AS lc
               ON lc.id = ${Prisma.raw(alias)}.land_area_class_id`;
         const canonicalClassCode = isWater ? Prisma.sql`wc.code` : Prisma.sql`lc.code`;
+        const nameTable = isWater ? "core.core_water_polygon_names" : "core.core_land_area_names";
+        const nameFk = isWater ? "water_polygon_id" : "land_area_id";
+        const nameJoin = Prisma.sql`
+            LEFT JOIN LATERAL (
+                SELECT n.name
+                FROM ${Prisma.raw(nameTable)} AS n
+                WHERE n.${Prisma.raw(nameFk)} = ${Prisma.raw(alias)}.id
+                ORDER BY
+                    CASE WHEN n.language_code = 'en' THEN 0
+                         WHEN n.language_code = 'my' THEN 1 ELSE 2 END,
+                    n.is_primary DESC, n.search_weight DESC NULLS LAST, n.id
+                LIMIT 1
+            ) AS resolved_name ON true`;
         const rows = await this.prisma.$queryRaw<Record<string, unknown>[]>(Prisma.sql`
             SELECT
                 ${Prisma.raw(alias)}.id::text AS id,
                 ${Prisma.raw(alias)}.external_id AS "externalId",
-                ${Prisma.raw(alias)}.name,
+                resolved_name.name,
                 ${canonicalClassCode} AS "classCode",
                 ${waterSelect}
                 ${Prisma.raw(alias)}.normalized_data AS "normalizedData",
@@ -453,6 +501,7 @@ export class CoreReviewEntitiesRepository {
                 ST_AsGeoJSON(${Prisma.raw(alias)}.geom)::json AS geometry
             FROM ${Prisma.raw(table)} AS ${Prisma.raw(alias)}
             ${classificationJoin}
+            ${nameJoin}
             WHERE ${Prisma.raw(alias)}.id = ${BigInt(id)}
               AND ${
                   options.anyStatus
@@ -491,14 +540,23 @@ export class CoreReviewEntitiesRepository {
     // ── Water lines ───────────────────────────────────────────────────────────
 
     async listWaterLines(params: CoreReviewEntityListParams) {
-        const search = numericMapFeatureSearchClause("wl", params.search, Prisma.sql`wc.code`);
+        const search = numericMapFeatureSearchClause(
+            "wl",
+            params.search,
+            Prisma.sql`wc.code`,
+            Prisma.sql`EXISTS (
+                SELECT 1 FROM core.core_water_line_names AS sn
+                WHERE sn.water_line_id = wl.id
+                  AND sn.name ILIKE ${`%${params.search ?? ""}%`}
+            )`
+        );
         const order = Prisma.sql`wl.updated_at ${sortDir(params.sortOrder)} NULLS LAST`;
 
         return this.prisma.$queryRaw<Record<string, unknown>[]>(Prisma.sql`
             SELECT
                 wl.id::text AS id,
                 wl.external_id AS "externalId",
-                wl.name,
+                resolved_name.name,
                 wc.code AS "classCode",
                 wl.water_class_id::text AS "waterClassId",
                 wc.code AS "waterClassCode",
@@ -512,6 +570,13 @@ export class CoreReviewEntitiesRepository {
                 ST_AsGeoJSON(wl.geom)::json AS geometry
             FROM core.core_water_lines AS wl
             LEFT JOIN ref.ref_water_classes AS wc ON wc.id = wl.water_class_id
+            LEFT JOIN LATERAL (
+                SELECT n.name FROM core.core_water_line_names AS n
+                WHERE n.water_line_id = wl.id
+                ORDER BY CASE WHEN n.language_code = 'en' THEN 0 WHEN n.language_code = 'my' THEN 1 ELSE 2 END,
+                    n.is_primary DESC, n.search_weight DESC NULLS LAST, n.id
+                LIMIT 1
+            ) AS resolved_name ON true
             WHERE ${genericListStatusClause("water-lines", "wl", params.status)}
               ${search}
               ${verificationFilterClause("wl", params)}
@@ -522,7 +587,16 @@ export class CoreReviewEntitiesRepository {
     }
 
     async countWaterLines(params: CoreReviewEntityListParams): Promise<number> {
-        const search = numericMapFeatureSearchClause("wl", params.search, Prisma.sql`wc.code`);
+        const search = numericMapFeatureSearchClause(
+            "wl",
+            params.search,
+            Prisma.sql`wc.code`,
+            Prisma.sql`EXISTS (
+                SELECT 1 FROM core.core_water_line_names AS sn
+                WHERE sn.water_line_id = wl.id
+                  AND sn.name ILIKE ${`%${params.search ?? ""}%`}
+            )`
+        );
         const rows = await this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
             SELECT COUNT(*)::bigint AS count FROM core.core_water_lines AS wl
             LEFT JOIN ref.ref_water_classes AS wc ON wc.id = wl.water_class_id
@@ -538,7 +612,7 @@ export class CoreReviewEntitiesRepository {
             SELECT
                 wl.id::text AS id,
                 wl.external_id AS "externalId",
-                wl.name,
+                resolved_name.name,
                 wc.code AS "classCode",
                 wl.water_class_id::text AS "waterClassId",
                 wc.code AS "waterClassCode",
@@ -554,6 +628,13 @@ export class CoreReviewEntitiesRepository {
                 ST_AsGeoJSON(wl.geom)::json AS geometry
             FROM core.core_water_lines AS wl
             LEFT JOIN ref.ref_water_classes AS wc ON wc.id = wl.water_class_id
+            LEFT JOIN LATERAL (
+                SELECT n.name FROM core.core_water_line_names AS n
+                WHERE n.water_line_id = wl.id
+                ORDER BY CASE WHEN n.language_code = 'en' THEN 0 WHEN n.language_code = 'my' THEN 1 ELSE 2 END,
+                    n.is_primary DESC, n.search_weight DESC NULLS LAST, n.id
+                LIMIT 1
+            ) AS resolved_name ON true
             WHERE wl.id = ${BigInt(id)}
               AND ${
                   options.anyStatus

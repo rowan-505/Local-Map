@@ -48,6 +48,11 @@ build
 *.pbf
 *.mbtiles
 *.pmtiles
+*.osm.pbf.md5
+
+# Local OSM extracts + clips (PBF, checksums, sidecars)
+tools/data-pipeline/local-osm/data/osm/**
+!tools/data-pipeline/local-osm/data/osm/.gitkeep
 
 # ========================
 # Database dumps / temp files
@@ -138,6 +143,12 @@ tools/data-pipeline/prod-mirror/00_env.sh
 tools/data-pipeline/**/artifacts/
 tools/data-pipeline/import-work/reports/
 tools/data-pipeline/buildings/reports/
+
+# Local OSM one-off run dumps (keep only reusable national admin report)
+tools/data-pipeline/local-osm/reports/**
+!tools/data-pipeline/local-osm/reports/
+!tools/data-pipeline/local-osm/reports/myanmar_national_admin_assignment_report.sql
+!tools/data-pipeline/local-osm/reports/myanmar_national_admin_assignment_2026-07-23.md
 
 # Stray scratch / scratchpad files (may contain pasted connection strings)
 infrastructure/Untitled

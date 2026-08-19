@@ -19,7 +19,6 @@ Shared, tool-neutral AI guidance for CoreMap. Edit canonical content here; tool-
 | [`.cursor/rules/`](../../.cursor/rules/) | Cursor agent rules (architecture, workflow, scoped setup guides). |
 | [`.cursor/mcp.json`](../../.cursor/mcp.json) | Cursor MCP server configuration. |
 | [`.cursor/settings.json`](../../.cursor/settings.json) | Cursor plugin settings for this repo. |
-| [`.agents/`](../../.agents/) | **Legacy / optional.** Older agent skill layout; see [`.agents/README.md`](../../.agents/README.md). |
 
 ## Maintenance
 

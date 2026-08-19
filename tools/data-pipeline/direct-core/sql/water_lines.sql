@@ -78,7 +78,9 @@ SELECT s.*,c.id target_id,c.deleted_at target_deleted_at,
    OR c.source_refs@>'{"source":"dashboard"}'::jsonb OR c.source_refs@>'{"source":"manual"}'::jsonb)
    THEN 'safe_update target is manual-protected'END,
   CASE WHEN s.classification='safe_new'AND c.id IS NOT NULL AND(
-   c.name IS DISTINCT FROM coalesce(s.name_my,s.name_en,s.name_und)
+   (coalesce(s.name_my,s.name_en,s.name_und) IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM core.core_water_line_names n
+      WHERE n.water_line_id=c.id AND n.name=coalesce(s.name_my,s.name_en,s.name_und)))
    OR c.water_class_id IS DISTINCT FROM s.water_class_id OR NOT ST_Equals(c.geom,s.geom))
    THEN 'safe_new identity already exists with different data'END
  ],NULL)::text[]errors
@@ -95,21 +97,20 @@ CREATE TEMP TABLE direct_water_lines_changes(
  action text NOT NULL,entity_id bigint NOT NULL,external_id text NOT NULL,before_data jsonb,after_data jsonb
 )ON COMMIT DROP;
 WITH ins AS(
- INSERT INTO core.core_water_lines(external_id,name,water_class_id,geom,source_refs,normalized_data,source_registry_id,source_snapshot_id,source_feature_type,source_feature_id,region_code,
-  is_active,is_verified,verification_status)
- SELECT s.external_id,s.resolved_name,s.water_class_id,s.geom::geometry(MultiLineString,4326),
+ INSERT INTO core.core_water_lines(external_id,water_class_id,geom,source_registry_id,source_snapshot_id,source_feature_type,source_feature_id,region_code,source_refs,normalized_data,
+  is_active,verification_status)
+ SELECT s.external_id,s.water_class_id,s.geom::geometry(MultiLineString,4326),
   p.source_registry_id,p.source_snapshot_id,'osm',s.external_id,p.region_code,
   s.source_refs||jsonb_build_object('external_id',s.external_id,
    'source_snapshot_version',p.snapshot_version,'region_code',p.region_code,'loader','direct_core.water_lines'),
   s.normalized_data||jsonb_build_object('local_staging_id',s.local_staging_id,
-   'import_class',s.classification),true,false,'unverified'
+   'import_class',s.classification),true,'unverified'
  FROM direct_water_lines_plan s CROSS JOIN direct_water_lines_params p
  WHERE s.classification='safe_new'AND s.target_id IS NULL RETURNING id,external_id
 )INSERT INTO direct_water_lines_changes SELECT 'insert',i.id,i.external_id,NULL,to_jsonb(c)
 FROM ins i JOIN core.core_water_lines c ON c.id=i.id;
 WITH upd AS(
- UPDATE core.core_water_lines c SET name=s.resolved_name,
-  water_class_id=s.water_class_id,
+ UPDATE core.core_water_lines c SET water_class_id=s.water_class_id,
   geom=s.geom::geometry(MultiLineString,4326),
   source_registry_id=coalesce(c.source_registry_id,p.source_registry_id),
   source_snapshot_id=coalesce(c.source_snapshot_id,p.source_snapshot_id),
@@ -122,8 +123,8 @@ WITH upd AS(
    'local_staging_id',s.local_staging_id,'import_class',s.classification),updated_at=now()
  FROM direct_water_lines_plan s CROSS JOIN direct_water_lines_params p
  WHERE c.id=s.target_id AND s.classification='safe_update'
-  AND(c.name,c.water_class_id,c.geom,c.source_refs,c.normalized_data)IS DISTINCT FROM(
-   s.resolved_name,s.water_class_id,s.geom,
+  AND(c.water_class_id,c.geom,c.source_refs,c.normalized_data)IS DISTINCT FROM(
+   s.water_class_id,s.geom,
    c.source_refs||s.source_refs||jsonb_build_object('external_id',s.external_id,
     'source_snapshot_version',p.snapshot_version,'region_code',p.region_code,'loader','direct_core.water_lines'),
    c.normalized_data||s.normalized_data||jsonb_build_object(

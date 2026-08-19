@@ -25,14 +25,14 @@ describe("bulkImportReviewBuildingDecisionBodySchema ids", () => {
         assert.deepEqual(parsed.ids?.map((id) => id.toString()), ["1", "3", "7"]);
     });
 
-    it("rejects bulk reject body with aligned review_status", () => {
+    it("maps rejected decisions to the current ignored storage status", () => {
         const parsed = bulkImportReviewBuildingDecisionBodySchema.parse({
             review_batch_id: "2",
             review_decision: "rejected",
-            review_status: "rejected",
+            review_status: "ignored",
             ids: [9],
         });
         assert.equal(parsed.review_decision, "rejected");
-        assert.equal(parsed.review_status, "rejected");
+        assert.equal(parsed.review_status, "ignored");
     });
 });

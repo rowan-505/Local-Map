@@ -1,75 +1,5 @@
 erDiagram
-  %% Inspected schemas (26): admin_qa, app, app_auth, auth, community, contrib, core, extensions, feedback, graphql, graphql_public, import_review, pgbouncer, public, realtime, ref, routing, search, share, storage, supabase_migrations, system, tiles, transit_export, transport, vault
-  admin_qa_collect_data_gap_1 {
-    integer id PK
-    geometry geom
-    bigint fid
-    bigint core_id
-    bigint gap_id
-    character_varying name
-    character_varying fix_type
-    bigint parent_id
-    character_varying source
-    character_varying ref_note
-    character_varying note
-    geometry geom_fixed
-  }
-  admin_qa_collect_data_gap_3 {
-    integer id PK
-    geometry geom
-    bigint fid
-    bigint core_id
-    bigint gap_id
-    character_varying fix_type
-    character_varying name
-    bigint parent_id
-    character_varying source
-    character_varying ref_note
-    character_varying note
-    geometry geom_fixed
-  }
-  admin_qa_corrected_township_gap5_invalid_points {
-    bigint fid
-    bigint core_id
-    bigint gap_id
-    character_varying fix_type
-    character_varying name
-    bigint parent_id
-    character_varying invalid_reason
-    geometry geom
-  }
-  admin_qa_corrected_township_geometries_gap5 {
-    integer id PK
-    geometry geom
-    bigint fid
-    bigint core_id
-    bigint gap_id
-    character_varying fix_type
-    character_varying name
-    bigint parent_id
-    character_varying source
-    character_varying ref_note
-    character_varying note
-    geometry geom_fixed
-  }
-  admin_qa_inserted_admin_area_ids_gap1 {
-    integer staging_id PK
-    bigint staging_fid
-    text name
-    bigint new_core_id
-    timestamp_with_time_zone created_at
-  }
-  admin_qa_inserted_admin_area_ids_gap5 {
-    bigint staging_fid PK
-    text name
-    bigint new_core_id
-    timestamp_with_time_zone created_at
-  }
-  admin_qa_township_gap_polygons_qgis {
-    bigint gap_id PK
-    numeric area_km2
-    geometry geom
-  }
+  %% Inspected schemas (25): app, app_auth, auth, community, contrib, core, extensions, feedback, graphql, graphql_public, import_review, pgbouncer, public, realtime, ref, routing, search, share, storage, supabase_migrations, system, tiles, transit_export, transport, vault
   app_user_saved_places {
     bigint id PK
     bigint user_id FK
@@ -199,7 +129,7 @@ erDiagram
   }
   auth_identities {
     text provider_id
-    uuid user_id
+    uuid user_id FK
     jsonb identity_data
     text provider
     timestamp_with_time_zone last_sign_in_at
@@ -216,7 +146,7 @@ erDiagram
     timestamp_with_time_zone updated_at
   }
   auth_mfa_amr_claims {
-    uuid session_id
+    uuid session_id FK
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
     text authentication_method
@@ -224,7 +154,7 @@ erDiagram
   }
   auth_mfa_challenges {
     uuid id PK
-    uuid factor_id
+    uuid factor_id FK
     timestamp_with_time_zone created_at
     timestamp_with_time_zone verified_at
     inet ip_address
@@ -233,7 +163,7 @@ erDiagram
   }
   auth_mfa_factors {
     uuid id PK
-    uuid user_id
+    uuid user_id FK
     text friendly_name
     factor_type factor_type
     factor_status status
@@ -249,8 +179,8 @@ erDiagram
   auth_oauth_authorizations {
     uuid id PK
     text authorization_id
-    uuid client_id
-    uuid user_id
+    uuid client_id FK
+    uuid user_id FK
     text redirect_uri
     text scope
     text state
@@ -288,15 +218,15 @@ erDiagram
   }
   auth_oauth_consents {
     uuid id PK
-    uuid user_id
-    uuid client_id
+    uuid user_id FK
+    uuid client_id FK
     text scopes
     timestamp_with_time_zone granted_at
     timestamp_with_time_zone revoked_at
   }
   auth_one_time_tokens {
     uuid id PK
-    uuid user_id
+    uuid user_id FK
     one_time_token_type token_type
     text token_hash
     text relates_to
@@ -312,11 +242,11 @@ erDiagram
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
     character_varying parent
-    uuid session_id
+    uuid session_id FK
   }
   auth_saml_providers {
     uuid id PK
-    uuid sso_provider_id
+    uuid sso_provider_id FK
     text entity_id
     text metadata_xml
     text metadata_url
@@ -327,20 +257,20 @@ erDiagram
   }
   auth_saml_relay_states {
     uuid id PK
-    uuid sso_provider_id
+    uuid sso_provider_id FK
     text request_id
     text for_email
     text redirect_to
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
-    uuid flow_state_id
+    uuid flow_state_id FK
   }
   auth_schema_migrations {
-    character_varying version
+    character_varying version PK
   }
   auth_sessions {
     uuid id PK
-    uuid user_id
+    uuid user_id FK
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
     uuid factor_id
@@ -350,14 +280,14 @@ erDiagram
     text user_agent
     inet ip
     text tag
-    uuid oauth_client_id
+    uuid oauth_client_id FK
     text refresh_token_hmac_key
     bigint refresh_token_counter
     text scopes
   }
   auth_sso_domains {
     uuid id PK
-    uuid sso_provider_id
+    uuid sso_provider_id FK
     text domain
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
@@ -408,7 +338,7 @@ erDiagram
   }
   auth_webauthn_challenges {
     uuid id PK
-    uuid user_id
+    uuid user_id FK
     text challenge_type
     jsonb session_data
     timestamp_with_time_zone created_at
@@ -416,7 +346,7 @@ erDiagram
   }
   auth_webauthn_credentials {
     uuid id PK
-    uuid user_id
+    uuid user_id FK
     bytea credential_id
     bytea public_key
     text attestation_type
@@ -521,7 +451,6 @@ erDiagram
     text city
     text district
     text state_region
-    text postcode
     text country
     geometry geom
     text plus_code
@@ -532,7 +461,7 @@ erDiagram
     timestamp_with_time_zone deleted_at
     text verification_status
     timestamp_with_time_zone verified_at
-    bigint verified_by
+    bigint verified_by FK
     text verification_note
   }
   core_core_admin_area_names {
@@ -564,7 +493,7 @@ erDiagram
     boolean is_verified
     text verification_status
     timestamp_with_time_zone verified_at
-    bigint verified_by
+    bigint verified_by FK
     text verification_note
     timestamp_with_time_zone deleted_at
     text boundary_status
@@ -593,7 +522,6 @@ erDiagram
   }
   core_core_buildings {
     bigint id PK
-    bigint source_staging_id
     text external_id
     text name
     jsonb normalized_data
@@ -609,14 +537,14 @@ erDiagram
     numeric height_m
     numeric confidence_score
     boolean is_verified
-    bigint created_by
-    bigint updated_by
+    bigint created_by FK
+    bigint updated_by FK
     timestamp_with_time_zone deleted_at
     bigint building_type_id FK
     bigint admin_area_id FK
     text verification_status
     timestamp_with_time_zone verified_at
-    bigint verified_by
+    bigint verified_by FK
     text verification_note
     bigint source_registry_id FK
     bigint source_snapshot_id FK
@@ -652,10 +580,8 @@ erDiagram
   }
   core_core_land_areas {
     bigint id PK
-    bigint source_staging_id
     text external_id
     text name
-    text class_code
     jsonb normalized_data
     jsonb source_refs
     geometry geom
@@ -665,7 +591,7 @@ erDiagram
     boolean is_verified
     text verification_status
     timestamp_with_time_zone verified_at
-    bigint verified_by
+    bigint verified_by FK
     text verification_note
     timestamp_with_time_zone deleted_at
     uuid public_id
@@ -676,8 +602,8 @@ erDiagram
     numeric confidence_score
     boolean manual_override
     jsonb source_tags
-    bigint created_by
-    bigint updated_by
+    bigint created_by FK
+    bigint updated_by FK
     text crop_code
     boolean irrigated
     text seasonality
@@ -738,10 +664,10 @@ erDiagram
     integer version_no
     jsonb snapshot_data
     bigint publish_status_id FK
-    bigint created_by
+    bigint created_by FK
     timestamp_with_time_zone created_at
     timestamp_with_time_zone published_at
-    bigint approved_by
+    bigint approved_by FK
   }
   core_core_places {
     bigint id PK
@@ -772,7 +698,7 @@ erDiagram
     jsonb normalized_data
     text verification_status
     timestamp_with_time_zone verified_at
-    bigint verified_by
+    bigint verified_by FK
     text verification_note
   }
   core_core_protected_area_names {
@@ -808,13 +734,13 @@ erDiagram
     boolean is_verified
     text verification_status
     timestamp_with_time_zone verified_at
-    bigint verified_by
+    bigint verified_by FK
     text verification_note
     boolean manual_override
     boolean is_active
     timestamp_with_time_zone deleted_at
-    bigint created_by
-    bigint updated_by
+    bigint created_by FK
+    bigint updated_by FK
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
   }
@@ -867,7 +793,7 @@ erDiagram
     jsonb normalized_data
     text verification_status
     timestamp_with_time_zone verified_at
-    bigint verified_by
+    bigint verified_by FK
     text verification_note
     text travel_direction
     jsonb access_rules
@@ -886,10 +812,8 @@ erDiagram
   }
   core_core_water_lines {
     bigint id PK
-    bigint source_staging_id
     text external_id
     text name
-    text class_code
     jsonb normalized_data
     jsonb source_refs
     geometry geom
@@ -899,7 +823,7 @@ erDiagram
     boolean is_verified
     text verification_status
     timestamp_with_time_zone verified_at
-    bigint verified_by
+    bigint verified_by FK
     text verification_note
     timestamp_with_time_zone deleted_at
     bigint water_class_id FK
@@ -923,10 +847,8 @@ erDiagram
   }
   core_core_water_polygons {
     bigint id PK
-    bigint source_staging_id
     text external_id
     text name
-    text class_code
     jsonb normalized_data
     jsonb source_refs
     geometry geom
@@ -936,7 +858,7 @@ erDiagram
     boolean is_verified
     text verification_status
     timestamp_with_time_zone verified_at
-    bigint verified_by
+    bigint verified_by FK
     text verification_note
     timestamp_with_time_zone deleted_at
     bigint water_class_id FK
@@ -1695,7 +1617,7 @@ erDiagram
     bytea binary_payload
   }
   realtime_schema_migrations {
-    bigint version
+    bigint version PK
     timestamp_without_time_zone inserted_at
   }
   realtime_subscription {
@@ -1896,7 +1818,7 @@ erDiagram
     boolean is_verified
     text verification_status
     timestamp_with_time_zone verified_at
-    bigint verified_by
+    bigint verified_by FK
     text verification_note
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
@@ -1936,7 +1858,7 @@ erDiagram
     integer warning_count
     integer error_count
     jsonb summary
-    bigint created_by
+    bigint created_by FK
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
   }
@@ -1971,7 +1893,7 @@ erDiagram
     timestamp_with_time_zone finished_at
     timestamp_with_time_zone published_at
     bigint published_by
-    bigint created_by
+    bigint created_by FK
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
   }
@@ -2095,7 +2017,7 @@ erDiagram
     boolean is_verified
     text verification_status
     timestamp_with_time_zone verified_at
-    bigint verified_by
+    bigint verified_by FK
     text verification_note
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
@@ -2154,16 +2076,6 @@ erDiagram
     text resolution_type
     bigint linked_alias_id FK
   }
-  search_search_addresses {
-    bigint id PK
-    bigint address_id FK
-    text search_text
-    text normalized_search_text
-    text language_code
-    jsonb tokens
-    geometry point_geom
-    timestamp_with_time_zone updated_at
-  }
   search_search_aliases {
     bigint id PK
     text entity_type
@@ -2174,7 +2086,7 @@ erDiagram
     text alias_type
     text source
     boolean is_active
-    bigint created_by
+    bigint created_by FK
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
   }
@@ -2236,23 +2148,6 @@ erDiagram
     jsonb entity_counts
     text error_message
   }
-  search_search_names {
-    bigint id PK
-    text entity_family
-    bigint entity_id
-    uuid public_id
-    text name
-    text normalized_name
-    text language_code
-    text script_code
-    text name_type
-    integer search_weight
-    jsonb tokens
-    geometry geom
-    bigint admin_area_id
-    jsonb source_refs
-    timestamp_with_time_zone updated_at
-  }
   search_search_request_events {
     bigint id PK
     uuid correlation_id
@@ -2312,20 +2207,20 @@ erDiagram
     timestamp_with_time_zone deleted_at
   }
   storage_buckets_vectors {
-    text id
+    text id PK
     buckettype type
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
   }
   storage_migrations {
-    integer id
+    integer id PK
     character_varying name
     character_varying hash
     timestamp_without_time_zone executed_at
   }
   storage_objects {
     uuid id PK
-    text bucket_id
+    text bucket_id FK
     text name
     uuid owner
     timestamp_with_time_zone created_at
@@ -2341,7 +2236,7 @@ erDiagram
     text id PK
     bigint in_progress_size
     text upload_signature
-    text bucket_id
+    text bucket_id FK
     text key
     text version
     text owner_id
@@ -2351,10 +2246,10 @@ erDiagram
   }
   storage_s3_multipart_uploads_parts {
     uuid id PK
-    text upload_id
+    text upload_id FK
     bigint size
     integer part_number
-    text bucket_id
+    text bucket_id FK
     text key
     text etag
     text owner_id
@@ -2362,9 +2257,9 @@ erDiagram
     timestamp_with_time_zone created_at
   }
   storage_vector_indexes {
-    text id
+    text id PK
     text name
-    text bucket_id
+    text bucket_id FK
     text data_type
     integer dimension
     text distance_metric
@@ -2392,281 +2287,12 @@ erDiagram
     text user_agent
     timestamp_with_time_zone created_at
   }
-  system_backup_core_map_buildings_before_building_type_simplification {
-    timestamp_with_time_zone backed_up_at
-    bigint id
-    bigint building_type_id
-    jsonb normalized_data
-  }
-  system_backup_ref_building_types_before_simplification {
-    timestamp_with_time_zone backed_up_at
-    bigint id
-    text code
-    text name
-    text name_mm
-    bigint parent_id
-    integer sort_order
-    boolean is_active
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-  }
-  system_migration_156_water_class_anomalies {
-    text entity_table PK
-    bigint entity_id PK
-    text legacy_class_code
-    text tag_waterway
-    text tag_water
-    text tag_natural
-    text resolved_code
-    text reason
-    timestamp_with_time_zone created_at
-  }
-  system_repair_admin_areas_before_202607 {
-    bigint id PK
-    bigint parent_id
-    bigint admin_level_id
-    bigint admin_area_type_id
-    timestamp_with_time_zone updated_at
-    text verification_status
-    boolean is_verified
-    timestamp_with_time_zone repaired_at
-  }
-  system_repair_admin_assign_pbl_20260724 {
-    text entity_family PK
-    bigint entity_id PK
-    bigint old_admin_area_id
-    bigint new_admin_area_id
-    timestamp_with_time_zone old_updated_at
-    timestamp_with_time_zone backed_up_at
-  }
-  system_repair_admin_assign_streets_20260724 {
-    bigint entity_id PK
-    bigint old_admin_area_id
-    bigint new_admin_area_id
-    double_precision overlap_m
-    double_precision second_m
-    text action
-    text reason
-    timestamp_with_time_zone old_updated_at
-    timestamp_with_time_zone backed_up_at
-  }
-  system_repair_admin_links_before_202607 {
-    text entity_family PK
-    bigint entity_id PK
-    bigint admin_area_id
-    timestamp_with_time_zone updated_at
-    timestamp_with_time_zone repaired_at
-  }
-  system_repair_dup_admin_areas_20260724 {
-    bigint id PK
-    text canonical_name
-    bigint parent_id
-    bigint admin_level_id
-    bigint admin_area_type_id
-    boolean is_active
-    timestamp_with_time_zone deleted_at
-    timestamp_with_time_zone updated_at
-    boolean is_verified
-    text verification_status
-    text geom_hash
-    text role
-    timestamp_with_time_zone repaired_at
-  }
-  system_repair_dup_fk_backup_20260724 {
-    bigint id PK
-    text source_table
-    bigint source_pk
-    text column_name
-    bigint old_admin_area_id
-    bigint new_admin_area_id
-    jsonb snapshot
-    timestamp_with_time_zone repaired_at
-  }
-  system_repair_final_fk_backup_20260724 {
-    bigint admin_area_id PK
-    text ref_table PK
-    bigint ref_count
-    int8[] sample_ids
-    timestamp_with_time_zone backed_up_at
-  }
-  system_repair_major_overlap_admin_areas_20260724 {
-    bigint id PK
-    text pair_id
-    text role
-    text canonical_name
-    bigint parent_id
-    bigint admin_level_id
-    bigint admin_area_type_id
-    boolean is_active
-    timestamp_with_time_zone deleted_at
-    boolean is_verified
-    text verification_status
-    geometry geom
-    text geom_hash
-    double_precision area_m2
-    timestamp_with_time_zone updated_at
-    timestamp_with_time_zone repaired_at
-  }
-  system_repair_major_overlap_apply_log_20260724 {
-    bigint id PK
-    text pair_id
-    bigint loser_id
-    bigint keeper_id
-    double_precision area_before_m2
-    double_precision area_after_m2
-    double_precision area_removed_m2
-    double_precision union_old_minus_new_m2
-    double_precision union_new_minus_old_m2
-    double_precision remaining_overlap_m2
-    double_precision third_party_overlap_increase_m2
-    timestamp_with_time_zone applied_at
-  }
-  system_repair_remaining_admin_backup_20260722 {
-    text entity_family PK
-    bigint entity_id PK
-    bigint admin_area_id
-    timestamp_with_time_zone updated_at
-    timestamp_with_time_zone repaired_at
-  }
-  system_repair_remaining_admin_queue_20260722 {
-    text entity_family PK
-    bigint entity_id PK
-    text status
-    bigint old_admin_area_id
-    bigint new_admin_area_id
-    text reason
-    timestamp_with_time_zone processed_at
-    timestamp_with_time_zone created_at
-  }
-  system_repair_remaining_road_backup_20260722 {
-    bigint street_id PK
-    boolean bridge
-    timestamp_with_time_zone updated_at
-    timestamp_with_time_zone repaired_at
-  }
-  system_repair_review_backlog_before_202607 {
-    text entity_family PK
-    bigint entity_id PK
-    text field_name PK
-    text old_value
-    text new_value
-    timestamp_with_time_zone repaired_at
-  }
-  system_repair_shan_cluster_admin_areas_20260724 {
-    bigint id PK
-    text role
-    text canonical_name
-    bigint parent_id
-    bigint admin_level_id
-    bigint admin_area_type_id
-    boolean is_active
-    timestamp_with_time_zone deleted_at
-    boolean is_verified
-    text verification_status
-    geometry geom
-    text geom_hash
-    double_precision area_m2
-    timestamp_with_time_zone updated_at
-    timestamp_with_time_zone repaired_at
-  }
-  system_repair_shan_cluster_apply_log_20260724 {
-    bigint id PK
-    bigint loser_id
-    double_precision area_before_m2
-    double_precision area_after_m2
-    double_precision area_removed_m2
-    double_precision five_union_old_minus_new_m2
-    double_precision five_union_new_minus_old_m2
-    timestamp_with_time_zone applied_at
-  }
-  system_repair_small_core_before_202607 {
-    text entity_family PK
-    bigint entity_id PK
-    text field_name PK
-    text old_value
-    text new_value
-    timestamp_with_time_zone repaired_at
-  }
-  system_repair_street_names_before_202607 {
-    bigint id PK
-    bigint street_id
-    text name_type
-    boolean is_primary
-    timestamp_with_time_zone repaired_at
-  }
-  system_repair_streets_attrs_before_202607 {
-    bigint id PK
-    boolean is_oneway
-    boolean bridge
-    boolean tunnel
-    integer layer
-    text surface
-    boolean manual_override
-    boolean is_verified
-    timestamp_with_time_zone updated_at
-    timestamp_with_time_zone repaired_at
-  }
-  system_repair_streets_road_class_before_202607 {
-    bigint id PK
-    text road_class
-    bigint road_class_id
-    boolean manual_override
-    boolean is_verified
-    text verification_status
-    timestamp_with_time_zone updated_at
-    timestamp_with_time_zone repaired_at
-  }
-  system_repair_township_catalogue_reclass_20260724 {
-    bigint id PK
-    text canonical_name
-    bigint parent_id
-    bigint admin_level_id
-    bigint admin_area_type_id
-    timestamp_with_time_zone updated_at
-    boolean is_active
-    timestamp_with_time_zone deleted_at
-    text geom_hash
-    text classification_label
-    text proposed_level
-    text proposed_type
-    timestamp_with_time_zone repaired_at
-  }
-  system_repair_township_overlap_final_admin_areas_20260724 {
-    bigint id PK
-    text role
-    text canonical_name
-    bigint parent_id
-    bigint admin_level_id
-    bigint admin_area_type_id
-    boolean is_active
-    timestamp_with_time_zone deleted_at
-    geometry geom
-    text geom_hash
-    double_precision area_m2
-    timestamp_with_time_zone updated_at
-    timestamp_with_time_zone repaired_at
-  }
-  system_repair_township_overlap_final_apply_log_20260724 {
-    bigint id PK
-    text pair_id
-    text action_type
-    int8[] loser_ids
-    int8[] keeper_ids
-    double_precision area_removed_m2
-    double_precision remaining_overlap_m2
-    double_precision union_old_minus_new_m2
-    double_precision union_new_minus_old_m2
-    double_precision third_party_increase_m2
-    text status
-    text detail
-    timestamp_with_time_zone applied_at
-  }
   system_system_conflict_queue {
     bigint id PK
     bigint diff_item_id FK
     text conflict_type
     text resolution_status
-    bigint assigned_to
+    bigint assigned_to FK
     text resolution_note
     timestamp_with_time_zone created_at
     timestamp_with_time_zone resolved_at
@@ -2708,8 +2334,8 @@ erDiagram
   system_system_publish_batches {
     bigint id PK
     text batch_name
-    bigint created_by
-    bigint approved_by
+    bigint created_by FK
+    bigint approved_by FK
     text status
     timestamp_with_time_zone created_at
     timestamp_with_time_zone published_at
@@ -2787,7 +2413,7 @@ erDiagram
     bigint status_id FK
     text entity_family
     bigint entity_id
-    bigint assigned_to
+    bigint assigned_to FK
     integer priority
     text note
     timestamp_with_time_zone created_at
@@ -3037,26 +2663,6 @@ erDiagram
     text source_time_type
     integer waiting_time_seconds
   }
-  transport_route_unification_plan {
-    bigint id PK
-    text merge_key
-    text risk_level
-    text mode
-    text route_kind
-    text operator_network
-    text route_ref
-    text endpoint_a
-    text endpoint_b
-    bigint canonical_route_id
-    int8[] duplicate_route_ids
-    int8[] route_ids
-    int8[] variant_ids
-    text proposed_route_code
-    text proposed_public_name
-    jsonb proposed_variant_codes
-    timestamp_with_time_zone applied_at
-    timestamp_with_time_zone created_at
-  }
   transport_route_variants {
     bigint id PK
     uuid public_id
@@ -3214,28 +2820,6 @@ erDiagram
     timestamp_with_time_zone updated_at
   }
   %% VIEWS
-  admin_qa_v_township_gap_parts {
-    bigint gap_id
-    numeric area_km2
-    geometry label_point
-    geometry geom
-  }
-  admin_qa_v_township_gap_points_qgis {
-    bigint gap_id
-    numeric area_km2
-    geometry geom
-  }
-  admin_qa_v_township_gap_polygons_qgis {
-    bigint gap_id
-    numeric area_km2
-    geometry geom
-  }
-  admin_qa_v_township_gap_summary {
-    bigint gap_count
-    numeric total_gap_area_km2
-    numeric largest_gap_area_km2
-    numeric avg_gap_area_km2
-  }
   extensions_pg_stat_statements {
     oid userid
     oid dbid
@@ -4132,6 +3716,24 @@ erDiagram
   app_auth_auth_users ||--o{ app_auth_email_verification_otps : "user_id"
   core_core_admin_areas ||--o{ app_user_saved_places : "admin_area_id"
   app_auth_auth_users ||--o{ app_user_saved_places : "user_id"
+  auth_users ||--o{ auth_identities : "user_id"
+  auth_sessions ||--o{ auth_mfa_amr_claims : "session_id"
+  auth_mfa_factors ||--o{ auth_mfa_challenges : "factor_id"
+  auth_users ||--o{ auth_mfa_factors : "user_id"
+  auth_oauth_clients ||--o{ auth_oauth_authorizations : "client_id"
+  auth_users ||--o{ auth_oauth_authorizations : "user_id"
+  auth_oauth_clients ||--o{ auth_oauth_consents : "client_id"
+  auth_users ||--o{ auth_oauth_consents : "user_id"
+  auth_users ||--o{ auth_one_time_tokens : "user_id"
+  auth_sessions ||--o{ auth_refresh_tokens : "session_id"
+  auth_sso_providers ||--o{ auth_saml_providers : "sso_provider_id"
+  auth_flow_state ||--o{ auth_saml_relay_states : "flow_state_id"
+  auth_sso_providers ||--o{ auth_saml_relay_states : "sso_provider_id"
+  auth_oauth_clients ||--o{ auth_sessions : "oauth_client_id"
+  auth_users ||--o{ auth_sessions : "user_id"
+  auth_sso_providers ||--o{ auth_sso_domains : "sso_provider_id"
+  auth_users ||--o{ auth_webauthn_challenges : "user_id"
+  auth_users ||--o{ auth_webauthn_credentials : "user_id"
   app_auth_auth_users ||--o{ community_community_posts : "author_id"
   app_auth_auth_users ||--o{ community_notifications : "actor_user_id"
   community_community_posts ||--o{ community_notifications : "related_post_id"
@@ -4146,23 +3748,31 @@ erDiagram
   core_core_admin_areas ||--o{ core_core_addresses : "admin_area_id"
   ref_ref_source_types ||--o{ core_core_addresses : "source_type_id"
   core_core_streets ||--o{ core_core_addresses : "street_id"
+  app_auth_auth_users ||--o{ core_core_addresses : "verified_by"
   core_core_admin_areas ||--o{ core_core_admin_area_names : "admin_area_id"
   ref_ref_admin_area_types ||--o{ core_core_admin_areas : "admin_area_type_id"
   ref_ref_admin_levels ||--o{ core_core_admin_areas : "admin_level_id"
   core_core_admin_areas ||--o{ core_core_admin_areas : "parent_id"
   ref_ref_source_types ||--o{ core_core_admin_areas : "source_type_id"
+  app_auth_auth_users ||--o{ core_core_admin_areas : "verified_by"
   core_core_buildings ||--o{ core_core_building_names : "building_id"
   core_core_admin_areas ||--o{ core_core_buildings : "admin_area_id"
   ref_ref_building_types ||--o{ core_core_buildings : "building_type_id"
+  app_auth_auth_users ||--o{ core_core_buildings : "created_by"
   system_system_source_registry ||--o{ core_core_buildings : "source_registry_id"
   system_system_source_snapshots ||--o{ core_core_buildings : "source_snapshot_id"
+  app_auth_auth_users ||--o{ core_core_buildings : "updated_by"
+  app_auth_auth_users ||--o{ core_core_buildings : "verified_by"
   system_system_source_registry ||--o{ core_core_coastlines : "source_registry_id"
   system_system_source_snapshots ||--o{ core_core_coastlines : "source_snapshot_id"
   core_core_land_areas ||--o{ core_core_land_area_names : "land_area_id"
   core_core_admin_areas ||--o{ core_core_land_areas : "admin_area_id"
+  app_auth_auth_users ||--o{ core_core_land_areas : "created_by"
   ref_ref_land_area_classes ||--o{ core_core_land_areas : "land_area_class_id"
   system_system_source_registry ||--o{ core_core_land_areas : "source_registry_id"
   system_system_source_snapshots ||--o{ core_core_land_areas : "source_snapshot_id"
+  app_auth_auth_users ||--o{ core_core_land_areas : "updated_by"
+  app_auth_auth_users ||--o{ core_core_land_areas : "verified_by"
   core_core_addresses ||--o{ core_core_place_addresses : "address_id"
   core_core_places ||--o{ core_core_place_addresses : "place_id"
   core_core_buildings ||--o{ core_core_place_buildings : "building_id"
@@ -4171,6 +3781,8 @@ erDiagram
   core_core_places ||--o{ core_core_place_names : "place_id"
   core_core_places ||--o{ core_core_place_sources : "place_id"
   ref_ref_source_types ||--o{ core_core_place_sources : "source_type_id"
+  app_auth_auth_users ||--o{ core_core_place_versions : "approved_by"
+  app_auth_auth_users ||--o{ core_core_place_versions : "created_by"
   core_core_places ||--o{ core_core_place_versions : "place_id"
   ref_ref_publish_statuses ||--o{ core_core_place_versions : "publish_status_id"
   core_core_admin_areas ||--o{ core_core_places : "admin_area_id"
@@ -4178,23 +3790,30 @@ erDiagram
   core_core_place_versions ||--o{ core_core_places : "current_version_id"
   ref_ref_publish_statuses ||--o{ core_core_places : "publish_status_id"
   ref_ref_source_types ||--o{ core_core_places : "source_type_id"
+  app_auth_auth_users ||--o{ core_core_places : "verified_by"
   core_core_protected_areas ||--o{ core_core_protected_area_names : "protected_area_id"
   core_core_admin_areas ||--o{ core_core_protected_areas : "admin_area_id"
+  app_auth_auth_users ||--o{ core_core_protected_areas : "created_by"
   ref_ref_protected_area_classes ||--o{ core_core_protected_areas : "protected_area_class_id"
   system_system_source_registry ||--o{ core_core_protected_areas : "source_registry_id"
   system_system_source_snapshots ||--o{ core_core_protected_areas : "source_snapshot_id"
+  app_auth_auth_users ||--o{ core_core_protected_areas : "updated_by"
+  app_auth_auth_users ||--o{ core_core_protected_areas : "verified_by"
   core_core_streets ||--o{ core_core_street_names : "street_id"
   core_core_streets ||--o{ core_core_street_versions : "street_id"
   core_core_admin_areas ||--o{ core_core_streets : "admin_area_id"
   ref_ref_road_classes ||--o{ core_core_streets : "road_class_id"
   ref_ref_source_types ||--o{ core_core_streets : "source_type_id"
+  app_auth_auth_users ||--o{ core_core_streets : "verified_by"
   core_core_water_lines ||--o{ core_core_water_line_names : "water_line_id"
   system_system_source_registry ||--o{ core_core_water_lines : "source_registry_id"
   system_system_source_snapshots ||--o{ core_core_water_lines : "source_snapshot_id"
+  app_auth_auth_users ||--o{ core_core_water_lines : "verified_by"
   ref_ref_water_classes ||--o{ core_core_water_lines : "water_class_id"
   core_core_water_polygons ||--o{ core_core_water_polygon_names : "water_polygon_id"
   system_system_source_registry ||--o{ core_core_water_polygons : "source_registry_id"
   system_system_source_snapshots ||--o{ core_core_water_polygons : "source_snapshot_id"
+  app_auth_auth_users ||--o{ core_core_water_polygons : "verified_by"
   ref_ref_water_classes ||--o{ core_core_water_polygons : "water_class_id"
   app_auth_auth_users ||--o{ feedback_report_followups : "actor_user_id"
   feedback_user_reports ||--o{ feedback_report_followups : "report_id"
@@ -4306,13 +3925,16 @@ erDiagram
   core_core_streets ||--o{ routing_routing_barriers : "core_street_id"
   system_system_source_registry ||--o{ routing_routing_barriers : "source_registry_id"
   system_system_source_snapshots ||--o{ routing_routing_barriers : "source_snapshot_id"
+  app_auth_auth_users ||--o{ routing_routing_barriers : "verified_by"
   routing_routing_builds ||--o{ routing_routing_build_artifacts : "routing_build_id"
+  app_auth_auth_users ||--o{ routing_routing_build_jobs : "created_by"
   routing_routing_profiles ||--o{ routing_routing_build_jobs : "profile_code"
   system_system_publish_batches ||--o{ routing_routing_build_jobs : "source_publish_batch_id"
   import_review_review_batches ||--o{ routing_routing_build_jobs : "source_review_batch_id"
   system_system_publish_batches ||--o{ routing_routing_build_sources : "source_publish_batch_id"
   import_review_review_batches ||--o{ routing_routing_build_sources : "source_review_batch_id"
   routing_routing_builds ||--o{ routing_routing_build_sources : "routing_build_id"
+  app_auth_auth_users ||--o{ routing_routing_builds : "created_by"
   routing_routing_engine_configs ||--o{ routing_routing_builds : "engine_code"
   routing_routing_requests ||--o{ routing_routing_feedback : "routing_request_id"
   routing_routing_physical_modes ||--o{ routing_routing_profiles : "primary_physical_mode_code"
@@ -4323,6 +3945,7 @@ erDiagram
   system_system_source_registry ||--o{ routing_routing_turn_restrictions : "source_registry_id"
   system_system_source_snapshots ||--o{ routing_routing_turn_restrictions : "source_snapshot_id"
   core_core_streets ||--o{ routing_routing_turn_restrictions : "to_street_id"
+  app_auth_auth_users ||--o{ routing_routing_turn_restrictions : "verified_by"
   core_core_streets ||--o{ routing_routing_turn_restrictions : "via_street_id"
   routing_routing_build_jobs ||--o{ routing_routing_validation_reports : "build_job_id"
   core_core_streets ||--o{ routing_routing_validation_reports : "core_street_id"
@@ -4331,19 +3954,28 @@ erDiagram
   core_core_admin_areas ||--o{ search_address_index : "admin_area_id"
   core_core_streets ||--o{ search_address_index : "street_id"
   search_search_aliases ||--o{ search_failed_search_logs : "linked_alias_id"
-  core_core_addresses ||--o{ search_search_addresses : "address_id"
+  app_auth_auth_users ||--o{ search_search_aliases : "created_by"
   search_search_documents ||--o{ search_search_document_names : "search_document_id"
+  storage_buckets ||--o{ storage_objects : "bucket_id"
+  storage_buckets ||--o{ storage_s3_multipart_uploads : "bucket_id"
+  storage_buckets ||--o{ storage_s3_multipart_uploads_parts : "bucket_id"
+  storage_s3_multipart_uploads ||--o{ storage_s3_multipart_uploads_parts : "upload_id"
+  storage_buckets_vectors ||--o{ storage_vector_indexes : "bucket_id"
   app_auth_auth_users ||--o{ system_audit_logs : "actor_user_id"
+  app_auth_auth_users ||--o{ system_system_conflict_queue : "assigned_to"
   system_system_diff_items ||--o{ system_system_conflict_queue : "diff_item_id"
   system_system_diff_runs ||--o{ system_system_diff_items : "diff_run_id"
   system_system_source_snapshots ||--o{ system_system_diff_runs : "current_snapshot_id"
   system_system_source_snapshots ||--o{ system_system_diff_runs : "previous_snapshot_id"
   system_system_source_registry ||--o{ system_system_import_batches : "source_registry_id"
+  app_auth_auth_users ||--o{ system_system_publish_batches : "approved_by"
+  app_auth_auth_users ||--o{ system_system_publish_batches : "created_by"
   app_auth_auth_users ||--o{ system_system_publish_batches : "promoted_by"
   import_review_review_batches ||--o{ system_system_publish_batches : "source_review_batch_id"
   system_system_publish_batches ||--o{ system_system_publish_items : "publish_batch_id"
   system_system_publish_batches ||--o{ system_system_publish_stage_logs : "publish_batch_id"
   app_auth_auth_users ||--o{ system_system_review_logs : "reviewer_user_id"
+  app_auth_auth_users ||--o{ system_system_review_tasks : "assigned_to"
   ref_ref_validation_statuses ||--o{ system_system_review_tasks : "status_id"
   ref_ref_validation_task_types ||--o{ system_system_review_tasks : "task_type_id"
   ref_ref_source_types ||--o{ system_system_source_registry : "source_type_id"
@@ -4445,63 +4077,15 @@ erDiagram
   %% function: replace_active_coastline(p_geom geometry, p_region_code text, p_source_registry_id bigint, p_source_snapshot_id bigint, p_source_refs jsonb) -> record
   %% function: reverse_address_minimal(p_lat double precision, p_lng double precision) -> record
   %% function: sync_is_verified_from_verification_status() -> trigger
+  %% function: sync_street_is_oneway_from_travel_direction() -> trigger
   %% function: trg_fn_core_streets_save_version_before_update() -> trigger
   %% [extensions]
-  %% function: armor(bytea) -> text
-  %% function: armor(bytea, text[], text[]) -> text
-  %% function: crypt(text, text) -> text
-  %% function: dearmor(text) -> bytea
-  %% function: decrypt(bytea, bytea, text) -> bytea
-  %% function: decrypt_iv(bytea, bytea, bytea, text) -> bytea
-  %% function: digest(bytea, text) -> bytea
-  %% function: digest(text, text) -> bytea
-  %% function: encrypt(bytea, bytea, text) -> bytea
-  %% function: encrypt_iv(bytea, bytea, bytea, text) -> bytea
-  %% function: gen_random_bytes(integer) -> bytea
-  %% function: gen_random_uuid() -> uuid
-  %% function: gen_salt(text) -> text
-  %% function: gen_salt(text, integer) -> text
   %% function: grant_pg_cron_access() -> event_trigger
   %% function: grant_pg_graphql_access() -> event_trigger
   %% function: grant_pg_net_access() -> event_trigger
-  %% function: hmac(bytea, bytea, text) -> bytea
-  %% function: hmac(text, text, text) -> bytea
-  %% function: pg_stat_statements(showtext boolean, OUT userid oid, OUT dbid oid, OUT toplevel boolean, OUT queryid bigint, OUT query text, OUT plans bigint, OUT total_plan_time double precision, OUT min_plan_time double precision, OUT max_plan_time double precision, OUT mean_plan_time double precision, OUT stddev_plan_time double precision, OUT calls bigint, OUT total_exec_time double precision, OUT min_exec_time double precision, OUT max_exec_time double precision, OUT mean_exec_time double precision, OUT stddev_exec_time double precision, OUT rows bigint, OUT shared_blks_hit bigint, OUT shared_blks_read bigint, OUT shared_blks_dirtied bigint, OUT shared_blks_written bigint, OUT local_blks_hit bigint, OUT local_blks_read bigint, OUT local_blks_dirtied bigint, OUT local_blks_written bigint, OUT temp_blks_read bigint, OUT temp_blks_written bigint, OUT shared_blk_read_time double precision, OUT shared_blk_write_time double precision, OUT local_blk_read_time double precision, OUT local_blk_write_time double precision, OUT temp_blk_read_time double precision, OUT temp_blk_write_time double precision, OUT wal_records bigint, OUT wal_fpi bigint, OUT wal_bytes numeric, OUT jit_functions bigint, OUT jit_generation_time double precision, OUT jit_inlining_count bigint, OUT jit_inlining_time double precision, OUT jit_optimization_count bigint, OUT jit_optimization_time double precision, OUT jit_emission_count bigint, OUT jit_emission_time double precision, OUT jit_deform_count bigint, OUT jit_deform_time double precision, OUT stats_since timestamp with time zone, OUT minmax_stats_since timestamp with time zone) -> record
-  %% function: pg_stat_statements_info(OUT dealloc bigint, OUT stats_reset timestamp with time zone) -> record
-  %% function: pg_stat_statements_reset(userid oid, dbid oid, queryid bigint, minmax_only boolean) -> timestamp with time zone
-  %% function: pgp_armor_headers(text, OUT key text, OUT value text) -> record
-  %% function: pgp_key_id(bytea) -> text
-  %% function: pgp_pub_decrypt(bytea, bytea) -> text
-  %% function: pgp_pub_decrypt(bytea, bytea, text) -> text
-  %% function: pgp_pub_decrypt(bytea, bytea, text, text) -> text
-  %% function: pgp_pub_decrypt_bytea(bytea, bytea) -> bytea
-  %% function: pgp_pub_decrypt_bytea(bytea, bytea, text) -> bytea
-  %% function: pgp_pub_decrypt_bytea(bytea, bytea, text, text) -> bytea
-  %% function: pgp_pub_encrypt(text, bytea) -> bytea
-  %% function: pgp_pub_encrypt(text, bytea, text) -> bytea
-  %% function: pgp_pub_encrypt_bytea(bytea, bytea) -> bytea
-  %% function: pgp_pub_encrypt_bytea(bytea, bytea, text) -> bytea
-  %% function: pgp_sym_decrypt(bytea, text) -> text
-  %% function: pgp_sym_decrypt(bytea, text, text) -> text
-  %% function: pgp_sym_decrypt_bytea(bytea, text) -> bytea
-  %% function: pgp_sym_decrypt_bytea(bytea, text, text) -> bytea
-  %% function: pgp_sym_encrypt(text, text) -> bytea
-  %% function: pgp_sym_encrypt(text, text, text) -> bytea
-  %% function: pgp_sym_encrypt_bytea(bytea, text) -> bytea
-  %% function: pgp_sym_encrypt_bytea(bytea, text, text) -> bytea
   %% function: pgrst_ddl_watch() -> event_trigger
   %% function: pgrst_drop_watch() -> event_trigger
   %% function: set_graphql_placeholder() -> event_trigger
-  %% function: uuid_generate_v1() -> uuid
-  %% function: uuid_generate_v1mc() -> uuid
-  %% function: uuid_generate_v3(namespace uuid, name text) -> uuid
-  %% function: uuid_generate_v4() -> uuid
-  %% function: uuid_generate_v5(namespace uuid, name text) -> uuid
-  %% function: uuid_nil() -> uuid
-  %% function: uuid_ns_dns() -> uuid
-  %% function: uuid_ns_oid() -> uuid
-  %% function: uuid_ns_url() -> uuid
-  %% function: uuid_ns_x500() -> uuid
   %% [graphql_public]
   %% function: graphql( operationName  text, query text, variables jsonb, extensions jsonb) -> jsonb
   %% [import_review]
@@ -4512,615 +4096,104 @@ erDiagram
   %% function: get_auth(p_usename text) -> record
   %% [public]
   %% function: _postgis_deprecate(oldname text, newname text, version text) -> void
-  %% function: _postgis_index_extent(tbl regclass, col text) -> box2d
-  %% function: _postgis_join_selectivity(regclass, text, regclass, text, text) -> double precision
   %% function: _postgis_pgsql_version() -> text
   %% function: _postgis_scripts_pgsql_version() -> text
-  %% function: _postgis_selectivity(tbl regclass, att_name text, geom geometry, mode text) -> double precision
-  %% function: _postgis_stats(tbl regclass, att_name text, text) -> text
-  %% function: _st_3ddfullywithin(geom1 geometry, geom2 geometry, double precision) -> boolean
-  %% function: _st_3ddwithin(geom1 geometry, geom2 geometry, double precision) -> boolean
-  %% function: _st_3dintersects(geom1 geometry, geom2 geometry) -> boolean
-  %% function: _st_asgml(integer, geometry, integer, integer, text, text) -> text
-  %% function: _st_asx3d(integer, geometry, integer, integer, text) -> text
-  %% function: _st_bestsrid(geography) -> integer
-  %% function: _st_bestsrid(geography, geography) -> integer
-  %% function: _st_contains(geom1 geometry, geom2 geometry) -> boolean
-  %% function: _st_containsproperly(geom1 geometry, geom2 geometry) -> boolean
-  %% function: _st_coveredby(geog1 geography, geog2 geography) -> boolean
-  %% function: _st_coveredby(geom1 geometry, geom2 geometry) -> boolean
-  %% function: _st_covers(geog1 geography, geog2 geography) -> boolean
-  %% function: _st_covers(geom1 geometry, geom2 geometry) -> boolean
-  %% function: _st_crosses(geom1 geometry, geom2 geometry) -> boolean
-  %% function: _st_dfullywithin(geom1 geometry, geom2 geometry, double precision) -> boolean
   %% function: _st_distancetree(geography, geography) -> double precision
-  %% function: _st_distancetree(geography, geography, double precision, boolean) -> double precision
   %% function: _st_distanceuncached(geography, geography) -> double precision
   %% function: _st_distanceuncached(geography, geography, boolean) -> double precision
-  %% function: _st_distanceuncached(geography, geography, double precision, boolean) -> double precision
-  %% function: _st_dwithin(geog1 geography, geog2 geography, tolerance double precision, use_spheroid boolean) -> boolean
-  %% function: _st_dwithin(geom1 geometry, geom2 geometry, double precision) -> boolean
   %% function: _st_dwithinuncached(geography, geography, double precision) -> boolean
-  %% function: _st_dwithinuncached(geography, geography, double precision, boolean) -> boolean
-  %% function: _st_equals(geom1 geometry, geom2 geometry) -> boolean
-  %% function: _st_expand(geography, double precision) -> geography
-  %% function: _st_geomfromgml(text, integer) -> geometry
-  %% function: _st_intersects(geom1 geometry, geom2 geometry) -> boolean
-  %% function: _st_linecrossingdirection(line1 geometry, line2 geometry) -> integer
-  %% function: _st_longestline(geom1 geometry, geom2 geometry) -> geometry
-  %% function: _st_maxdistance(geom1 geometry, geom2 geometry) -> double precision
-  %% function: _st_orderingequals(geom1 geometry, geom2 geometry) -> boolean
-  %% function: _st_overlaps(geom1 geometry, geom2 geometry) -> boolean
-  %% function: _st_pointoutside(geography) -> geography
-  %% function: _st_sortablehash(geom geometry) -> bigint
-  %% function: _st_touches(geom1 geometry, geom2 geometry) -> boolean
-  %% function: _st_voronoi(g1 geometry, clip geometry, tolerance double precision, return_polygons boolean) -> geometry
   %% function: _st_within(geom1 geometry, geom2 geometry) -> boolean
   %% function: addauth(text) -> boolean
-  %% function: addgeometrycolumn(catalog_name character varying, schema_name character varying, table_name character varying, column_name character varying, new_srid_in integer, new_type character varying, new_dim integer, use_typmod boolean) -> text
-  %% function: addgeometrycolumn(schema_name character varying, table_name character varying, column_name character varying, new_srid integer, new_type character varying, new_dim integer, use_typmod boolean) -> text
   %% function: addgeometrycolumn(table_name character varying, column_name character varying, new_srid integer, new_type character varying, new_dim integer, use_typmod boolean) -> text
-  %% function: box(box3d) -> box
-  %% function: box(geometry) -> box
-  %% function: box2d(box3d) -> box2d
-  %% function: box2d(geometry) -> box2d
-  %% function: box2d_in(cstring) -> box2d
-  %% function: box2d_out(box2d) -> cstring
-  %% function: box2df_in(cstring) -> box2df
-  %% function: box2df_out(box2df) -> cstring
-  %% function: box3d(box2d) -> box3d
-  %% function: box3d(geometry) -> box3d
-  %% function: box3d_in(cstring) -> box3d
-  %% function: box3d_out(box3d) -> cstring
-  %% function: box3dtobox(box3d) -> box
-  %% function: bytea(geography) -> bytea
-  %% function: bytea(geometry) -> bytea
+  %% function: addgeometrycolumn(schema_name character varying, table_name character varying, column_name character varying, new_srid integer, new_type character varying, new_dim integer, use_typmod boolean) -> text
+  %% function: addgeometrycolumn(catalog_name character varying, schema_name character varying, table_name character varying, column_name character varying, new_srid_in integer, new_type character varying, new_dim integer, use_typmod boolean) -> text
   %% function: checkauth(text, text) -> integer
   %% function: checkauth(text, text, text) -> integer
-  %% function: checkauthtrigger() -> trigger
-  %% function: contains_2d(box2df, box2df) -> boolean
-  %% function: contains_2d(box2df, geometry) -> boolean
   %% function: contains_2d(geometry, box2df) -> boolean
   %% function: disablelongtransactions() -> text
-  %% function: dropgeometrycolumn(catalog_name character varying, schema_name character varying, table_name character varying, column_name character varying) -> text
-  %% function: dropgeometrycolumn(schema_name character varying, table_name character varying, column_name character varying) -> text
   %% function: dropgeometrycolumn(table_name character varying, column_name character varying) -> text
-  %% function: dropgeometrytable(catalog_name character varying, schema_name character varying, table_name character varying) -> text
-  %% function: dropgeometrytable(schema_name character varying, table_name character varying) -> text
+  %% function: dropgeometrycolumn(schema_name character varying, table_name character varying, column_name character varying) -> text
+  %% function: dropgeometrycolumn(catalog_name character varying, schema_name character varying, table_name character varying, column_name character varying) -> text
   %% function: dropgeometrytable(table_name character varying) -> text
+  %% function: dropgeometrytable(schema_name character varying, table_name character varying) -> text
+  %% function: dropgeometrytable(catalog_name character varying, schema_name character varying, table_name character varying) -> text
   %% function: enablelongtransactions() -> text
-  %% function: equals(geom1 geometry, geom2 geometry) -> boolean
   %% function: find_srid(character varying, character varying, character varying) -> integer
-  %% function: geog_brin_inclusion_add_value(internal, internal, internal, internal) -> boolean
-  %% function: geography(bytea) -> geography
-  %% function: geography(geography, integer, boolean) -> geography
-  %% function: geography(geometry) -> geography
-  %% function: geography_analyze(internal) -> boolean
-  %% function: geography_cmp(geography, geography) -> integer
-  %% function: geography_distance_knn(geography, geography) -> double precision
-  %% function: geography_eq(geography, geography) -> boolean
-  %% function: geography_ge(geography, geography) -> boolean
-  %% function: geography_gist_compress(internal) -> internal
-  %% function: geography_gist_consistent(internal, geography, integer) -> boolean
-  %% function: geography_gist_decompress(internal) -> internal
-  %% function: geography_gist_distance(internal, geography, integer) -> double precision
-  %% function: geography_gist_penalty(internal, internal, internal) -> internal
-  %% function: geography_gist_picksplit(internal, internal) -> internal
-  %% function: geography_gist_same(box2d, box2d, internal) -> internal
-  %% function: geography_gist_union(bytea, internal) -> internal
-  %% function: geography_gt(geography, geography) -> boolean
-  %% function: geography_in(cstring, oid, integer) -> geography
-  %% function: geography_le(geography, geography) -> boolean
-  %% function: geography_lt(geography, geography) -> boolean
-  %% function: geography_out(geography) -> cstring
-  %% function: geography_overlaps(geography, geography) -> boolean
-  %% function: geography_recv(internal, oid, integer) -> geography
-  %% function: geography_send(geography) -> bytea
-  %% function: geography_spgist_choose_nd(internal, internal) -> void
-  %% function: geography_spgist_compress_nd(internal) -> internal
-  %% function: geography_spgist_config_nd(internal, internal) -> void
-  %% function: geography_spgist_inner_consistent_nd(internal, internal) -> void
-  %% function: geography_spgist_leaf_consistent_nd(internal, internal) -> boolean
-  %% function: geography_spgist_picksplit_nd(internal, internal) -> void
-  %% function: geography_typmod_in(cstring[]) -> integer
-  %% function: geography_typmod_out(integer) -> cstring
-  %% function: geom2d_brin_inclusion_add_value(internal, internal, internal, internal) -> boolean
-  %% function: geom3d_brin_inclusion_add_value(internal, internal, internal, internal) -> boolean
-  %% function: geom4d_brin_inclusion_add_value(internal, internal, internal, internal) -> boolean
-  %% function: geometry(box2d) -> geometry
-  %% function: geometry(box3d) -> geometry
-  %% function: geometry(bytea) -> geometry
-  %% function: geometry(geography) -> geometry
-  %% function: geometry(geometry, integer, boolean) -> geometry
-  %% function: geometry(path) -> geometry
-  %% function: geometry(point) -> geometry
-  %% function: geometry(polygon) -> geometry
-  %% function: geometry(text) -> geometry
-  %% function: geometry_above(geom1 geometry, geom2 geometry) -> boolean
-  %% function: geometry_analyze(internal) -> boolean
-  %% function: geometry_below(geom1 geometry, geom2 geometry) -> boolean
-  %% function: geometry_cmp(geom1 geometry, geom2 geometry) -> integer
-  %% function: geometry_contained_3d(geom1 geometry, geom2 geometry) -> boolean
-  %% function: geometry_contains(geom1 geometry, geom2 geometry) -> boolean
-  %% function: geometry_contains_3d(geom1 geometry, geom2 geometry) -> boolean
-  %% function: geometry_contains_nd(geometry, geometry) -> boolean
-  %% function: geometry_distance_box(geom1 geometry, geom2 geometry) -> double precision
-  %% function: geometry_distance_centroid(geom1 geometry, geom2 geometry) -> double precision
-  %% function: geometry_distance_centroid_nd(geometry, geometry) -> double precision
-  %% function: geometry_distance_cpa(geometry, geometry) -> double precision
-  %% function: geometry_eq(geom1 geometry, geom2 geometry) -> boolean
-  %% function: geometry_ge(geom1 geometry, geom2 geometry) -> boolean
-  %% function: geometry_gist_compress_2d(internal) -> internal
-  %% function: geometry_gist_compress_nd(internal) -> internal
-  %% function: geometry_gist_consistent_2d(internal, geometry, integer) -> boolean
-  %% function: geometry_gist_consistent_nd(internal, geometry, integer) -> boolean
-  %% function: geometry_gist_decompress_2d(internal) -> internal
-  %% function: geometry_gist_decompress_nd(internal) -> internal
-  %% function: geometry_gist_distance_2d(internal, geometry, integer) -> double precision
-  %% function: geometry_gist_distance_nd(internal, geometry, integer) -> double precision
-  %% function: geometry_gist_penalty_2d(internal, internal, internal) -> internal
-  %% function: geometry_gist_penalty_nd(internal, internal, internal) -> internal
-  %% function: geometry_gist_picksplit_2d(internal, internal) -> internal
-  %% function: geometry_gist_picksplit_nd(internal, internal) -> internal
-  %% function: geometry_gist_same_2d(geom1 geometry, geom2 geometry, internal) -> internal
-  %% function: geometry_gist_same_nd(geometry, geometry, internal) -> internal
-  %% function: geometry_gist_sortsupport_2d(internal) -> void
-  %% function: geometry_gist_union_2d(bytea, internal) -> internal
-  %% function: geometry_gist_union_nd(bytea, internal) -> internal
-  %% function: geometry_gt(geom1 geometry, geom2 geometry) -> boolean
-  %% function: geometry_hash(geometry) -> integer
-  %% function: geometry_in(cstring) -> geometry
-  %% function: geometry_le(geom1 geometry, geom2 geometry) -> boolean
-  %% function: geometry_left(geom1 geometry, geom2 geometry) -> boolean
-  %% function: geometry_lt(geom1 geometry, geom2 geometry) -> boolean
-  %% function: geometry_out(geometry) -> cstring
-  %% function: geometry_overabove(geom1 geometry, geom2 geometry) -> boolean
-  %% function: geometry_overbelow(geom1 geometry, geom2 geometry) -> boolean
-  %% function: geometry_overlaps(geom1 geometry, geom2 geometry) -> boolean
-  %% function: geometry_overlaps_3d(geom1 geometry, geom2 geometry) -> boolean
-  %% function: geometry_overlaps_nd(geometry, geometry) -> boolean
-  %% function: geometry_overleft(geom1 geometry, geom2 geometry) -> boolean
-  %% function: geometry_overright(geom1 geometry, geom2 geometry) -> boolean
-  %% function: geometry_recv(internal) -> geometry
-  %% function: geometry_right(geom1 geometry, geom2 geometry) -> boolean
-  %% function: geometry_same(geom1 geometry, geom2 geometry) -> boolean
-  %% function: geometry_same_3d(geom1 geometry, geom2 geometry) -> boolean
-  %% function: geometry_same_nd(geometry, geometry) -> boolean
-  %% function: geometry_send(geometry) -> bytea
-  %% function: geometry_sortsupport(internal) -> void
-  %% function: geometry_spgist_choose_2d(internal, internal) -> void
-  %% function: geometry_spgist_choose_3d(internal, internal) -> void
-  %% function: geometry_spgist_choose_nd(internal, internal) -> void
-  %% function: geometry_spgist_compress_2d(internal) -> internal
-  %% function: geometry_spgist_compress_3d(internal) -> internal
-  %% function: geometry_spgist_compress_nd(internal) -> internal
-  %% function: geometry_spgist_config_2d(internal, internal) -> void
-  %% function: geometry_spgist_config_3d(internal, internal) -> void
-  %% function: geometry_spgist_config_nd(internal, internal) -> void
-  %% function: geometry_spgist_inner_consistent_2d(internal, internal) -> void
-  %% function: geometry_spgist_inner_consistent_3d(internal, internal) -> void
-  %% function: geometry_spgist_inner_consistent_nd(internal, internal) -> void
-  %% function: geometry_spgist_leaf_consistent_2d(internal, internal) -> boolean
-  %% function: geometry_spgist_leaf_consistent_3d(internal, internal) -> boolean
-  %% function: geometry_spgist_leaf_consistent_nd(internal, internal) -> boolean
-  %% function: geometry_spgist_picksplit_2d(internal, internal) -> void
-  %% function: geometry_spgist_picksplit_3d(internal, internal) -> void
-  %% function: geometry_spgist_picksplit_nd(internal, internal) -> void
-  %% function: geometry_typmod_in(cstring[]) -> integer
-  %% function: geometry_typmod_out(integer) -> cstring
-  %% function: geometry_within(geom1 geometry, geom2 geometry) -> boolean
-  %% function: geometry_within_nd(geometry, geometry) -> boolean
-  %% function: geometrytype(geography) -> text
-  %% function: geometrytype(geometry) -> text
-  %% function: geomfromewkb(bytea) -> geometry
-  %% function: geomfromewkt(text) -> geometry
   %% function: get_proj4_from_srid(integer) -> text
-  %% function: gettransactionid() -> xid
-  %% function: gidx_in(cstring) -> gidx
-  %% function: gidx_out(gidx) -> cstring
-  %% function: gin_extract_query_trgm(text, internal, smallint, internal, internal, internal, internal) -> internal
-  %% function: gin_extract_value_trgm(text, internal) -> internal
-  %% function: gin_trgm_consistent(internal, smallint, text, integer, internal, internal, internal, internal) -> boolean
-  %% function: gin_trgm_triconsistent(internal, smallint, text, integer, internal, internal, internal) ->  char
-  %% function: gserialized_gist_joinsel_2d(internal, oid, internal, smallint) -> double precision
-  %% function: gserialized_gist_joinsel_nd(internal, oid, internal, smallint) -> double precision
-  %% function: gserialized_gist_sel_2d(internal, oid, internal, integer) -> double precision
-  %% function: gserialized_gist_sel_nd(internal, oid, internal, integer) -> double precision
-  %% function: gtrgm_compress(internal) -> internal
-  %% function: gtrgm_consistent(internal, text, smallint, oid, internal) -> boolean
-  %% function: gtrgm_decompress(internal) -> internal
-  %% function: gtrgm_distance(internal, text, smallint, oid, internal) -> double precision
-  %% function: gtrgm_in(cstring) -> gtrgm
-  %% function: gtrgm_options(internal) -> void
-  %% function: gtrgm_out(gtrgm) -> cstring
-  %% function: gtrgm_penalty(internal, internal, internal) -> internal
-  %% function: gtrgm_picksplit(internal, internal) -> internal
-  %% function: gtrgm_same(gtrgm, gtrgm, internal) -> internal
-  %% function: gtrgm_union(internal, internal) -> gtrgm
-  %% function: is_contained_2d(box2df, box2df) -> boolean
-  %% function: is_contained_2d(box2df, geometry) -> boolean
   %% function: is_contained_2d(geometry, box2df) -> boolean
-  %% function: json(geometry) -> json
-  %% function: jsonb(geometry) -> jsonb
   %% function: lockrow(text, text, text) -> integer
   %% function: lockrow(text, text, text, text) -> integer
-  %% function: lockrow(text, text, text, text, timestamp without time zone) -> integer
   %% function: lockrow(text, text, text, timestamp without time zone) -> integer
+  %% function: lockrow(text, text, text, text, timestamp without time zone) -> integer
   %% function: longtransactionsenabled() -> boolean
-  %% function: overlaps_2d(box2df, box2df) -> boolean
-  %% function: overlaps_2d(box2df, geometry) -> boolean
   %% function: overlaps_2d(geometry, box2df) -> boolean
   %% function: overlaps_geog(geography, gidx) -> boolean
-  %% function: overlaps_geog(gidx, geography) -> boolean
-  %% function: overlaps_geog(gidx, gidx) -> boolean
   %% function: overlaps_nd(geometry, gidx) -> boolean
-  %% function: overlaps_nd(gidx, geometry) -> boolean
-  %% function: overlaps_nd(gidx, gidx) -> boolean
-  %% function: path(geometry) -> path
-  %% function: pgis_asflatgeobuf_finalfn(internal) -> bytea
-  %% function: pgis_asflatgeobuf_transfn(internal, anyelement) -> internal
-  %% function: pgis_asflatgeobuf_transfn(internal, anyelement, boolean) -> internal
-  %% function: pgis_asflatgeobuf_transfn(internal, anyelement, boolean, text) -> internal
-  %% function: pgis_asgeobuf_finalfn(internal) -> bytea
-  %% function: pgis_asgeobuf_transfn(internal, anyelement) -> internal
-  %% function: pgis_asgeobuf_transfn(internal, anyelement, text) -> internal
-  %% function: pgis_asmvt_combinefn(internal, internal) -> internal
-  %% function: pgis_asmvt_deserialfn(bytea, internal) -> internal
-  %% function: pgis_asmvt_finalfn(internal) -> bytea
-  %% function: pgis_asmvt_serialfn(internal) -> bytea
-  %% function: pgis_asmvt_transfn(internal, anyelement) -> internal
-  %% function: pgis_asmvt_transfn(internal, anyelement, text) -> internal
-  %% function: pgis_asmvt_transfn(internal, anyelement, text, integer) -> internal
-  %% function: pgis_asmvt_transfn(internal, anyelement, text, integer, text) -> internal
-  %% function: pgis_asmvt_transfn(internal, anyelement, text, integer, text, text) -> internal
-  %% function: pgis_geometry_accum_transfn(internal, geometry) -> internal
-  %% function: pgis_geometry_accum_transfn(internal, geometry, double precision) -> internal
-  %% function: pgis_geometry_accum_transfn(internal, geometry, double precision, integer) -> internal
-  %% function: pgis_geometry_clusterintersecting_finalfn(internal) -> geometry[]
-  %% function: pgis_geometry_clusterwithin_finalfn(internal) -> geometry[]
-  %% function: pgis_geometry_collect_finalfn(internal) -> geometry
-  %% function: pgis_geometry_makeline_finalfn(internal) -> geometry
-  %% function: pgis_geometry_polygonize_finalfn(internal) -> geometry
-  %% function: pgis_geometry_union_parallel_combinefn(internal, internal) -> internal
-  %% function: pgis_geometry_union_parallel_deserialfn(bytea, internal) -> internal
-  %% function: pgis_geometry_union_parallel_finalfn(internal) -> geometry
-  %% function: pgis_geometry_union_parallel_serialfn(internal) -> bytea
-  %% function: pgis_geometry_union_parallel_transfn(internal, geometry) -> internal
-  %% function: pgis_geometry_union_parallel_transfn(internal, geometry, double precision) -> internal
-  %% function: point(geometry) -> point
-  %% function: polygon(geometry) -> polygon
-  %% function: populate_geometry_columns(tbl_oid oid, use_typmod boolean) -> integer
   %% function: populate_geometry_columns(use_typmod boolean) -> text
-  %% function: postgis_addbbox(geometry) -> geometry
-  %% function: postgis_cache_bbox() -> trigger
+  %% function: populate_geometry_columns(tbl_oid oid, use_typmod boolean) -> integer
   %% function: postgis_constraint_dims(geomschema text, geomtable text, geomcolumn text) -> integer
   %% function: postgis_constraint_srid(geomschema text, geomtable text, geomcolumn text) -> integer
   %% function: postgis_constraint_type(geomschema text, geomtable text, geomcolumn text) -> character varying
-  %% function: postgis_dropbbox(geometry) -> geometry
   %% function: postgis_extensions_upgrade() -> text
   %% function: postgis_full_version() -> text
-  %% function: postgis_geos_noop(geometry) -> geometry
-  %% function: postgis_geos_version() -> text
-  %% function: postgis_getbbox(geometry) -> box2d
-  %% function: postgis_hasbbox(geometry) -> boolean
-  %% function: postgis_index_supportfn(internal) -> internal
-  %% function: postgis_lib_build_date() -> text
-  %% function: postgis_lib_revision() -> text
-  %% function: postgis_lib_version() -> text
-  %% function: postgis_libjson_version() -> text
-  %% function: postgis_liblwgeom_version() -> text
-  %% function: postgis_libprotobuf_version() -> text
-  %% function: postgis_libxml_version() -> text
-  %% function: postgis_noop(geometry) -> geometry
-  %% function: postgis_proj_version() -> text
   %% function: postgis_scripts_build_date() -> text
   %% function: postgis_scripts_installed() -> text
-  %% function: postgis_scripts_released() -> text
   %% function: postgis_svn_version() -> text
-  %% function: postgis_transform_geometry(geom geometry, text, text, integer) -> geometry
   %% function: postgis_type_name(geomname character varying, coord_dimension integer, use_new_name boolean) -> character varying
-  %% function: postgis_typmod_dims(integer) -> integer
-  %% function: postgis_typmod_srid(integer) -> integer
-  %% function: postgis_typmod_type(integer) -> text
-  %% function: postgis_version() -> text
-  %% function: postgis_wagyu_version() -> text
-  %% function: set_limit(real) -> real
-  %% function: show_limit() -> real
-  %% function: show_trgm(text) -> text[]
-  %% function: similarity(text, text) -> real
-  %% function: similarity_dist(text, text) -> real
-  %% function: similarity_op(text, text) -> boolean
-  %% function: spheroid_in(cstring) -> spheroid
-  %% function: spheroid_out(spheroid) -> cstring
-  %% function: st_3dclosestpoint(geom1 geometry, geom2 geometry) -> geometry
-  %% function: st_3ddfullywithin(geom1 geometry, geom2 geometry, double precision) -> boolean
-  %% function: st_3ddistance(geom1 geometry, geom2 geometry) -> double precision
-  %% function: st_3ddwithin(geom1 geometry, geom2 geometry, double precision) -> boolean
-  %% aggregate: st_3dextent(geometry) -> box3d
-  %% function: st_3dintersects(geom1 geometry, geom2 geometry) -> boolean
-  %% function: st_3dlength(geometry) -> double precision
-  %% function: st_3dlineinterpolatepoint(geometry, double precision) -> geometry
-  %% function: st_3dlongestline(geom1 geometry, geom2 geometry) -> geometry
-  %% function: st_3dmakebox(geom1 geometry, geom2 geometry) -> box3d
-  %% function: st_3dmaxdistance(geom1 geometry, geom2 geometry) -> double precision
-  %% function: st_3dperimeter(geometry) -> double precision
-  %% function: st_3dshortestline(geom1 geometry, geom2 geometry) -> geometry
-  %% function: st_addmeasure(geometry, double precision, double precision) -> geometry
-  %% function: st_addpoint(geom1 geometry, geom2 geometry) -> geometry
-  %% function: st_addpoint(geom1 geometry, geom2 geometry, integer) -> geometry
   %% function: st_affine(geometry, double precision, double precision, double precision, double precision, double precision, double precision) -> geometry
-  %% function: st_affine(geometry, double precision, double precision, double precision, double precision, double precision, double precision, double precision, double precision, double precision, double precision, double precision, double precision) -> geometry
   %% function: st_angle(line1 geometry, line2 geometry) -> double precision
-  %% function: st_angle(pt1 geometry, pt2 geometry, pt3 geometry, pt4 geometry) -> double precision
-  %% function: st_area(geog geography, use_spheroid boolean) -> double precision
-  %% function: st_area(geometry) -> double precision
   %% function: st_area(text) -> double precision
-  %% function: st_area2d(geometry) -> double precision
-  %% function: st_asbinary(geography) -> bytea
-  %% function: st_asbinary(geography, text) -> bytea
-  %% function: st_asbinary(geometry) -> bytea
-  %% function: st_asbinary(geometry, text) -> bytea
-  %% function: st_asencodedpolyline(geom geometry, nprecision integer) -> text
-  %% function: st_asewkb(geometry) -> bytea
-  %% function: st_asewkb(geometry, text) -> bytea
-  %% function: st_asewkt(geography) -> text
-  %% function: st_asewkt(geography, integer) -> text
-  %% function: st_asewkt(geometry) -> text
-  %% function: st_asewkt(geometry, integer) -> text
   %% function: st_asewkt(text) -> text
-  %% aggregate: st_asflatgeobuf(anyelement) -> bytea
-  %% aggregate: st_asflatgeobuf(anyelement, boolean) -> bytea
-  %% aggregate: st_asflatgeobuf(anyelement, boolean, text) -> bytea
-  %% aggregate: st_asgeobuf(anyelement) -> bytea
-  %% aggregate: st_asgeobuf(anyelement, text) -> bytea
-  %% function: st_asgeojson(geog geography, maxdecimaldigits integer, options integer) -> text
-  %% function: st_asgeojson(geom geometry, maxdecimaldigits integer, options integer) -> text
-  %% function: st_asgeojson(r record, geom_column text, maxdecimaldigits integer, pretty_bool boolean) -> text
   %% function: st_asgeojson(text) -> text
-  %% function: st_asgml(geog geography, maxdecimaldigits integer, options integer, nprefix text, id text) -> text
-  %% function: st_asgml(geom geometry, maxdecimaldigits integer, options integer) -> text
   %% function: st_asgml(text) -> text
-  %% function: st_asgml(version integer, geog geography, maxdecimaldigits integer, options integer, nprefix text, id text) -> text
-  %% function: st_asgml(version integer, geom geometry, maxdecimaldigits integer, options integer, nprefix text, id text) -> text
-  %% function: st_ashexewkb(geometry) -> text
-  %% function: st_ashexewkb(geometry, text) -> text
-  %% function: st_askml(geog geography, maxdecimaldigits integer, nprefix text) -> text
-  %% function: st_askml(geom geometry, maxdecimaldigits integer, nprefix text) -> text
   %% function: st_askml(text) -> text
-  %% function: st_aslatlontext(geom geometry, tmpl text) -> text
-  %% function: st_asmarc21(geom geometry, format text) -> text
-  %% aggregate: st_asmvt(anyelement) -> bytea
-  %% aggregate: st_asmvt(anyelement, text) -> bytea
-  %% aggregate: st_asmvt(anyelement, text, integer) -> bytea
-  %% aggregate: st_asmvt(anyelement, text, integer, text) -> bytea
-  %% aggregate: st_asmvt(anyelement, text, integer, text, text) -> bytea
-  %% function: st_asmvtgeom(geom geometry, bounds box2d, extent integer, buffer integer, clip_geom boolean) -> geometry
-  %% function: st_assvg(geog geography, rel integer, maxdecimaldigits integer) -> text
-  %% function: st_assvg(geom geometry, rel integer, maxdecimaldigits integer) -> text
   %% function: st_assvg(text) -> text
-  %% function: st_astext(geography) -> text
-  %% function: st_astext(geography, integer) -> text
-  %% function: st_astext(geometry) -> text
-  %% function: st_astext(geometry, integer) -> text
   %% function: st_astext(text) -> text
-  %% function: st_astwkb(geom geometry, prec integer, prec_z integer, prec_m integer, with_sizes boolean, with_boxes boolean) -> bytea
-  %% function: st_astwkb(geom geometry[], ids bigint[], prec integer, prec_z integer, prec_m integer, with_sizes boolean, with_boxes boolean) -> bytea
   %% function: st_asx3d(geom geometry, maxdecimaldigits integer, options integer) -> text
-  %% function: st_azimuth(geog1 geography, geog2 geography) -> double precision
-  %% function: st_azimuth(geom1 geometry, geom2 geometry) -> double precision
   %% function: st_bdmpolyfromtext(text, integer) -> geometry
   %% function: st_bdpolyfromtext(text, integer) -> geometry
-  %% function: st_boundary(geometry) -> geometry
-  %% function: st_boundingdiagonal(geom geometry, fits boolean) -> geometry
-  %% function: st_box2dfromgeohash(text, integer) -> box2d
-  %% function: st_buffer(geography, double precision) -> geography
-  %% function: st_buffer(geography, double precision, integer) -> geography
-  %% function: st_buffer(geography, double precision, text) -> geography
-  %% function: st_buffer(geom geometry, radius double precision, options text) -> geometry
-  %% function: st_buffer(geom geometry, radius double precision, quadsegs integer) -> geometry
   %% function: st_buffer(text, double precision) -> geometry
+  %% function: st_buffer(geography, double precision) -> geography
   %% function: st_buffer(text, double precision, integer) -> geometry
   %% function: st_buffer(text, double precision, text) -> geometry
-  %% function: st_buildarea(geometry) -> geometry
-  %% function: st_centroid(geography, use_spheroid boolean) -> geography
-  %% function: st_centroid(geometry) -> geometry
+  %% function: st_buffer(geography, double precision, integer) -> geography
+  %% function: st_buffer(geography, double precision, text) -> geography
+  %% function: st_buffer(geom geometry, radius double precision, quadsegs integer) -> geometry
   %% function: st_centroid(text) -> geometry
-  %% function: st_chaikinsmoothing(geometry, integer, boolean) -> geometry
-  %% function: st_cleangeometry(geometry) -> geometry
-  %% function: st_clipbybox2d(geom geometry, box box2d) -> geometry
-  %% function: st_closestpoint(geom1 geometry, geom2 geometry) -> geometry
-  %% function: st_closestpointofapproach(geometry, geometry) -> double precision
-  %% window: st_clusterdbscan(geometry, eps double precision, minpoints integer) -> integer
-  %% aggregate: st_clusterintersecting(geometry) -> geometry[]
-  %% function: st_clusterintersecting(geometry[]) -> geometry[]
-  %% window: st_clusterkmeans(geom geometry, k integer, max_radius double precision) -> integer
-  %% aggregate: st_clusterwithin(geometry, double precision) -> geometry[]
-  %% function: st_clusterwithin(geometry[], double precision) -> geometry[]
-  %% function: st_collect(geom1 geometry, geom2 geometry) -> geometry
-  %% aggregate: st_collect(geometry) -> geometry
-  %% function: st_collect(geometry[]) -> geometry
-  %% function: st_collectionextract(geometry) -> geometry
-  %% function: st_collectionextract(geometry, integer) -> geometry
-  %% function: st_collectionhomogenize(geometry) -> geometry
-  %% function: st_combinebbox(box2d, geometry) -> box2d
-  %% function: st_combinebbox(box3d, box3d) -> box3d
-  %% function: st_combinebbox(box3d, geometry) -> box3d
-  %% function: st_concavehull(param_geom geometry, param_pctconvex double precision, param_allow_holes boolean) -> geometry
-  %% function: st_contains(geom1 geometry, geom2 geometry) -> boolean
-  %% function: st_containsproperly(geom1 geometry, geom2 geometry) -> boolean
-  %% function: st_convexhull(geometry) -> geometry
-  %% function: st_coorddim(geometry geometry) -> smallint
-  %% function: st_coveredby(geog1 geography, geog2 geography) -> boolean
-  %% function: st_coveredby(geom1 geometry, geom2 geometry) -> boolean
   %% function: st_coveredby(text, text) -> boolean
-  %% function: st_covers(geog1 geography, geog2 geography) -> boolean
-  %% function: st_covers(geom1 geometry, geom2 geometry) -> boolean
   %% function: st_covers(text, text) -> boolean
-  %% function: st_cpawithin(geometry, geometry, double precision) -> boolean
-  %% function: st_crosses(geom1 geometry, geom2 geometry) -> boolean
-  %% function: st_curvetoline(geom geometry, tol double precision, toltype integer, flags integer) -> geometry
-  %% function: st_delaunaytriangles(g1 geometry, tolerance double precision, flags integer) -> geometry
-  %% function: st_dfullywithin(geom1 geometry, geom2 geometry, double precision) -> boolean
-  %% function: st_difference(geom1 geometry, geom2 geometry, gridsize double precision) -> geometry
-  %% function: st_dimension(geometry) -> integer
-  %% function: st_disjoint(geom1 geometry, geom2 geometry) -> boolean
-  %% function: st_distance(geog1 geography, geog2 geography, use_spheroid boolean) -> double precision
-  %% function: st_distance(geom1 geometry, geom2 geometry) -> double precision
   %% function: st_distance(text, text) -> double precision
-  %% function: st_distancecpa(geometry, geometry) -> double precision
   %% function: st_distancesphere(geom1 geometry, geom2 geometry) -> double precision
-  %% function: st_distancesphere(geom1 geometry, geom2 geometry, radius double precision) -> double precision
-  %% function: st_distancespheroid(geom1 geometry, geom2 geometry) -> double precision
-  %% function: st_distancespheroid(geom1 geometry, geom2 geometry, spheroid) -> double precision
-  %% function: st_dump(geometry) -> geometry_dump
-  %% function: st_dumppoints(geometry) -> geometry_dump
-  %% function: st_dumprings(geometry) -> geometry_dump
-  %% function: st_dumpsegments(geometry) -> geometry_dump
-  %% function: st_dwithin(geog1 geography, geog2 geography, tolerance double precision, use_spheroid boolean) -> boolean
-  %% function: st_dwithin(geom1 geometry, geom2 geometry, double precision) -> boolean
   %% function: st_dwithin(text, text, double precision) -> boolean
-  %% function: st_endpoint(geometry) -> geometry
-  %% function: st_envelope(geometry) -> geometry
-  %% function: st_equals(geom1 geometry, geom2 geometry) -> boolean
-  %% function: st_estimatedextent(text, text) -> box2d
-  %% function: st_estimatedextent(text, text, text) -> box2d
-  %% function: st_estimatedextent(text, text, text, boolean) -> box2d
-  %% function: st_expand(box box2d, dx double precision, dy double precision) -> box2d
-  %% function: st_expand(box box3d, dx double precision, dy double precision, dz double precision) -> box3d
-  %% function: st_expand(box2d, double precision) -> box2d
-  %% function: st_expand(box3d, double precision) -> box3d
-  %% function: st_expand(geom geometry, dx double precision, dy double precision, dz double precision, dm double precision) -> geometry
-  %% function: st_expand(geometry, double precision) -> geometry
-  %% aggregate: st_extent(geometry) -> box2d
-  %% function: st_exteriorring(geometry) -> geometry
-  %% function: st_filterbym(geometry, double precision, double precision, boolean) -> geometry
   %% function: st_findextent(text, text) -> box2d
   %% function: st_findextent(text, text, text) -> box2d
-  %% function: st_flipcoordinates(geometry) -> geometry
-  %% function: st_force2d(geometry) -> geometry
   %% function: st_force3d(geom geometry, zvalue double precision) -> geometry
-  %% function: st_force3dm(geom geometry, mvalue double precision) -> geometry
-  %% function: st_force3dz(geom geometry, zvalue double precision) -> geometry
-  %% function: st_force4d(geom geometry, zvalue double precision, mvalue double precision) -> geometry
-  %% function: st_forcecollection(geometry) -> geometry
-  %% function: st_forcecurve(geometry) -> geometry
   %% function: st_forcepolygonccw(geometry) -> geometry
-  %% function: st_forcepolygoncw(geometry) -> geometry
-  %% function: st_forcerhr(geometry) -> geometry
-  %% function: st_forcesfs(geometry) -> geometry
-  %% function: st_forcesfs(geometry, version text) -> geometry
-  %% function: st_frechetdistance(geom1 geometry, geom2 geometry, double precision) -> double precision
-  %% function: st_fromflatgeobuf(anyelement, bytea) -> anyelement
-  %% function: st_fromflatgeobuftotable(text, text, bytea) -> void
-  %% function: st_generatepoints(area geometry, npoints integer) -> geometry
-  %% function: st_generatepoints(area geometry, npoints integer, seed integer) -> geometry
-  %% function: st_geogfromtext(text) -> geography
-  %% function: st_geogfromwkb(bytea) -> geography
-  %% function: st_geographyfromtext(text) -> geography
-  %% function: st_geohash(geog geography, maxchars integer) -> text
-  %% function: st_geohash(geom geometry, maxchars integer) -> text
   %% function: st_geomcollfromtext(text) -> geometry
   %% function: st_geomcollfromtext(text, integer) -> geometry
   %% function: st_geomcollfromwkb(bytea) -> geometry
   %% function: st_geomcollfromwkb(bytea, integer) -> geometry
-  %% function: st_geometricmedian(g geometry, tolerance double precision, max_iter integer, fail_if_not_converged boolean) -> geometry
-  %% function: st_geometryfromtext(text) -> geometry
-  %% function: st_geometryfromtext(text, integer) -> geometry
-  %% function: st_geometryn(geometry, integer) -> geometry
-  %% function: st_geometrytype(geometry) -> text
-  %% function: st_geomfromewkb(bytea) -> geometry
-  %% function: st_geomfromewkt(text) -> geometry
   %% function: st_geomfromgeohash(text, integer) -> geometry
   %% function: st_geomfromgeojson(json) -> geometry
   %% function: st_geomfromgeojson(jsonb) -> geometry
-  %% function: st_geomfromgeojson(text) -> geometry
   %% function: st_geomfromgml(text) -> geometry
-  %% function: st_geomfromgml(text, integer) -> geometry
-  %% function: st_geomfromkml(text) -> geometry
-  %% function: st_geomfrommarc21(marc21xml text) -> geometry
-  %% function: st_geomfromtext(text) -> geometry
-  %% function: st_geomfromtext(text, integer) -> geometry
-  %% function: st_geomfromtwkb(bytea) -> geometry
-  %% function: st_geomfromwkb(bytea) -> geometry
   %% function: st_geomfromwkb(bytea, integer) -> geometry
   %% function: st_gmltosql(text) -> geometry
-  %% function: st_gmltosql(text, integer) -> geometry
-  %% function: st_hasarc(geometry geometry) -> boolean
-  %% function: st_hausdorffdistance(geom1 geometry, geom2 geometry) -> double precision
-  %% function: st_hausdorffdistance(geom1 geometry, geom2 geometry, double precision) -> double precision
-  %% function: st_hexagon(size double precision, cell_i integer, cell_j integer, origin geometry) -> geometry
-  %% function: st_hexagongrid(size double precision, bounds geometry, OUT geom geometry, OUT i integer, OUT j integer) -> record
-  %% function: st_interiorringn(geometry, integer) -> geometry
-  %% function: st_interpolatepoint(line geometry, point geometry) -> double precision
-  %% function: st_intersection(geography, geography) -> geography
-  %% function: st_intersection(geom1 geometry, geom2 geometry, gridsize double precision) -> geometry
   %% function: st_intersection(text, text) -> geometry
-  %% function: st_intersects(geog1 geography, geog2 geography) -> boolean
-  %% function: st_intersects(geom1 geometry, geom2 geometry) -> boolean
+  %% function: st_intersection(geography, geography) -> geography
   %% function: st_intersects(text, text) -> boolean
-  %% function: st_isclosed(geometry) -> boolean
-  %% function: st_iscollection(geometry) -> boolean
-  %% function: st_isempty(geometry) -> boolean
-  %% function: st_ispolygonccw(geometry) -> boolean
-  %% function: st_ispolygoncw(geometry) -> boolean
-  %% function: st_isring(geometry) -> boolean
-  %% function: st_issimple(geometry) -> boolean
-  %% function: st_isvalid(geometry) -> boolean
   %% function: st_isvalid(geometry, integer) -> boolean
-  %% function: st_isvaliddetail(geom geometry, flags integer) -> valid_detail
-  %% function: st_isvalidreason(geometry) -> text
   %% function: st_isvalidreason(geometry, integer) -> text
-  %% function: st_isvalidtrajectory(geometry) -> boolean
-  %% function: st_length(geog geography, use_spheroid boolean) -> double precision
-  %% function: st_length(geometry) -> double precision
   %% function: st_length(text) -> double precision
-  %% function: st_length2d(geometry) -> double precision
-  %% function: st_length2dspheroid(geometry, spheroid) -> double precision
-  %% function: st_lengthspheroid(geometry, spheroid) -> double precision
   %% function: st_letters(letters text, font json) -> geometry
-  %% function: st_linecrossingdirection(line1 geometry, line2 geometry) -> integer
-  %% function: st_linefromencodedpolyline(txtin text, nprecision integer) -> geometry
-  %% function: st_linefrommultipoint(geometry) -> geometry
   %% function: st_linefromtext(text) -> geometry
   %% function: st_linefromtext(text, integer) -> geometry
   %% function: st_linefromwkb(bytea) -> geometry
   %% function: st_linefromwkb(bytea, integer) -> geometry
-  %% function: st_lineinterpolatepoint(geometry, double precision) -> geometry
-  %% function: st_lineinterpolatepoints(geometry, double precision, repeat boolean) -> geometry
-  %% function: st_linelocatepoint(geom1 geometry, geom2 geometry) -> double precision
-  %% function: st_linemerge(geometry) -> geometry
-  %% function: st_linemerge(geometry, boolean) -> geometry
   %% function: st_linestringfromwkb(bytea) -> geometry
   %% function: st_linestringfromwkb(bytea, integer) -> geometry
-  %% function: st_linesubstring(geometry, double precision, double precision) -> geometry
-  %% function: st_linetocurve(geometry geometry) -> geometry
-  %% function: st_locatealong(geometry geometry, measure double precision, leftrightoffset double precision) -> geometry
-  %% function: st_locatebetween(geometry geometry, frommeasure double precision, tomeasure double precision, leftrightoffset double precision) -> geometry
-  %% function: st_locatebetweenelevations(geometry geometry, fromelevation double precision, toelevation double precision) -> geometry
   %% function: st_longestline(geom1 geometry, geom2 geometry) -> geometry
-  %% function: st_m(geometry) -> double precision
-  %% function: st_makebox2d(geom1 geometry, geom2 geometry) -> box2d
-  %% function: st_makeenvelope(double precision, double precision, double precision, double precision, integer) -> geometry
-  %% function: st_makeline(geom1 geometry, geom2 geometry) -> geometry
-  %% aggregate: st_makeline(geometry) -> geometry
-  %% function: st_makeline(geometry[]) -> geometry
-  %% function: st_makepoint(double precision, double precision) -> geometry
-  %% function: st_makepoint(double precision, double precision, double precision) -> geometry
-  %% function: st_makepoint(double precision, double precision, double precision, double precision) -> geometry
-  %% function: st_makepointm(double precision, double precision, double precision) -> geometry
-  %% function: st_makepolygon(geometry) -> geometry
-  %% function: st_makepolygon(geometry, geometry[]) -> geometry
-  %% function: st_makevalid(geom geometry, params text) -> geometry
-  %% function: st_makevalid(geometry) -> geometry
   %% function: st_maxdistance(geom1 geometry, geom2 geometry) -> double precision
-  %% function: st_maximuminscribedcircle(geometry, OUT center geometry, OUT nearest geometry, OUT radius double precision) -> record
-  %% aggregate: st_memcollect(geometry) -> geometry
-  %% function: st_memsize(geometry) -> integer
-  %% aggregate: st_memunion(geometry) -> geometry
-  %% function: st_minimumboundingcircle(inputgeom geometry, segs_per_quarter integer) -> geometry
-  %% function: st_minimumboundingradius(geometry, OUT center geometry, OUT radius double precision) -> record
-  %% function: st_minimumclearance(geometry) -> double precision
-  %% function: st_minimumclearanceline(geometry) -> geometry
   %% function: st_mlinefromtext(text) -> geometry
   %% function: st_mlinefromtext(text, integer) -> geometry
   %% function: st_mlinefromwkb(bytea) -> geometry
@@ -5133,7 +4206,6 @@ erDiagram
   %% function: st_mpolyfromtext(text, integer) -> geometry
   %% function: st_mpolyfromwkb(bytea) -> geometry
   %% function: st_mpolyfromwkb(bytea, integer) -> geometry
-  %% function: st_multi(geometry) -> geometry
   %% function: st_multilinefromwkb(bytea) -> geometry
   %% function: st_multilinestringfromtext(text) -> geometry
   %% function: st_multilinestringfromtext(text, integer) -> geometry
@@ -5144,38 +4216,12 @@ erDiagram
   %% function: st_multipolyfromwkb(bytea, integer) -> geometry
   %% function: st_multipolygonfromtext(text) -> geometry
   %% function: st_multipolygonfromtext(text, integer) -> geometry
-  %% function: st_ndims(geometry) -> smallint
-  %% function: st_node(g geometry) -> geometry
-  %% function: st_normalize(geom geometry) -> geometry
-  %% function: st_npoints(geometry) -> integer
-  %% function: st_nrings(geometry) -> integer
-  %% function: st_numgeometries(geometry) -> integer
-  %% function: st_numinteriorring(geometry) -> integer
-  %% function: st_numinteriorrings(geometry) -> integer
   %% function: st_numpatches(geometry) -> integer
-  %% function: st_numpoints(geometry) -> integer
-  %% function: st_offsetcurve(line geometry, distance double precision, params text) -> geometry
-  %% function: st_orderingequals(geom1 geometry, geom2 geometry) -> boolean
-  %% function: st_orientedenvelope(geometry) -> geometry
-  %% function: st_overlaps(geom1 geometry, geom2 geometry) -> boolean
   %% function: st_patchn(geometry, integer) -> geometry
-  %% function: st_perimeter(geog geography, use_spheroid boolean) -> double precision
-  %% function: st_perimeter(geometry) -> double precision
-  %% function: st_perimeter2d(geometry) -> double precision
-  %% function: st_point(double precision, double precision) -> geometry
-  %% function: st_point(double precision, double precision, srid integer) -> geometry
-  %% function: st_pointfromgeohash(text, integer) -> geometry
   %% function: st_pointfromtext(text) -> geometry
   %% function: st_pointfromtext(text, integer) -> geometry
   %% function: st_pointfromwkb(bytea) -> geometry
   %% function: st_pointfromwkb(bytea, integer) -> geometry
-  %% function: st_pointinsidecircle(geometry, double precision, double precision, double precision) -> boolean
-  %% function: st_pointm(xcoordinate double precision, ycoordinate double precision, mcoordinate double precision, srid integer) -> geometry
-  %% function: st_pointn(geometry, integer) -> geometry
-  %% function: st_pointonsurface(geometry) -> geometry
-  %% function: st_points(geometry) -> geometry
-  %% function: st_pointz(xcoordinate double precision, ycoordinate double precision, zcoordinate double precision, srid integer) -> geometry
-  %% function: st_pointzm(xcoordinate double precision, ycoordinate double precision, zcoordinate double precision, mcoordinate double precision, srid integer) -> geometry
   %% function: st_polyfromtext(text) -> geometry
   %% function: st_polyfromtext(text, integer) -> geometry
   %% function: st_polyfromwkb(bytea) -> geometry
@@ -5185,107 +4231,29 @@ erDiagram
   %% function: st_polygonfromtext(text, integer) -> geometry
   %% function: st_polygonfromwkb(bytea) -> geometry
   %% function: st_polygonfromwkb(bytea, integer) -> geometry
-  %% aggregate: st_polygonize(geometry) -> geometry
-  %% function: st_polygonize(geometry[]) -> geometry
-  %% function: st_project(geog geography, distance double precision, azimuth double precision) -> geography
-  %% function: st_quantizecoordinates(g geometry, prec_x integer, prec_y integer, prec_z integer, prec_m integer) -> geometry
-  %% function: st_reduceprecision(geom geometry, gridsize double precision) -> geometry
-  %% function: st_relate(geom1 geometry, geom2 geometry) -> text
-  %% function: st_relate(geom1 geometry, geom2 geometry, integer) -> text
-  %% function: st_relate(geom1 geometry, geom2 geometry, text) -> boolean
-  %% function: st_relatematch(text, text) -> boolean
-  %% function: st_removepoint(geometry, integer) -> geometry
-  %% function: st_removerepeatedpoints(geom geometry, tolerance double precision) -> geometry
-  %% function: st_reverse(geometry) -> geometry
   %% function: st_rotate(geometry, double precision) -> geometry
-  %% function: st_rotate(geometry, double precision, double precision, double precision) -> geometry
   %% function: st_rotate(geometry, double precision, geometry) -> geometry
+  %% function: st_rotate(geometry, double precision, double precision, double precision) -> geometry
   %% function: st_rotatex(geometry, double precision) -> geometry
   %% function: st_rotatey(geometry, double precision) -> geometry
   %% function: st_rotatez(geometry, double precision) -> geometry
   %% function: st_scale(geometry, double precision, double precision) -> geometry
   %% function: st_scale(geometry, double precision, double precision, double precision) -> geometry
-  %% function: st_scale(geometry, geometry) -> geometry
-  %% function: st_scale(geometry, geometry, origin geometry) -> geometry
-  %% function: st_scroll(geometry, geometry) -> geometry
-  %% function: st_segmentize(geog geography, max_segment_length double precision) -> geography
-  %% function: st_segmentize(geometry, double precision) -> geometry
-  %% function: st_seteffectivearea(geometry, double precision, integer) -> geometry
-  %% function: st_setpoint(geometry, integer, geometry) -> geometry
-  %% function: st_setsrid(geog geography, srid integer) -> geography
-  %% function: st_setsrid(geom geometry, srid integer) -> geometry
-  %% function: st_sharedpaths(geom1 geometry, geom2 geometry) -> geometry
-  %% function: st_shiftlongitude(geometry) -> geometry
-  %% function: st_shortestline(geom1 geometry, geom2 geometry) -> geometry
-  %% function: st_simplify(geometry, double precision) -> geometry
-  %% function: st_simplify(geometry, double precision, boolean) -> geometry
-  %% function: st_simplifypolygonhull(geom geometry, vertex_fraction double precision, is_outer boolean) -> geometry
-  %% function: st_simplifypreservetopology(geometry, double precision) -> geometry
-  %% function: st_simplifyvw(geometry, double precision) -> geometry
-  %% function: st_snap(geom1 geometry, geom2 geometry, double precision) -> geometry
-  %% function: st_snaptogrid(geom1 geometry, geom2 geometry, double precision, double precision, double precision, double precision) -> geometry
   %% function: st_snaptogrid(geometry, double precision) -> geometry
   %% function: st_snaptogrid(geometry, double precision, double precision) -> geometry
-  %% function: st_snaptogrid(geometry, double precision, double precision, double precision, double precision) -> geometry
-  %% function: st_split(geom1 geometry, geom2 geometry) -> geometry
-  %% function: st_square(size double precision, cell_i integer, cell_j integer, origin geometry) -> geometry
-  %% function: st_squaregrid(size double precision, bounds geometry, OUT geom geometry, OUT i integer, OUT j integer) -> record
-  %% function: st_srid(geog geography) -> integer
-  %% function: st_srid(geom geometry) -> integer
-  %% function: st_startpoint(geometry) -> geometry
-  %% function: st_subdivide(geom geometry, maxvertices integer, gridsize double precision) -> geometry
-  %% function: st_summary(geography) -> text
-  %% function: st_summary(geometry) -> text
-  %% function: st_swapordinates(geom geometry, ords cstring) -> geometry
-  %% function: st_symdifference(geom1 geometry, geom2 geometry, gridsize double precision) -> geometry
   %% function: st_symmetricdifference(geom1 geometry, geom2 geometry) -> geometry
-  %% function: st_tileenvelope(zoom integer, x integer, y integer, bounds geometry, margin double precision) -> geometry
-  %% function: st_touches(geom1 geometry, geom2 geometry) -> boolean
-  %% function: st_transform(geom geometry, from_proj text, to_proj text) -> geometry
-  %% function: st_transform(geom geometry, from_proj text, to_srid integer) -> geometry
   %% function: st_transform(geom geometry, to_proj text) -> geometry
-  %% function: st_transform(geometry, integer) -> geometry
+  %% function: st_transform(geom geometry, from_proj text, to_srid integer) -> geometry
+  %% function: st_transform(geom geometry, from_proj text, to_proj text) -> geometry
   %% function: st_translate(geometry, double precision, double precision) -> geometry
   %% function: st_translate(geometry, double precision, double precision, double precision) -> geometry
   %% function: st_transscale(geometry, double precision, double precision, double precision, double precision) -> geometry
-  %% function: st_triangulatepolygon(g1 geometry) -> geometry
-  %% function: st_unaryunion(geometry, gridsize double precision) -> geometry
-  %% function: st_union(geom1 geometry, geom2 geometry) -> geometry
-  %% function: st_union(geom1 geometry, geom2 geometry, gridsize double precision) -> geometry
-  %% aggregate: st_union(geometry) -> geometry
-  %% aggregate: st_union(geometry, gridsize double precision) -> geometry
-  %% function: st_union(geometry[]) -> geometry
   %% function: st_voronoilines(g1 geometry, tolerance double precision, extend_to geometry) -> geometry
   %% function: st_voronoipolygons(g1 geometry, tolerance double precision, extend_to geometry) -> geometry
-  %% function: st_within(geom1 geometry, geom2 geometry) -> boolean
-  %% function: st_wkbtosql(wkb bytea) -> geometry
-  %% function: st_wkttosql(text) -> geometry
-  %% function: st_wrapx(geom geometry, wrap double precision, move double precision) -> geometry
-  %% function: st_x(geometry) -> double precision
-  %% function: st_xmax(box3d) -> double precision
-  %% function: st_xmin(box3d) -> double precision
-  %% function: st_y(geometry) -> double precision
-  %% function: st_ymax(box3d) -> double precision
-  %% function: st_ymin(box3d) -> double precision
-  %% function: st_z(geometry) -> double precision
-  %% function: st_zmax(box3d) -> double precision
-  %% function: st_zmflag(geometry) -> smallint
-  %% function: st_zmin(box3d) -> double precision
-  %% function: strict_word_similarity(text, text) -> real
-  %% function: strict_word_similarity_commutator_op(text, text) -> boolean
-  %% function: strict_word_similarity_dist_commutator_op(text, text) -> real
-  %% function: strict_word_similarity_dist_op(text, text) -> real
-  %% function: strict_word_similarity_op(text, text) -> boolean
-  %% function: text(geometry) -> text
   %% function: unlockrows(text) -> integer
-  %% function: updategeometrysrid(catalogn_name character varying, schema_name character varying, table_name character varying, column_name character varying, new_srid_in integer) -> text
-  %% function: updategeometrysrid(character varying, character varying, character varying, integer) -> text
   %% function: updategeometrysrid(character varying, character varying, integer) -> text
-  %% function: word_similarity(text, text) -> real
-  %% function: word_similarity_commutator_op(text, text) -> boolean
-  %% function: word_similarity_dist_commutator_op(text, text) -> real
-  %% function: word_similarity_dist_op(text, text) -> real
-  %% function: word_similarity_op(text, text) -> boolean
+  %% function: updategeometrysrid(character varying, character varying, character varying, integer) -> text
+  %% function: updategeometrysrid(catalogn_name character varying, schema_name character varying, table_name character varying, column_name character varying, new_srid_in integer) -> text
   %% [realtime]
   %% function: apply_rls(wal jsonb, max_record_bytes integer) -> realtime.wal_rls
   %% function: broadcast_changes(topic_name text, event_name text, operation text, table_name text, table_schema text, new record, old record, level text) -> void
@@ -5351,20 +4319,12 @@ erDiagram
   %% function: search_v2(prefix text, bucket_name text, limits integer, levels integer, start_after text, sort_order text, sort_column text, sort_column_after text) -> record
   %% function: update_updated_at_column() -> trigger
   %% [system]
-  %% function: apply_overlap_full_to_keeper_20260724(p_pair_id text, p_loser_id bigint, p_keeper_id bigint, p_loser_hash text, p_keeper_hash text) -> void
   %% function: pipeline_extract_building_names(p_tags jsonb) -> jsonb
   %% function: pipeline_osm_feature_type_canonical(p_feature_type text) -> text
   %% function: pipeline_osm_identity_key(p_external_id text) -> text
   %% function: pipeline_osm_identity_matches(p_a text, p_b text) -> boolean
-  %% [tiles]
-  %% function: get_admin_areas_tile(z integer, x integer, y integer) -> bytea
-  %% function: get_places_tile(z integer, x integer, y integer) -> bytea
-  %% function: get_streets_tile(z integer, x integer, y integer) -> bytea
   %% [transport]
   %% function: set_updated_at() -> trigger
   %% [vault]
-  %% function: _crypto_aead_det_decrypt(message bytea, additional bytea, key_id bigint, context bytea, nonce bytea) -> bytea
-  %% function: _crypto_aead_det_encrypt(message bytea, additional bytea, key_id bigint, context bytea, nonce bytea) -> bytea
-  %% function: _crypto_aead_det_noncegen() -> bytea
   %% function: create_secret(new_secret text, new_name text, new_description text, new_key_id uuid) -> uuid
   %% function: update_secret(secret_id uuid, new_secret text, new_name text, new_description text, new_key_id uuid) -> void
