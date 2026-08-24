@@ -54,6 +54,7 @@ export const publicPlacesQuerySchema = z.object({
  */
 export const PUBLIC_SEARCH_ENTITY_TYPES = [
     "place",
+    "settlement",
     "address",
     "transport_stop",
     "transport_terminal",
@@ -104,6 +105,7 @@ export const publicSearchQuerySchema = z.object({
 /** Entity types whose full geometry can be fetched for a clicked search result. */
 export const SEARCH_GEOMETRY_ENTITY_TYPES = [
     "place",
+    "settlement",
     "address",
     "transport_stop",
     "transport_terminal",

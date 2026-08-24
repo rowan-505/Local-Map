@@ -10,6 +10,7 @@ import {
 /** Entity types that may appear in `search.search_documents` (canonical index types). */
 export const SEARCH_ALIAS_ENTITY_TYPES = [
     "place",
+    "settlement",
     "admin_area",
     "street_group",
     "address",

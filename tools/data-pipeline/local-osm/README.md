@@ -199,6 +199,7 @@ Use `ENTITY_FAMILIES` in your import env to limit extraction, diff, review packa
 | Slug | Staging table (typical) | Stage K upload |
 |------|-------------------------|----------------|
 | `places` | `staging_place_candidates` | `import_review.place_candidates` (+ child names) |
+| `settlements` | `staging_settlement_candidates` | not in Stage K yet (F2 target `prod_mirror.core_settlements`) |
 | `addresses` | `staging_address_candidates` | `import_review.address_candidates` |
 | `address_components` | `staging_address_component_candidates` | `import_review.address_component_candidates` |
 | `place_address_links` | `staging_place_address_link_candidates` | `import_review.place_address_link_candidates` |
@@ -221,11 +222,12 @@ Use `all` (default) for every configured family. Comma-separate for subsets, e.g
 |-------------------|-------------|
 | `admin_areas` | National or regional admin boundary import only. Stage **02** uses osmium pre-filter + `osm2pgsql_admin_areas_only.lua`. |
 | `roads` | Road network extract only. Stage **02** uses osmium pre-filter + `osm2pgsql_roads_only.lua`. |
+| `settlements` | Canonical settlements only (`place=city/town/village/hamlet/quarter/suburb/neighbourhood/locality`). Stage **02** uses osmium pre-filter + `osm2pgsql_settlements_only.lua`. F2 compares `staging_settlement_candidates` to `prod_mirror.core_settlements`, never `core_places`. |
 | `admin_areas,roads` | Both in one snapshot (roads may have null `admin_area_id` until post-promotion recalc). |
 | `places,addresses,address_components,place_address_links` | Classified POI + address workflow (see below). |
 | `all` | Full multi-family pipeline. |
 
-**Stage 02 note:** For `admin_areas` or `roads` only, the runner **pre-filters the PBF with osmium** before osm2pgsql. Lua-only filtering on a whole-country PBF is too slow (osm2pgsql `--slim` reads every node). Requires **`osmium-tool`** on `PATH` (`brew install osmium-tool`).
+**Stage 02 note:** For `admin_areas`, `roads`, or `settlements` only, the runner **pre-filters the PBF with osmium** before osm2pgsql. Lua-only filtering on a whole-country PBF is too slow (osm2pgsql `--slim` reads every node). Requires **`osmium-tool`** on `PATH` (`brew install osmium-tool`).
 
 Example env (Myanmar admin-only):
 

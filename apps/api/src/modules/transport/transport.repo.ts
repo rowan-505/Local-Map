@@ -148,6 +148,8 @@ import type {
     GeneratePathFromStopsResult,
 } from "./transport.types.js";
 import { isCircularClosingRouteStop } from "./transport-route-stop-occurrence.js";
+import { assertTransportSchemaAvailable } from "./transport-schema-guard.js";
+import { buildTransportAdminSearch } from "./transport-admin-search.js";
 import {
     assertSameVariantMergeAcknowledged,
     buildSameVariantMergeWarning,
@@ -198,6 +200,8 @@ type RouteListRow = {
     has_source_link: boolean;
     has_estimate_path: boolean;
     has_verified_path: boolean;
+    search_rank: number;
+    total_count: bigint;
     updated_at: Date;
 };
 
@@ -222,6 +226,9 @@ type StopListRow = {
     has_source_link: boolean;
     has_geom: boolean;
     has_nearby_duplicate: boolean;
+    has_duplicate_name: boolean;
+    search_rank: number;
+    total_count: bigint;
     normalized_data: Record<string, unknown> | null;
     updated_at: Date;
 };
@@ -492,7 +499,7 @@ type RouteMetadataVariantQueryRow = {
     headsign: string | null;
     destination_name: string | null;
     estimated_duration_min: number | null;
-    stop_count: bigint;
+    stop_count: bigint | number;
     normalized_data: Record<string, unknown> | null;
 };
 
@@ -517,6 +524,13 @@ type SourceRow = {
     external_id: string | null;
     source_url: string | null;
     is_primary: boolean;
+};
+
+type RouteDetailEnrichmentRow = {
+    names: RouteNameRow[];
+    sources: SourceRow[];
+    variants: RouteMetadataVariantQueryRow[];
+    stop_names: RouteMetadataStopNameRow[];
 };
 
 type VariantSummaryRow = {
@@ -671,17 +685,6 @@ type QualitySummaryRow = {
     variants_unknown_direction: bigint;
     routes_without_variants: bigint;
 };
-
-function isMissingTransportSchemaError(error: unknown): boolean {
-    if (!(error instanceof Error)) {
-        return false;
-    }
-    const message = error.message.toLowerCase();
-    return (
-        message.includes('schema "transport" does not exist') ||
-        (message.includes("relation") && message.includes("does not exist"))
-    );
-}
 
 function num(value: bigint | number | null | undefined): number {
     return value === null || value === undefined ? 0 : Number(value);
@@ -1262,14 +1265,7 @@ export class TransportRepository {
     constructor(private readonly prisma: PrismaClient) {}
 
     async assertSchemaAvailable(): Promise<void> {
-        try {
-            await this.prisma.$queryRaw`SELECT 1 FROM transport.routes LIMIT 1`;
-        } catch (error) {
-            if (isMissingTransportSchemaError(error)) {
-                throw new TransportSchemaUnavailableError();
-            }
-            throw error;
-        }
+        return assertTransportSchemaAvailable(this.prisma);
     }
 
     async getOverview(): Promise<TransportOverview> {
@@ -1785,7 +1781,16 @@ export class TransportRepository {
         const sourceName = query.sourceName ?? null;
         const sourceKind = query.sourceKind ?? null;
         const includeDeleted = query.includeDeleted === true;
-        const searchLike = toLikeParam(query.search);
+        const search = buildTransportAdminSearch(query.search);
+        const searchLike = search?.containsLike ?? null;
+        const originalSearchLike = search?.originalContainsLike ?? null;
+        const searchExact = search?.exact ?? null;
+        const searchCompactCode = search?.compactCode ?? null;
+        const searchNumericCode = search?.numericCode ?? null;
+        // Route-number/code searches should stay on the small route/name tables.
+        // Stop/headsign expansion is useful for words, but needlessly scans route-stop
+        // membership for inputs such as "20", "YBS 20", or Myanmar-digit "၂၀".
+        const expandedSearch = search !== null && search.numericCode === null;
 
         const rows = await perf("routes.list.rowsQuery", () =>
             this.prisma.$queryRaw<RouteListRow[]>`
@@ -1834,6 +1839,40 @@ export class TransportRepository {
                     WHERE v.route_id = r.id AND v.deleted_at IS NULL AND p.deleted_at IS NULL
                       AND p.review_status = 'verified'
                 ) AS has_verified_path,
+                CASE
+                    WHEN ${searchLike}::text IS NULL THEN 0
+                    WHEN lower(btrim(r.route_code)) = ${searchExact}::text THEN 100
+                    WHEN lower(regexp_replace(r.route_code, '[^a-zA-Z0-9]+', '', 'g')) = ${searchCompactCode}::text THEN 95
+                    WHEN ${searchNumericCode}::text IS NOT NULL
+                      AND regexp_replace(r.route_code, '[^0-9]+', '', 'g') = ${searchNumericCode}::text THEN 90
+                    WHEN lower(btrim(r.public_name)) = ${searchExact}::text THEN 85
+                    WHEN EXISTS (
+                        SELECT 1 FROM transport.route_names srn
+                        WHERE srn.route_id = r.id AND lower(btrim(srn.name)) = ${searchExact}::text
+                    ) THEN 85
+                    WHEN r.route_code ILIKE ${searchLike} THEN 75
+                    WHEN r.public_name ILIKE ${searchLike}
+                      OR r.origin_name ILIKE ${searchLike}
+                      OR r.destination_name ILIKE ${searchLike} THEN 65
+                    WHEN EXISTS (
+                        SELECT 1 FROM transport.route_names srn
+                        WHERE srn.route_id = r.id
+                          AND (
+                            srn.name ILIKE ${searchLike}
+                            OR (${expandedSearch}::boolean AND srn.name ILIKE ${originalSearchLike})
+                          )
+                    ) THEN 60
+                    WHEN ${expandedSearch}::boolean AND EXISTS (
+                        SELECT 1 FROM transport.route_variants sv
+                        WHERE sv.route_id = r.id AND sv.deleted_at IS NULL
+                          AND (sv.headsign ILIKE ${searchLike}
+                            OR sv.direction_name ILIKE ${searchLike}
+                            OR sv.origin_name ILIKE ${searchLike}
+                            OR sv.destination_name ILIKE ${searchLike})
+                    ) THEN 50
+                    ELSE 40
+                END::int AS search_rank,
+                count(*) OVER()::bigint AS total_count,
                 r.updated_at
             FROM transport.routes r
             LEFT JOIN LATERAL (
@@ -1864,8 +1903,38 @@ export class TransportRepository {
                     OR r.destination_name ILIKE ${searchLike}
                     OR EXISTS (
                         SELECT 1 FROM transport.route_names rn
-                        WHERE rn.route_id = r.id AND rn.name ILIKE ${searchLike}
+                        WHERE rn.route_id = r.id
+                          AND (
+                            rn.name ILIKE ${searchLike}
+                            OR (${expandedSearch}::boolean AND rn.name ILIKE ${originalSearchLike})
+                          )
                     )
+                    OR lower(regexp_replace(r.route_code, '[^a-zA-Z0-9]+', '', 'g')) = ${searchCompactCode}::text
+                    OR (
+                        ${searchNumericCode}::text IS NOT NULL
+                        AND regexp_replace(r.route_code, '[^0-9]+', '', 'g') = ${searchNumericCode}::text
+                    )
+                    OR (${expandedSearch}::boolean AND EXISTS (
+                        SELECT 1 FROM transport.route_variants sv
+                        WHERE sv.route_id = r.id AND sv.deleted_at IS NULL
+                          AND (sv.headsign ILIKE ${searchLike}
+                            OR sv.direction_name ILIKE ${searchLike}
+                            OR sv.origin_name ILIKE ${searchLike}
+                            OR sv.destination_name ILIKE ${searchLike})
+                    ))
+                    OR (${expandedSearch}::boolean AND EXISTS (
+                        SELECT 1
+                        FROM transport.route_variants sv
+                        JOIN transport.route_stops srs ON srs.route_variant_id = sv.id
+                        JOIN transport.stops ss ON ss.id = srs.stop_id
+                        WHERE sv.route_id = r.id AND sv.deleted_at IS NULL AND ss.deleted_at IS NULL
+                          AND (ss.name ILIKE ${searchLike}
+                            OR ss.name_mm ILIKE ${searchLike}
+                            OR ss.name_en ILIKE ${searchLike}
+                            OR ss.name ILIKE ${originalSearchLike}
+                            OR ss.name_mm ILIKE ${originalSearchLike}
+                            OR ss.name_en ILIKE ${originalSearchLike})
+                    ))
                 )
               )
               AND (
@@ -1927,14 +1996,16 @@ export class TransportRepository {
                     END
                 ) = ${geometryStatus}
               )
-            ORDER BY r.updated_at DESC, r.id DESC
+            ORDER BY search_rank DESC, r.updated_at DESC, r.id DESC
             LIMIT ${limit}
             OFFSET ${offset}
         `
         );
 
-        const countRows = await perf("routes.list.countQuery", () =>
-            this.prisma.$queryRaw<{ count: bigint }[]>`
+        let total = rows.length > 0 ? num(rows[0]?.total_count ?? rows.length) : 0;
+        if (rows.length === 0 && offset > 0) {
+            const countRows = await perf("routes.list.countQuery", () =>
+                this.prisma.$queryRaw<{ count: bigint }[]>`
             SELECT count(*)::bigint AS count
             FROM transport.routes r
             WHERE (${includeDeleted}::boolean OR r.deleted_at IS NULL)
@@ -1949,7 +2020,34 @@ export class TransportRepository {
                     OR r.destination_name ILIKE ${searchLike}
                     OR EXISTS (
                         SELECT 1 FROM transport.route_names rn
-                        WHERE rn.route_id = r.id AND rn.name ILIKE ${searchLike}
+                        WHERE rn.route_id = r.id
+                          AND (rn.name ILIKE ${searchLike} OR rn.name ILIKE ${originalSearchLike})
+                    )
+                    OR lower(regexp_replace(r.route_code, '[^a-zA-Z0-9]+', '', 'g')) = ${searchCompactCode}::text
+                    OR (
+                        ${searchNumericCode}::text IS NOT NULL
+                        AND regexp_replace(r.route_code, '[^0-9]+', '', 'g') = ${searchNumericCode}::text
+                    )
+                    OR EXISTS (
+                        SELECT 1 FROM transport.route_variants sv
+                        WHERE sv.route_id = r.id AND sv.deleted_at IS NULL
+                          AND (sv.headsign ILIKE ${searchLike}
+                            OR sv.direction_name ILIKE ${searchLike}
+                            OR sv.origin_name ILIKE ${searchLike}
+                            OR sv.destination_name ILIKE ${searchLike})
+                    )
+                    OR EXISTS (
+                        SELECT 1
+                        FROM transport.route_variants sv
+                        JOIN transport.route_stops srs ON srs.route_variant_id = sv.id
+                        JOIN transport.stops ss ON ss.id = srs.stop_id
+                        WHERE sv.route_id = r.id AND sv.deleted_at IS NULL AND ss.deleted_at IS NULL
+                          AND (ss.name ILIKE ${searchLike}
+                            OR ss.name_mm ILIKE ${searchLike}
+                            OR ss.name_en ILIKE ${searchLike}
+                            OR ss.name ILIKE ${originalSearchLike}
+                            OR ss.name_mm ILIKE ${originalSearchLike}
+                            OR ss.name_en ILIKE ${originalSearchLike})
                     )
                 )
               )
@@ -2012,8 +2110,10 @@ export class TransportRepository {
                     END
                 ) = ${geometryStatus}
               )
-        `
-        );
+            `
+            );
+            total = num(countRows[0]?.count);
+        }
 
         return {
             items: rows.map((row) => {
@@ -2058,7 +2158,7 @@ export class TransportRepository {
                     updated_at: row.updated_at.toISOString(),
                 };
             }),
-            total: num(countRows[0]?.count),
+            total,
             limit,
             offset,
         };
@@ -2084,9 +2184,48 @@ export class TransportRepository {
         const duplicateStatus = query.duplicateStatus ?? null;
         const adminAreaId = query.adminAreaId ?? null;
         const includeDeleted = query.includeDeleted === true;
-        const searchLike = toLikeParam(query.search);
+        const search = buildTransportAdminSearch(query.search);
+        const searchLike = search?.containsLike ?? null;
+        const originalSearchLike = search?.originalContainsLike ?? null;
+        const myanmarSearchLike = search?.myanmarContainsLike ?? null;
+        const searchExact = search?.exact ?? null;
+        const searchCompactCode = search?.compactCode ?? null;
+        const searchOriginalExact = search?.original ?? null;
         const duplicateNearbyRadiusM = DUPLICATE_NEARBY_RADIUS_M;
         const duplicateNearbyRadiusDeg = approxExpandDegreesFromMeters(duplicateNearbyRadiusM);
+        const duplicateNamesCte = Prisma.sql`
+            stop_name_values AS MATERIALIZED (
+                SELECT s2.id, s2.mode, normalized.name
+                FROM transport.stops s2
+                CROSS JOIN LATERAL (VALUES
+                    (NULLIF(lower(btrim(s2.name_mm)), '')),
+                    (NULLIF(lower(btrim(s2.name_en)), '')),
+                    (NULLIF(lower(btrim(s2.name)), ''))
+                ) AS normalized(name)
+                WHERE s2.deleted_at IS NULL
+                  AND s2.is_active = true
+                  AND normalized.name IS NOT NULL
+                  AND normalized.name !~* ${GENERATED_NAME_PATTERN}
+            ),
+            duplicate_names AS MATERIALIZED (
+                SELECT mode, name
+                FROM stop_name_values
+                GROUP BY mode, name
+                HAVING count(DISTINCT id) > 1
+            ),
+            duplicate_stop_ids AS MATERIALIZED (
+                SELECT DISTINCT snv.id
+                FROM stop_name_values snv
+                JOIN duplicate_names dn
+                  ON dn.mode = snv.mode AND dn.name = snv.name
+            )
+        `;
+        const duplicateNameExists = Prisma.sql`
+            EXISTS (
+                SELECT 1 FROM duplicate_stop_ids duplicate
+                WHERE duplicate.id = s.id
+            )
+        `;
 
         // Shared WHERE predicate (kept in one place for list + count parity).
         const where = Prisma.sql`
@@ -2106,6 +2245,13 @@ export class TransportRepository {
                     OR s.name_mm ILIKE ${searchLike}
                     OR s.name_en ILIKE ${searchLike}
                     OR s.stop_code ILIKE ${searchLike}
+                    OR s.name ILIKE ${originalSearchLike}
+                    OR s.name_mm ILIKE ${originalSearchLike}
+                    OR s.name_en ILIKE ${originalSearchLike}
+                    OR s.name ILIKE ${myanmarSearchLike}
+                    OR s.name_mm ILIKE ${myanmarSearchLike}
+                    OR s.name_en ILIKE ${myanmarSearchLike}
+                    OR lower(regexp_replace(coalesce(s.stop_code, ''), '[^a-zA-Z0-9]+', '', 'g')) = ${searchCompactCode}::text
                 )
               )
               AND (
@@ -2148,6 +2294,7 @@ export class TransportRepository {
               AND (
                 ${duplicateStatus}::text IS NULL OR (
                     CASE
+                        WHEN ${duplicateNameExists} THEN 'duplicate_name'
                         WHEN EXISTS (
                             SELECT 1 FROM transport.stops s2
                             WHERE s2.id <> s.id
@@ -2175,7 +2322,8 @@ export class TransportRepository {
         // that ran across the whole table before LIMIT was applied.
         const rows = await perf("stops.list.rowsQuery", () =>
             this.prisma.$queryRaw<StopListRow[]>(Prisma.sql`
-            WITH page AS (
+            WITH ${duplicateNamesCte},
+            page AS (
                 SELECT
                     s.id,
                     s.public_id,
@@ -2191,10 +2339,33 @@ export class TransportRepository {
                     s.is_active,
                     s.normalized_data,
                     (s.geom IS NOT NULL AND NOT ST_IsEmpty(s.geom)) AS has_geom,
+                    ${duplicateNameExists} AS has_duplicate_name,
+                    CASE
+                        WHEN ${searchLike}::text IS NULL THEN 0
+                        WHEN lower(btrim(coalesce(s.stop_code, ''))) = ${searchExact}::text THEN 100
+                        WHEN lower(regexp_replace(coalesce(s.stop_code, ''), '[^a-zA-Z0-9]+', '', 'g')) = ${searchCompactCode}::text THEN 95
+                        WHEN lower(btrim(coalesce(s.name_mm, ''))) IN (${searchExact}::text, ${searchOriginalExact}::text)
+                          OR lower(btrim(coalesce(s.name_en, ''))) IN (${searchExact}::text, ${searchOriginalExact}::text)
+                          OR lower(btrim(coalesce(s.name, ''))) IN (${searchExact}::text, ${searchOriginalExact}::text) THEN 85
+                        WHEN s.stop_code ILIKE ${searchLike} THEN 75
+                        WHEN (
+                            s.name ILIKE ${searchLike}
+                            OR s.name_mm ILIKE ${searchLike}
+                            OR s.name_en ILIKE ${searchLike}
+                            OR s.name ILIKE ${originalSearchLike}
+                            OR s.name_mm ILIKE ${originalSearchLike}
+                            OR s.name_en ILIKE ${originalSearchLike}
+                            OR s.name ILIKE ${myanmarSearchLike}
+                            OR s.name_mm ILIKE ${myanmarSearchLike}
+                            OR s.name_en ILIKE ${myanmarSearchLike}
+                        ) AND s.name !~ ${GENERATED_NAME_PATTERN} THEN 70
+                        ELSE 50
+                    END::int AS search_rank,
+                    count(*) OVER()::bigint AS total_count,
                     s.updated_at
                 FROM transport.stops s
                 ${where}
-                ORDER BY s.updated_at DESC, s.id DESC
+                ORDER BY search_rank DESC, s.updated_at DESC, s.id DESC
                 LIMIT ${limit}
                 OFFSET ${offset}
             ),
@@ -2262,22 +2433,30 @@ export class TransportRepository {
                           ${duplicateNearbyRadiusM}::float8
                       )
                 ) AS has_nearby_duplicate,
+                p.has_duplicate_name,
+                p.search_rank,
+                p.total_count,
                 p.updated_at
             FROM page p
             LEFT JOIN core.core_admin_areas aa ON aa.id = p.admin_area_id
             LEFT JOIN route_counts rc ON rc.stop_id = p.id
             LEFT JOIN terminal_info ti ON ti.linked_stop_id = p.id
-            ORDER BY p.updated_at DESC, p.id DESC
+            ORDER BY p.search_rank DESC, p.updated_at DESC, p.id DESC
         `)
         );
 
-        const countRows = await perf("stops.list.countQuery", () =>
-            this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
-            SELECT count(*)::bigint AS count
-            FROM transport.stops s
-            ${where}
-        `)
-        );
+        let total = rows.length > 0 ? num(rows[0]?.total_count ?? rows.length) : 0;
+        if (rows.length === 0 && offset > 0) {
+            const countRows = await perf("stops.list.countQuery", () =>
+                this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
+                WITH ${duplicateNamesCte}
+                SELECT count(*)::bigint AS count
+                FROM transport.stops s
+                ${where}
+            `)
+            );
+            total = num(countRows[0]?.count);
+        }
 
         return {
             items: perfSync("stops.list.serialize", () =>
@@ -2287,7 +2466,11 @@ export class TransportRepository {
                         review_status: row.review_status,
                         normalized_data: row.normalized_data,
                     });
-                    const duplicate_status = row.has_nearby_duplicate ? "nearby" : "none";
+                    const duplicate_status = row.has_duplicate_name
+                        ? "duplicate_name"
+                        : row.has_nearby_duplicate
+                          ? "nearby"
+                          : "none";
                     return {
                         public_id: row.public_id,
                         stop_code: row.stop_code,
@@ -2313,7 +2496,7 @@ export class TransportRepository {
                     };
                 })
             ),
-            total: num(countRows[0]?.count),
+            total,
             limit,
             offset,
         };
@@ -5525,40 +5708,74 @@ export class TransportRepository {
             throw new TransportNotFoundError("route", publicId);
         }
 
-        const [nameRows, sourceRows, variantRows, stopNameRows] = await Promise.all([
-            this.prisma.$queryRaw<RouteNameRow[]>`
-                SELECT name, language_code, script_code, name_type, is_primary, search_weight
-                FROM transport.route_names
-                WHERE route_id = ${row.id}
-                ORDER BY is_primary DESC, search_weight DESC, name ASC
-            `,
-            this.prisma.$queryRaw<SourceRow[]>`
-                SELECT source_name, source_kind, external_id, source_url, is_primary
-                FROM transport.source_links
-                WHERE entity_type = 'route' AND entity_id = ${row.id}
-                ORDER BY is_primary DESC, source_name ASC
-                LIMIT 50
-            `,
-            this.prisma.$queryRaw<RouteMetadataVariantQueryRow[]>`
-                SELECT
-                    v.headsign,
-                    v.destination_name,
-                    v.estimated_duration_min,
-                    v.normalized_data,
-                    (SELECT count(*) FROM transport.route_stops rs
-                        WHERE rs.route_variant_id = v.id)::bigint AS stop_count
-                FROM transport.route_variants v
-                WHERE v.route_id = ${row.id} AND v.deleted_at IS NULL
-                ORDER BY v.variant_code ASC
-            `,
-            this.prisma.$queryRaw<RouteMetadataStopNameRow[]>`
-                SELECT DISTINCT s.name_mm, s.name_en, s.name
-                FROM transport.stops s
-                JOIN transport.route_stops rs ON rs.stop_id = s.id
-                JOIN transport.route_variants rv ON rv.id = rs.route_variant_id
-                WHERE rv.route_id = ${row.id} AND rv.deleted_at IS NULL AND s.deleted_at IS NULL
-            `,
-        ]);
+        const enrichmentRows = await this.prisma.$queryRaw<RouteDetailEnrichmentRow[]>`
+            SELECT
+                COALESCE((
+                    SELECT jsonb_agg(jsonb_build_object(
+                        'name', n.name,
+                        'language_code', n.language_code,
+                        'script_code', n.script_code,
+                        'name_type', n.name_type,
+                        'is_primary', n.is_primary,
+                        'search_weight', n.search_weight
+                    ) ORDER BY n.is_primary DESC, n.search_weight DESC, n.name ASC)
+                    FROM transport.route_names n
+                    WHERE n.route_id = ${row.id}
+                ), '[]'::jsonb) AS names,
+                COALESCE((
+                    SELECT jsonb_agg(jsonb_build_object(
+                        'source_name', src.source_name,
+                        'source_kind', src.source_kind,
+                        'external_id', src.external_id,
+                        'source_url', src.source_url,
+                        'is_primary', src.is_primary
+                    ) ORDER BY src.is_primary DESC, src.source_name ASC)
+                    FROM (
+                        SELECT source_name, source_kind, external_id, source_url, is_primary
+                        FROM transport.source_links
+                        WHERE entity_type = 'route' AND entity_id = ${row.id}
+                        ORDER BY is_primary DESC, source_name ASC
+                        LIMIT 50
+                    ) src
+                ), '[]'::jsonb) AS sources,
+                COALESCE((
+                    SELECT jsonb_agg(jsonb_build_object(
+                        'headsign', v.headsign,
+                        'destination_name', v.destination_name,
+                        'estimated_duration_min', v.estimated_duration_min,
+                        'normalized_data', v.normalized_data,
+                        'stop_count', (SELECT count(*) FROM transport.route_stops rs WHERE rs.route_variant_id = v.id)
+                    ) ORDER BY v.variant_code ASC)
+                    FROM transport.route_variants v
+                    WHERE v.route_id = ${row.id} AND v.deleted_at IS NULL
+                ), '[]'::jsonb) AS variants,
+                COALESCE((
+                    SELECT jsonb_agg(jsonb_build_object(
+                        'name_mm', sn.name_mm,
+                        'name_en', sn.name_en,
+                        'name', sn.name
+                    ))
+                    FROM (
+                        SELECT DISTINCT s.name_mm, s.name_en, s.name
+                        FROM transport.stops s
+                        JOIN transport.route_stops rs ON rs.stop_id = s.id
+                        JOIN transport.route_variants rv ON rv.id = rs.route_variant_id
+                        WHERE rv.route_id = ${row.id}
+                          AND rv.deleted_at IS NULL
+                          AND s.deleted_at IS NULL
+                    ) sn
+                ), '[]'::jsonb) AS stop_names
+        `;
+        const enrichment = enrichmentRows[0] ?? {
+            names: [],
+            sources: [],
+            variants: [],
+            stop_names: [],
+        };
+        const nameRows = enrichment.names ?? [];
+        const sourceRows = enrichment.sources ?? [];
+        const variantRows = enrichment.variants ?? [];
+        const stopNameRows = enrichment.stop_names ?? [];
 
         const pickLocalizedName = (lang: "my" | "en"): string | null =>
             nameRows.find((n) => (n.language_code ?? "").trim().toLowerCase() === lang)?.name ??

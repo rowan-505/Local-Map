@@ -269,6 +269,7 @@ WITH required_targets(entity_family, table_name) AS (
     VALUES
         ('place', 'staging_place_candidates'),
         ('place_name', 'staging_place_name_candidates'),
+        ('settlement', 'staging_settlement_candidates'),
         ('place_address_link', 'staging_place_address_link_candidates'),
         ('road', 'staging_road_candidates'),
         ('road_name', 'staging_road_name_candidates'),
@@ -734,6 +735,8 @@ BEGIN
     );
 END
 $stage05_classify_source_features$;
+
+\ir pipeline_stage05_settlements.sql
 
 DO $stage05_point_extraction$
 DECLARE

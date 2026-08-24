@@ -85,11 +85,13 @@ Override: `SKIP_PROD_MIRROR_PREFLIGHT=true` (emergency only).
 
 ## Mirrored families (slim)
 
-Core: places (+ names/sources), streets (+ names), buildings, admin (+ names), landuse, water lines/polygons, addresses (+ components)  
-Ref/system: source types, POI categories, road classes, admin levels, address component types, building types, source registry/snapshots
+Core: places (+ names/sources), streets (+ names), buildings, admin (+ names), landuse, water lines/polygons, addresses (+ components), settlements (optional until supabase migration 192 exists in production)  
+Ref/system: source types, POI categories, settlement types, road classes, admin levels, address component types, building types, source registry/snapshots
 
 ## Required for F2
 
 - `prod_mirror.core_places`
 - `prod_mirror.core_streets`
 - `prod_mirror.core_buildings`
+
+`prod_mirror.core_settlements` is optional. If production does not yet have `core.core_settlements`, refresh records WARN and continues. Existing admin/road/place mirror behavior is unchanged.

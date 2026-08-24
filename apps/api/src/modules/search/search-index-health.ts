@@ -35,6 +35,7 @@ export type SearchIndexFamilyHealth = SearchIndexHealthRow & SearchIndexHealthIs
 /** Health entity_family → rebuild view key for `search.rebuild_search_documents`. */
 export const SEARCH_HEALTH_FAMILY_REBUILD_VIEWS: Readonly<Record<string, string>> = {
     places: "places",
+    settlements: "settlements",
     admin_areas: "admin_areas",
     street_groups: "street_groups",
     addresses: "addresses",
@@ -54,6 +55,7 @@ WITH families AS (
     FROM (
         VALUES
             ('places', 'place'),
+            ('settlements', 'settlement'),
             ('admin_areas', 'admin_area'),
             ('street_groups', 'street_group'),
             ('addresses', 'address'),
@@ -70,6 +72,9 @@ WITH families AS (
 canonical AS MATERIALIZED (
     SELECT entity_type, entity_id::bigint AS entity_id, source_updated_at
     FROM search.v_search_places_source
+    UNION ALL
+    SELECT entity_type, entity_id::bigint, source_updated_at
+    FROM search.v_search_settlements_source
     UNION ALL
     SELECT entity_type, entity_id::bigint, source_updated_at
     FROM search.v_search_admin_areas_source

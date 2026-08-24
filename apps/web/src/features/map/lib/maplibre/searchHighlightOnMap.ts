@@ -36,6 +36,7 @@ const EMPTY_FC: GeoJSON.FeatureCollection = {
 /** Point-like results render a pin directly; everything else fetches geometry on select. */
 const POINT_LIKE_ENTITY_TYPES: ReadonlySet<SearchEntityType> = new Set([
   'place',
+  'settlement',
   'address',
   'bus_stop',
   'transport_stop',

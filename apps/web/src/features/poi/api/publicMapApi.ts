@@ -74,6 +74,7 @@ export type SearchCameraTarget =
 /** Entity kinds returned by unified search; mirrors the API allowlist (+ `plus_code`). */
 export type SearchEntityType =
   | 'place'
+  | 'settlement'
   | 'address'
   | 'transport_stop'
   | 'transport_terminal'
@@ -95,6 +96,7 @@ export type SearchEntityType =
 /** Entity types that have a fetchable geometry endpoint (everything except `plus_code`). */
 const GEOMETRY_SEARCH_ENTITY_TYPES: ReadonlySet<SearchEntityType> = new Set([
   'place',
+  'settlement',
   'address',
   'transport_stop',
   'transport_terminal',

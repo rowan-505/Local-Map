@@ -67,6 +67,7 @@ CREATE TEMP TABLE report18_family (
 
 INSERT INTO report18_family VALUES
     ('places', 'staging_place_candidates'),
+    ('settlements', 'staging_settlement_candidates'),
     ('roads', 'staging_road_candidates'),
     ('buildings', 'staging_building_candidates'),
     ('admin_areas', 'staging_admin_area_candidates'),

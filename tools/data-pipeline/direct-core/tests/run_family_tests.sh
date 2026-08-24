@@ -15,7 +15,7 @@ else
 fi
 
 families=(
-  places roads buildings landuse water_lines water_polygons routing_barriers
+  places roads buildings landuse water_lines water_polygons routing_barriers settlements
 )
 
 for family in "${families[@]}"; do
@@ -43,10 +43,32 @@ for family in "${families[@]}"; do
     grep -q 'is_geometry_manually_edited' "${loader}"
     grep -q 'is_attributes_manually_edited' "${loader}"
   fi
+  if [[ "${family}" == "settlements" ]]; then
+    grep -q 'core.core_settlements' "${loader}"
+    grep -q 'ref.ref_settlement_types' "${loader}"
+    grep -q 'township_id required' "${loader}"
+    grep -q 'invalid Point geometry' "${loader}"
+    if grep -q 'INSERT INTO core.core_places' "${loader}"; then
+      echo "${family}: loader must not write core_places" >&2
+      exit 1
+    fi
+    if grep -q 'INSERT INTO core.core_admin_areas' "${loader}"; then
+      echo "${family}: loader must not write core_admin_areas" >&2
+      exit 1
+    fi
+  fi
 
   grep -q "import_class IN('safe_new','safe_update')" "${exporter}"
   grep -q "import_class='invalid'" "${exporter}"
 done
+
+grep -q 'EXECUTE_SETTLEMENTS_DIRECT_CORE' "${DIRECT_DIR}/run_direct_core_import.sh"
+grep -q "'core_settlements', 'settlements', false, false," \
+  "${REPO_ROOT}/tools/data-pipeline/prod-mirror/03_refresh_prod_mirror.sql"
+grep -q "'core_places', 'places', true, true," \
+  "${REPO_ROOT}/tools/data-pipeline/prod-mirror/03_refresh_prod_mirror.sql"
+grep -q "'core_streets', 'roads', true, true," \
+  "${REPO_ROOT}/tools/data-pipeline/prod-mirror/03_refresh_prod_mirror.sql"
 
 if find "${REPO_ROOT}/tools/data-pipeline/import-work" -type f \
     ! -path '*/reports/*' -print -quit | grep -q .; then
@@ -79,3 +101,9 @@ PAGER=cat psql "${LOCAL_DATABASE_URL}" \
   -f "${SCRIPT_DIR}/family_contract_tests.sql"
 
 echo "direct-core family contract tests: PASS"
+
+PAGER=cat psql "${LOCAL_DATABASE_URL}" \
+  -X -v ON_ERROR_STOP=1 \
+  -f "${SCRIPT_DIR}/settlements_tiny_sample.sql"
+
+echo "direct-core settlements tiny sample: PASS"

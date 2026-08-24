@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { canSubmitTransportStopMerge } from "./reviewMapMergeCompare.js";
+import {
+    canSubmitTransportStopMerge,
+    defaultFieldSourcesForCanonical,
+} from "./reviewMapMergeCompare.js";
 import {
     formatTransportStopMergeError,
     formatTransportStopMergeErrorOverlay,
@@ -33,6 +36,19 @@ describe("canSubmitTransportStopMerge", () => {
                 acknowledgedSameVariantOccurrences: false,
             }),
             true,
+        );
+    });
+});
+
+describe("defaultFieldSourcesForCanonical", () => {
+    it("selects every differing field from the candidate when candidate survives", () => {
+        assert.deepEqual(
+            defaultFieldSourcesForCanonical(["geom", "admin_area_id", "name_mm"], "candidate"),
+            {
+                geom: "candidate",
+                admin_area_id: "candidate",
+                name_mm: "candidate",
+            },
         );
     });
 });

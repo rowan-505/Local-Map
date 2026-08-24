@@ -266,15 +266,88 @@ AS $$
     LIMIT 1;
 $$;
 
+-- Canonical CoreMap settlement types (city/town/village/local_area).
+-- Does NOT change pipeline_normalize_settlement_place, which remains 1:1 OSM for places.
+CREATE OR REPLACE FUNCTION system.pipeline_canonical_settlement_type(p_place text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+AS $$
+    SELECT CASE lower(btrim(coalesce(p_place, '')))
+        WHEN 'city' THEN 'city'
+        WHEN 'town' THEN 'town'
+        WHEN 'village' THEN 'village'
+        WHEN 'hamlet' THEN 'village'
+        WHEN 'quarter' THEN 'local_area'
+        WHEN 'suburb' THEN 'local_area'
+        WHEN 'neighbourhood' THEN 'local_area'
+        WHEN 'neighborhood' THEN 'local_area'
+        WHEN 'locality' THEN 'local_area'
+        WHEN 'local_area' THEN 'local_area'
+        ELSE NULL
+    END;
+$$;
+
+CREATE OR REPLACE FUNCTION system.pipeline_is_canonical_settlement_type(p_type text)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+AS $$
+    SELECT lower(btrim(coalesce(p_type, ''))) = ANY (ARRAY['city', 'town', 'village', 'local_area']::text[]);
+$$;
+
+CREATE OR REPLACE FUNCTION system.pipeline_canonical_settlement_duplicate_threshold_m(p_type text)
+RETURNS numeric
+LANGUAGE sql
+IMMUTABLE
+AS $$
+    SELECT CASE lower(btrim(coalesce(p_type, '')))
+        WHEN 'city' THEN 500
+        WHEN 'town' THEN 300
+        WHEN 'village' THEN 100
+        WHEN 'local_area' THEN 80
+        ELSE NULL
+    END;
+$$;
+
+CREATE OR REPLACE FUNCTION system.pipeline_parse_osm_population(p_raw text)
+RETURNS integer
+LANGUAGE plpgsql
+IMMUTABLE
+AS $$
+DECLARE
+    v_digits text;
+BEGIN
+    v_digits := regexp_replace(coalesce(p_raw, ''), '[^0-9]', '', 'g');
+    IF v_digits IS NULL OR v_digits = '' THEN
+        RETURN NULL;
+    END IF;
+    IF length(v_digits) > 9 THEN
+        RETURN NULL;
+    END IF;
+    RETURN v_digits::integer;
+EXCEPTION
+    WHEN others THEN
+        RETURN NULL;
+END;
+$$;
+
 -- Final settlement-aware import class (locality → review when would be safe_new).
 -- p_skip_admin_gate: Stage 08b sets true so Stage 08c can assign prod township ids
 -- before Stage 08d enforces the admin-required → conflict rule.
+-- p_source_place_type: original OSM place=* (settlements family). Places callers omit it.
+-- Drop both arities: adding a defaulted 6th argument would otherwise leave the
+-- 5-argument overload in place and make 5-arg calls ambiguous.
+DROP FUNCTION IF EXISTS system.pipeline_decide_settlement_import_class(text, text, text, bigint, boolean);
+DROP FUNCTION IF EXISTS system.pipeline_decide_settlement_import_class(text, text, text, bigint, boolean, text);
+
 CREATE OR REPLACE FUNCTION system.pipeline_decide_settlement_import_class(
     p_base_class text,
     p_class_code text,
     p_validation_status text DEFAULT NULL,
     p_admin_area_id bigint DEFAULT NULL,
-    p_skip_admin_gate boolean DEFAULT false
+    p_skip_admin_gate boolean DEFAULT false,
+    p_source_place_type text DEFAULT NULL
 )
 RETURNS text
 LANGUAGE plpgsql
@@ -282,10 +355,13 @@ IMMUTABLE
 AS $$
 DECLARE
     v_base text := lower(btrim(coalesce(p_base_class, '')));
-    v_place text := system.pipeline_normalize_settlement_place(p_class_code);
+    v_place text := system.pipeline_normalize_settlement_place(
+        coalesce(nullif(btrim(p_source_place_type), ''), p_class_code)
+    );
     v_val text := lower(btrim(coalesce(p_validation_status, '')));
 BEGIN
-    IF NOT system.pipeline_is_settlement_place(p_class_code) THEN
+    IF NOT system.pipeline_is_settlement_place(coalesce(nullif(btrim(p_source_place_type), ''), p_class_code))
+       AND NOT system.pipeline_is_canonical_settlement_type(p_class_code) THEN
         RETURN v_base;
     END IF;
 
@@ -294,13 +370,16 @@ BEGIN
     END IF;
 
     IF NOT coalesce(p_skip_admin_gate, false)
-       AND system.pipeline_settlement_requires_admin(p_class_code)
+       AND (
+           system.pipeline_settlement_requires_admin(v_place)
+           OR system.pipeline_is_canonical_settlement_type(p_class_code)
+       )
        AND p_admin_area_id IS NULL
        AND v_base IN ('safe_new', 'safe_update', 'unchanged') THEN
         RETURN 'conflict';
     END IF;
 
-    IF system.pipeline_settlement_force_review(p_class_code)
+    IF system.pipeline_settlement_force_review(v_place)
        AND v_base = 'safe_new' THEN
         RETURN 'conflict';
     END IF;
@@ -308,4 +387,123 @@ BEGIN
     -- Neighbourhood/quarter: denser area — keep spatial duplicates as review (already duplicate).
     RETURN v_base;
 END;
+$$;
+
+-- Collapse whitespace for OSM node/polygon name comparison. Does not translate.
+CREATE OR REPLACE FUNCTION system.pipeline_settlement_normalized_name(p_name text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+AS $$
+    SELECT nullif(lower(btrim(regexp_replace(coalesce(p_name, ''), '\s+', ' ', 'g'))), '');
+$$;
+
+-- Direct OSM identity for settlement pairing. Wikidata first, else wikipedia.
+CREATE OR REPLACE FUNCTION system.pipeline_settlement_source_key(p_tags jsonb)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+AS $$
+    SELECT coalesce(
+        nullif(lower(btrim(coalesce(p_tags->>'wikidata', ''))), ''),
+        CASE
+            WHEN nullif(btrim(coalesce(p_tags->>'wikipedia', '')), '') IS NULL THEN NULL
+            ELSE 'wikipedia:' || lower(btrim(p_tags->>'wikipedia'))
+        END
+    );
+$$;
+
+-- Deterministic OSM node+polygon pair rule. NULL = do not auto-merge.
+-- Preference: source_id, then same name + containment, then same name + proximity + same township.
+-- Same name alone is never enough.
+CREATE OR REPLACE FUNCTION system.pipeline_settlement_osm_pair_rule(
+    p_node_source_key text,
+    p_poly_source_key text,
+    p_node_name_norm text,
+    p_poly_name_norm text,
+    p_node_class text,
+    p_poly_class text,
+    p_node_contained boolean,
+    p_within_threshold boolean,
+    p_node_township_id bigint,
+    p_poly_township_id bigint,
+    p_node_township_status text,
+    p_poly_township_status text
+)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+AS $$
+    SELECT CASE
+        WHEN lower(btrim(coalesce(p_node_class, '')))
+             IS DISTINCT FROM lower(btrim(coalesce(p_poly_class, '')))
+            THEN NULL
+        WHEN nullif(p_node_source_key, '') IS NOT NULL
+             AND p_node_source_key = p_poly_source_key
+            THEN 'source_id'
+        WHEN nullif(p_node_name_norm, '') IS NOT NULL
+             AND p_node_name_norm = p_poly_name_norm
+             AND coalesce(p_node_contained, false)
+            THEN 'name_contained'
+        WHEN nullif(p_node_name_norm, '') IS NOT NULL
+             AND p_node_name_norm = p_poly_name_norm
+             AND coalesce(p_within_threshold, false)
+             AND lower(btrim(coalesce(p_node_township_status, ''))) = 'assigned'
+             AND lower(btrim(coalesce(p_poly_township_status, ''))) = 'assigned'
+             AND p_node_township_id IS NOT NULL
+             AND p_node_township_id = p_poly_township_id
+            THEN 'name_proximity_township'
+        ELSE NULL
+    END;
+$$;
+
+-- True when a node/polygon pair is close enough to report, but not safe to merge.
+CREATE OR REPLACE FUNCTION system.pipeline_settlement_osm_pair_needs_review(
+    p_node_source_key text,
+    p_poly_source_key text,
+    p_node_name_norm text,
+    p_poly_name_norm text,
+    p_node_class text,
+    p_poly_class text,
+    p_node_contained boolean,
+    p_within_threshold boolean,
+    p_within_review_distance boolean,
+    p_node_township_id bigint,
+    p_poly_township_id bigint,
+    p_node_township_status text,
+    p_poly_township_status text
+)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+AS $$
+    SELECT
+        system.pipeline_settlement_osm_pair_rule(
+            p_node_source_key,
+            p_poly_source_key,
+            p_node_name_norm,
+            p_poly_name_norm,
+            p_node_class,
+            p_poly_class,
+            p_node_contained,
+            p_within_threshold,
+            p_node_township_id,
+            p_poly_township_id,
+            p_node_township_status,
+            p_poly_township_status
+        ) IS NULL
+        AND (
+            (
+                nullif(p_node_source_key, '') IS NOT NULL
+                AND p_node_source_key = p_poly_source_key
+            )
+            OR (
+                nullif(p_node_name_norm, '') IS NOT NULL
+                AND p_node_name_norm = p_poly_name_norm
+                AND (
+                    coalesce(p_node_contained, false)
+                    OR coalesce(p_within_review_distance, false)
+                )
+            )
+        );
 $$;

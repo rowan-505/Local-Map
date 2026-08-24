@@ -143,7 +143,7 @@ IMPORT_REVIEW_SCHEMA="${IMPORT_REVIEW_SCHEMA:-import_review}"
 
 # ENTITY_FAMILIES: all | comma-separated pipeline slugs (default all).
 PIPELINE_ENTITY_FAMILIES_ALLOWED=(
-  places roads buildings landuse protected_areas water_lines water_polygons coastlines
+  places settlements roads buildings landuse protected_areas water_lines water_polygons coastlines
   admin_areas bus_stops bus_routes bus_route_variants bus_route_stops
   addresses address_components place_address_links
   routing_barriers routing_roads routing_turn_restrictions

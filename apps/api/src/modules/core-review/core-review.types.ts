@@ -3,6 +3,7 @@ import type { CoreReviewPaginationMeta } from "./core-review.pagination.js";
 export type CoreReviewEntitySlug =
     | "buildings"
     | "places"
+    | "settlements"
     | "streets"
     | "land-areas"
     | "water-lines"
@@ -51,4 +52,5 @@ export type CoreReviewListQuery = {
     landAreaClassId?: string;
     detailLevel?: "zone" | "parcel";
     cropCode?: string;
+    settlementType?: string;
 };

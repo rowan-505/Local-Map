@@ -6,11 +6,11 @@
 # Requires (from sourced import env): LOCAL_DATABASE_URL, PBF_PATH
 # Optional:
 #   OSM2PGSQL (default: osm2pgsql)
-#   OSMIUM (default: osmium) — required for entity-specific imports (admin_areas / roads)
+#   OSMIUM (default: osmium) — required for entity-specific imports (admin_areas / roads / settlements)
 #   TMP_IMPORT_SCHEMA (default: tmp_import)
 #   OSM2PGSQL_EXTRA_ARGS
 #   CHECKSUM (optional; runner exports sha256 of PBF for prefilter cache keys)
-#   ENTITY_FAMILIES (default: all) — when admin_areas or roads only, auto-selects
+#   ENTITY_FAMILIES (default: all) — when admin_areas, roads, or settlements only, auto-selects
 #     entity-specific Lua unless OSM2PGSQL_FLEX_FILE is explicitly set.
 #   OSM2PGSQL_FLEX_FILE — optional override for flex Lua config path
 #
@@ -45,6 +45,7 @@ resolve_tmp_import_mode() {
     all|'') echo "full" ;;
     admin_areas) echo "admin_areas_only" ;;
     roads) echo "roads_only" ;;
+    settlements) echo "settlements_only" ;;
     *) echo "full" ;;
   esac
 }
@@ -61,6 +62,9 @@ resolve_osm2pgsql_flex_file() {
       ;;
     roads_only)
       printf '%s\n' "${SCRIPT_DIR}/lua/osm2pgsql_roads_only.lua"
+      ;;
+    settlements_only)
+      printf '%s\n' "${SCRIPT_DIR}/lua/osm2pgsql_settlements_only.lua"
       ;;
     *)
       printf '%s\n' "${SCRIPT_DIR}/lua/osm2pgsql_tmp_import.lua"
@@ -118,6 +122,10 @@ resolve_stage02_pbf() {
       ;;
     roads_only)
       "${OSMIUM_BIN}" tags-filter --progress -O -o "${STAGE02_PBF}" "${PBF_PATH}" w/highway
+      ;;
+    settlements_only)
+      "${OSMIUM_BIN}" tags-filter --progress -O -o "${STAGE02_PBF}" "${PBF_PATH}" \
+        nwr/place=city,town,village,hamlet,suburb,quarter,neighbourhood,neighborhood,locality
       ;;
     *)
       echo "error: unsupported tmp import mode for prefilter: ${TMP_IMPORT_MODE}" >&2

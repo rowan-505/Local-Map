@@ -152,6 +152,7 @@ INSERT INTO stage06_family_config (
 )
 VALUES
     ('places', 'staging_place_candidates', true, 'point_geom', NULL, 'footprint_geom', NULL, 10, 5, NULL, NULL, NULL, NULL, NULL, false),
+    ('settlements', 'staging_settlement_candidates', false, 'point_geom', NULL, NULL, NULL, 10, NULL, NULL, NULL, NULL, NULL, NULL, false),
     ('roads', 'staging_road_candidates', true, NULL, NULL, 'geom', NULL, NULL, 5, 'length_m', 5, 0.05, NULL, NULL, false),
     ('buildings', 'staging_building_candidates', true, NULL, 'centroid', 'geom', NULL, 5, 5, NULL, NULL, NULL, 'area_m2', 0.10, false),
     ('landuse', 'staging_landuse_candidates', false, NULL, NULL, 'geom', NULL, NULL, 5, NULL, NULL, NULL, NULL, NULL, false),

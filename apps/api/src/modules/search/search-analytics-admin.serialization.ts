@@ -1,5 +1,6 @@
 const ENTITY_TYPE_LABELS: Readonly<Record<string, string>> = {
     place: "Place",
+    settlement: "Settlement",
     admin_area: "Admin area",
     street_group: "Street group",
     address: "Address",

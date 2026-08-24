@@ -199,7 +199,7 @@ export default function ReviewMapCandidateCompareDialog({
                 );
                 setPreview(result);
                 const differing = listDifferingMergeFields(result.fieldComparison);
-                setFieldChoices(defaultFieldSourcesForCanonical(differing, "current"));
+                setFieldChoices(defaultFieldSourcesForCanonical(differing, initialCanonicalSide));
             } catch (err) {
                 if (isAbortError(err)) {
                     return;

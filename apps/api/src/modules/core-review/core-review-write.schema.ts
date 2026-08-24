@@ -536,9 +536,80 @@ export const coreReviewPatchAdminAreaSchema = z
     })
     .refine((v) => Object.keys(v).length > 0, { message: "At least one field is required" });
 
+const settlementTypeCodeSchema = z.enum(["city", "town", "village", "local_area"]);
+
+const optionalNullableInt = z.preprocess((value) => {
+    if (value === undefined) return undefined;
+    if (value === null || value === "") return null;
+    if (typeof value === "number") return value;
+    const parsed = Number(String(value).trim());
+    return Number.isFinite(parsed) ? parsed : value;
+}, z.number().int().min(0).nullable().optional());
+
+const settlementWriteFields = {
+    canonicalName: optionalTrimmedString,
+    canonical_name: optionalTrimmedString,
+    nameMm: nullableTrimmedString,
+    name_mm: nullableTrimmedString,
+    nameEn: nullableTrimmedString,
+    name_en: nullableTrimmedString,
+    settlementType: settlementTypeCodeSchema.optional(),
+    settlement_type: settlementTypeCodeSchema.optional(),
+    settlementTypeCode: settlementTypeCodeSchema.optional(),
+    settlement_type_code: settlementTypeCodeSchema.optional(),
+    settlementTypeId: optionalBigintId,
+    settlement_type_id: optionalBigintId,
+    townshipId: nullableBigintId,
+    township_id: nullableBigintId,
+    adminAreaId: nullableBigintId,
+    admin_area_id: nullableBigintId,
+    population: optionalNullableInt,
+    sourceTypeId: nullableBigintId,
+    source_type_id: nullableBigintId,
+    ...coreReviewVerificationWriteFields,
+    geometry: pointFieldSchema().optional(),
+    geom: pointFieldSchema().optional(),
+    pointGeom: pointFieldSchema().optional(),
+    point_geom: pointFieldSchema().optional(),
+};
+
+export const coreReviewCreateSettlementSchema = z
+    .object({
+        ...settlementWriteFields,
+        canonicalName: optionalTrimmedString,
+        canonical_name: optionalTrimmedString,
+    })
+    .refine(
+        (v) => Boolean(v.canonicalName?.trim() || v.canonical_name?.trim()),
+        { message: "canonical_name is required", path: ["canonicalName"] },
+    )
+    .refine(
+        (v) =>
+            v.settlementType != null ||
+            v.settlement_type != null ||
+            v.settlementTypeCode != null ||
+            v.settlement_type_code != null ||
+            v.settlementTypeId != null ||
+            v.settlement_type_id != null,
+        { message: "settlement type is required", path: ["settlementType"] },
+    )
+    .refine(
+        (v) =>
+            v.geometry !== undefined ||
+            v.geom !== undefined ||
+            v.pointGeom !== undefined ||
+            v.point_geom !== undefined,
+        { message: "point geometry is required", path: ["geometry"] },
+    );
+
+export const coreReviewPatchSettlementSchema = z
+    .object(settlementWriteFields)
+    .refine((v) => Object.keys(v).length > 0, { message: "At least one field is required" });
+
 const CREATE_SCHEMAS: Record<CoreReviewEntitySlug, z.ZodType> = {
     buildings: coreReviewCreateBuildingSchema,
     places: coreReviewCreatePlaceSchema,
+    settlements: coreReviewCreateSettlementSchema,
     streets: coreReviewCreateStreetSchema,
     "land-areas": coreReviewCreateLandAreaSchema,
     "water-lines": coreReviewCreateWaterLineSchema,
@@ -550,6 +621,7 @@ const CREATE_SCHEMAS: Record<CoreReviewEntitySlug, z.ZodType> = {
 const PATCH_SCHEMAS: Record<CoreReviewEntitySlug, z.ZodType> = {
     buildings: coreReviewPatchBuildingSchema,
     places: coreReviewPatchPlaceSchema,
+    settlements: coreReviewPatchSettlementSchema,
     streets: coreReviewPatchStreetSchema,
     "land-areas": coreReviewPatchLandAreaSchema,
     "water-lines": coreReviewPatchWaterLineSchema,
@@ -627,6 +699,8 @@ const WRITE_ID_ALIAS_PAIRS: [string, string][] = [
     ["roadClassId", "road_class_id"],
     ["buildingTypeId", "building_type_id"],
     ["categoryId", "category_id"],
+    ["townshipId", "township_id"],
+    ["settlementTypeId", "settlement_type_id"],
 ];
 
 const WRITE_BOUNDARY_ALIAS_PAIRS: [string, string][] = [

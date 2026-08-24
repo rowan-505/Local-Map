@@ -128,6 +128,7 @@ BEGIN
                 (120, 'routing_road', 'staging_routing_road_candidates'),
                 (130, 'routing_turn_restriction', 'staging_routing_turn_restriction_candidates'),
                 (200, 'place', 'staging_place_candidates'),
+                (205, 'settlement', 'staging_settlement_candidates'),
                 (210, 'address', 'staging_address_candidates'),
                 (220, 'road', 'staging_road_candidates'),
                 (230, 'building', 'staging_building_candidates'),

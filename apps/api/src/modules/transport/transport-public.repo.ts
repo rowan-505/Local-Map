@@ -1,7 +1,8 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 
 import { transportStopNameLabelSelectSql } from "../../lib/entity-names/transport-stop-detail-select-sql.js";
-import { TransportNotFoundError, TransportSchemaUnavailableError } from "./transport.errors.js";
+import { TransportNotFoundError } from "./transport.errors.js";
+import { assertTransportSchemaAvailable } from "./transport-schema-guard.js";
 import {
     classifyTransportStopLookupId,
     classifyTransportTerminalLookupId,
@@ -221,11 +222,7 @@ export class TransportPublicRepository {
     constructor(private readonly prisma: PrismaClient) {}
 
     private async assertSchemaAvailable(): Promise<void> {
-        try {
-            await this.prisma.$queryRaw`SELECT 1 FROM transport.routes LIMIT 1`;
-        } catch {
-            throw new TransportSchemaUnavailableError();
-        }
+        return assertTransportSchemaAvailable(this.prisma);
     }
 
     async listRoutes(

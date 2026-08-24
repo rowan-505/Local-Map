@@ -37,6 +37,7 @@ import {
 /** Light views: everything cheap (no street_groups). Keeps `addresses`. */
 const LIGHT_VIEWS = [
     "places",
+    "settlements",
     "admin_areas",
     "addresses",
     "bus_stops",

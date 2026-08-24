@@ -181,6 +181,128 @@ BEGIN
 END
 $stage08d$;
 
+DO $stage08d_settlements$
+DECLARE
+    ctx stage08d_context%ROWTYPE;
+    v_reclass bigint;
+    v_still_null bigint;
+    v_has_reason boolean;
+    v_set_reason text;
+BEGIN
+    SELECT * INTO ctx FROM stage08d_context LIMIT 1;
+
+    IF NOT pg_temp.pipeline_entity_family_enabled('settlements') THEN
+        INSERT INTO stage08d_report VALUES (
+            'settlements_family_skipped', 0, 'INFO', 'settlements family not enabled'
+        );
+        RETURN;
+    END IF;
+
+    IF to_regclass(format('%I.staging_settlement_candidates', ctx.staging_schema)) IS NULL THEN
+        INSERT INTO stage08d_report VALUES (
+            'settlements_table_skipped', 0, 'WARN', 'staging_settlement_candidates missing'
+        );
+        RETURN;
+    END IF;
+
+    SELECT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = ctx.staging_schema
+          AND table_name = 'staging_settlement_candidates'
+          AND column_name = 'import_class_reason'
+    ) INTO v_has_reason;
+
+    IF v_has_reason THEN
+        v_set_reason := $r$
+            import_class_reason = jsonb_strip_nulls(
+                coalesce(s.import_class_reason, '{}'::jsonb)
+                || jsonb_build_object(
+                    'review_reason', CASE
+                        WHEN d.new_class = 'conflict'
+                            THEN 'settlement_admin_missing_after_prod_assign'
+                        ELSE 'settlement_reclass_after_prod_admin'
+                    END,
+                    'final_action', system.pipeline_import_class_to_final_action(d.new_class),
+                    'settlement_reclass_stage', '08d',
+                    'settlement_reclass_from', d.base_class,
+                    'settlement_reclass_to', d.new_class
+                )
+            ),
+        $r$;
+    ELSE
+        v_set_reason := '';
+    END IF;
+
+    EXECUTE format(
+        $u$
+        WITH decided AS (
+            SELECT
+                s.id,
+                s.import_class AS base_class,
+                s.class_code,
+                system.pipeline_decide_settlement_import_class(
+                    s.import_class,
+                    s.class_code,
+                    s.validation_status,
+                    coalesce(
+                        nullif(s.normalized_data->>'admin_area_id', '')::bigint,
+                        nullif(s.normalized_data->>'core_admin_area_id', '')::bigint
+                    ),
+                    false,
+                    coalesce(s.source_place_type, s.normalized_data->>'source_place_type')
+                ) AS new_class
+            FROM %I.staging_settlement_candidates AS s
+            WHERE s.source_snapshot_id = $1
+              AND s.import_class IS NOT NULL
+              AND lower(btrim(s.import_class)) NOT IN ('invalid', 'pmtiles_only')
+        ),
+        upd AS (
+            UPDATE %I.staging_settlement_candidates AS s
+            SET
+                import_class = d.new_class,
+                %s
+                updated_at = now()
+            FROM decided AS d
+            WHERE s.id = d.id
+              AND d.new_class IS DISTINCT FROM d.base_class
+            RETURNING s.id
+        )
+        SELECT count(*) FROM upd
+        $u$,
+        ctx.staging_schema,
+        ctx.staging_schema,
+        v_set_reason
+    )
+    INTO v_reclass
+    USING ctx.source_snapshot_id;
+
+    EXECUTE format(
+        $n$
+        SELECT count(*)
+        FROM %I.staging_settlement_candidates AS s
+        WHERE s.source_snapshot_id = $1
+          AND nullif(s.normalized_data->>'admin_area_id', '') IS NULL
+          AND lower(btrim(coalesce(s.import_class, ''))) IN (
+              'safe_new', 'safe_update', 'unchanged'
+          )
+        $n$,
+        ctx.staging_schema
+    )
+    INTO v_still_null
+    USING ctx.source_snapshot_id;
+
+    INSERT INTO stage08d_report VALUES (
+        'canonical_settlement_reclassed', coalesce(v_reclass, 0), 'PASS',
+        'settlements family import_class updated after prod township assign'
+    );
+    INSERT INTO stage08d_report VALUES (
+        'canonical_settlements_still_safe_without_admin', coalesce(v_still_null, 0),
+        CASE WHEN coalesce(v_still_null, 0) = 0 THEN 'PASS' ELSE 'FAIL' END,
+        'must be 0 when township assignment ran'
+    );
+END
+$stage08d_settlements$;
+
 SELECT * FROM stage08d_report ORDER BY metric;
 
 COMMIT;

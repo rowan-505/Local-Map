@@ -143,6 +143,7 @@ INSERT INTO stage14_family_manifest (entity_family, staging_table, matched_core_
 VALUES
     ('buildings', 'staging_building_candidates', 'core_buildings'),
     ('places', 'staging_place_candidates', 'core_places'),
+    ('settlements', 'staging_settlement_candidates', 'core_settlements'),
     ('roads', 'staging_road_candidates', 'core_streets'),
     ('landuse', 'staging_landuse_candidates', 'core_land_areas'),
     ('water_lines', 'staging_water_line_candidates', 'core_water_lines'),

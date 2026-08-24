@@ -37,7 +37,7 @@ done
 [[ "${STAGING_SCHEMA}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]||{ echo "error: invalid staging schema" >&2;exit 2; }
 
 case "${FAMILY}" in
- places|roads|buildings|landuse|water_lines|water_polygons|routing_barriers);;
+ places|roads|buildings|landuse|water_lines|water_polygons|routing_barriers|settlements);;
  *)echo "error: unsupported family: ${FAMILY}" >&2;exit 2;;
 esac
 

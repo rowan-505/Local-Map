@@ -6,6 +6,7 @@ import {
 /** Unified search document entity types supported by incremental sync. */
 export const UNIFIED_SEARCH_SYNC_ENTITY_TYPES = [
     "place",
+    "settlement",
     "admin_area",
     "street_group",
     ...CANONICAL_TRANSPORT_SEARCH_ENTITY_TYPES,

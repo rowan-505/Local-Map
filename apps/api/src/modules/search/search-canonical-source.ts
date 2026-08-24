@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 /** Entity types indexed in `search.search_documents` (canonical). */
 export const SEARCH_DOCUMENT_ENTITY_TYPES = [
     "place",
+    "settlement",
     "admin_area",
     "street_group",
     "address",
@@ -25,6 +26,7 @@ export const SEARCH_ENTITY_TYPE_SOURCE_VIEWS: Readonly<
     Record<SearchDocumentEntityType, string>
 > = {
     place: "search.v_search_places_source",
+    settlement: "search.v_search_settlements_source",
     admin_area: "search.v_search_admin_areas_source",
     street_group: "search.v_search_street_groups_source",
     address: "search.v_search_addresses_source",

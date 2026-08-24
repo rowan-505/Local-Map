@@ -130,6 +130,7 @@ TRUNCATE stage08_family_manifest;
 INSERT INTO stage08_family_manifest (entity_family, staging_table)
 VALUES
     ('places', 'staging_place_candidates'),
+    ('settlements', 'staging_settlement_candidates'),
     ('roads', 'staging_road_candidates'),
     ('buildings', 'staging_building_candidates'),
     ('landuse', 'staging_landuse_candidates'),

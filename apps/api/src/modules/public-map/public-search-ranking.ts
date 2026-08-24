@@ -36,6 +36,7 @@ export const UNIFIED_SEARCH_FUZZY_THRESHOLDS = {
 
 /** Small entity-type preference — must not override a strong exact text match. */
 export const UNIFIED_SEARCH_ENTITY_TYPE_WEIGHTS = {
+    settlement: 13,
     place: 12,
     admin_area: 10,
     address: 8,
@@ -516,6 +517,7 @@ export function buildUnifiedSearchScoreSql(params: BuildUnifiedSearchScoreSqlPar
 
     const entityTypeWeightSql = Prisma.sql`(
         CASE d.entity_type
+            WHEN 'settlement' THEN ${UNIFIED_SEARCH_ENTITY_TYPE_WEIGHTS.settlement}
             WHEN 'place' THEN ${UNIFIED_SEARCH_ENTITY_TYPE_WEIGHTS.place}
             WHEN 'admin_area' THEN ${UNIFIED_SEARCH_ENTITY_TYPE_WEIGHTS.admin_area}
             WHEN 'address' THEN ${UNIFIED_SEARCH_ENTITY_TYPE_WEIGHTS.address}
@@ -555,7 +557,7 @@ export function buildUnifiedSearchScoreSql(params: BuildUnifiedSearchScoreSqlPar
             WHEN 'imported_unreviewed' THEN ${review.imported_unreviewed}
             ELSE CASE
                 WHEN d.is_verified
-                     AND d.entity_type IN ('place', 'admin_area', 'address')
+                     AND d.entity_type IN ('place', 'settlement', 'admin_area', 'address')
                 THEN ${review.verifiedPlaceFallback}
                 ELSE 0
             END

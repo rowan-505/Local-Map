@@ -24,6 +24,7 @@ CREATE TEMP TABLE prod_mirror_table_manifest (
 INSERT INTO prod_mirror_table_manifest (remote_schema, table_name, required_for_f2, strongly_recommended)
 VALUES
     ('core', 'core_places', true, true),
+    ('core', 'core_settlements', false, false),
     ('core', 'core_place_names', false, true),
     ('core', 'core_place_sources', false, false),
     ('core', 'core_streets', true, true),
@@ -38,6 +39,7 @@ VALUES
     ('core', 'core_address_components', false, false),
     ('ref', 'ref_source_types', false, false),
     ('ref', 'ref_poi_categories', false, false),
+    ('ref', 'ref_settlement_types', false, false),
     ('ref', 'ref_road_classes', false, false),
     ('ref', 'ref_admin_levels', false, false),
     ('ref', 'ref_address_component_types', false, false),

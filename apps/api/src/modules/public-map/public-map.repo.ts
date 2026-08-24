@@ -1558,6 +1558,7 @@ export type TransportRouteMapPreviewRow = {
 
 export type GeometryEntityType =
     | "place"
+    | "settlement"
     | "address"
     | "transport_stop"
     | "transport_terminal"
@@ -1626,6 +1627,14 @@ const GEOMETRY_SOURCES: Record<
         activeCondition: "p.is_public = true AND p.deleted_at IS NULL",
         idColumn: "p.id",
         publicIdColumn: "p.public_id",
+        pointLike: true,
+    },
+    settlement: {
+        from: "core.core_settlements s",
+        geomExpr: "s.point_geom",
+        activeCondition: "s.is_public = true AND s.deleted_at IS NULL",
+        idColumn: "s.id",
+        publicIdColumn: "s.public_id",
         pointLike: true,
     },
     address: {

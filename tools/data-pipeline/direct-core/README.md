@@ -68,6 +68,7 @@ landuse
 water_lines
 water_polygons
 routing_barriers
+settlements
 ```
 
 The source snapshot must already exist in
@@ -86,6 +87,16 @@ Database prerequisites, in order:
    building names with canonical language code `my`).
 
 The direct-Core runner does not apply migrations.
+
+Settlements additionally require supabase migration `192_core_settlements.sql`
+on the write target before any apply. That migration is not applied by this
+workflow. Production apply also requires
+`EXECUTE_SETTLEMENTS_DIRECT_CORE=I_UNDERSTAND`. Automatic classes are only
+`safe_new` and `safe_update`. Conflict, needs_review, duplicate, invalid, and
+unresolved township rows stay out of the safe CSV.
+
+Do not run a nationwide settlements promotion yet. Use a tiny regional
+dry-run first.
 
 ## Local exports and rejection reports
 

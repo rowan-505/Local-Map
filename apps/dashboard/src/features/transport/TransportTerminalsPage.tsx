@@ -205,8 +205,14 @@ export default function TransportTerminalsPage() {
     const rangeStart = total === 0 ? 0 : (filters.page - 1) * PAGE_SIZE + 1;
     const rangeEnd = Math.min(filters.page * PAGE_SIZE, total);
 
-    const openTerminal = (publicId: string) => {
-        router.push(transportPath(`terminals/${publicId}`));
+    const openTerminal = (terminal: TransportTerminalListItem) => {
+        if (terminal.linked_stop?.public_id) {
+            router.push(
+                `${transportPath("stops")}?stop=${encodeURIComponent(terminal.linked_stop.public_id)}`,
+            );
+            return;
+        }
+        router.push(transportPath(`terminals/${terminal.public_id}`));
     };
 
     const resetAll = () => {
@@ -436,7 +442,7 @@ export default function TransportTerminalsPage() {
                                     return (
                                         <tr
                                             key={row.public_id}
-                                            onClick={() => openTerminal(row.public_id)}
+                                            onClick={() => openTerminal(row)}
                                             className="cursor-pointer border-b border-gray-100 hover:bg-gray-50"
                                         >
                                             <td className="px-3 py-2">

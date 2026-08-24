@@ -1,0 +1,3 @@
+classification,local_staging_id,external_id,canonical_name,name_mm,name_en,class_code,township_id,population,point_ewkt,source_refs,normalized_data
+safe_new,1,osm:node:1001,Test Village,စမ်းရွာ,Test Village,village,42,120,"SRID=4326;POINT(96.32 16.73)","{""osm_id"":""1001"",""osm_feature_type"":""node""}","{""admin_area_id"":42,""source_place_type"":""village""}"
+safe_update,2,osm:node:1002,Test Town,စမ်းမြို့,Test Town,town,42,800,"SRID=4326;POINT(96.33 16.74)","{""osm_id"":""1002"",""osm_feature_type"":""node""}","{""admin_area_id"":42,""source_place_type"":""town""}"

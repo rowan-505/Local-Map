@@ -20,6 +20,14 @@ const LIFECYCLE_BY_SLUG: Record<CoreReviewEntitySlug, CoreReviewLifecycleConfig>
         supportsSoftDelete: true,
         softDeleteExtraSets: [Prisma.sql`is_public = false`],
     },
+    settlements: {
+        table: "core.core_settlements",
+        idKind: "public_id",
+        hasDeletedAt: true,
+        hasIsActive: false,
+        supportsSoftDelete: true,
+        softDeleteExtraSets: [Prisma.sql`is_public = false`],
+    },
     buildings: {
         table: "core.core_buildings",
         idKind: "public_id",

@@ -832,6 +832,7 @@ export const getPublicSearchGeometrySchema = {
                 type: "string",
                 enum: [
                     "place",
+                    "settlement",
                     "address",
                     "bus_stop",
                     "admin_area",

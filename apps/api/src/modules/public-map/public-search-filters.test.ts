@@ -18,16 +18,18 @@ describe("resolvePublicSearchFilters", () => {
     it("all category preserves the full default entity surface", () => {
         const filters = resolvePublicSearchFilters({ category: "all" });
         assert.ok(filters.entityTypes.includes("place"));
+        assert.ok(filters.entityTypes.includes("settlement"));
         assert.ok(filters.entityTypes.includes("transport_stop"));
         assert.ok(filters.entityTypes.includes("building"));
         assert.equal(filters.transportModeFilter, null);
         assert.equal(filters.transportStopTypes, null);
     });
 
-    it("places category limits to place rows", () => {
+    it("places category includes POIs and canonical settlements", () => {
         const filters = resolvePublicSearchFilters({ category: "places" });
-        assert.deepEqual([...filters.entityTypes], ["place"]);
+        assert.deepEqual([...filters.entityTypes], ["place", "settlement"]);
         assert.ok(filters.expandedEntityTypes.includes("place"));
+        assert.ok(filters.expandedEntityTypes.includes("settlement"));
     });
 
     it("areas category limits to admin_area rows", () => {

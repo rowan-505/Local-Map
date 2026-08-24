@@ -68,6 +68,20 @@ VALUES
         false, true, true, true, true
     ),
     (
+        'core_settlements', 'settlements', false, false,
+        ARRAY[
+            'id', 'public_id', 'external_id', 'source_type_id', 'source_refs',
+            'canonical_name', 'name_mm', 'name_en', 'settlement_type_id', 'township_id',
+            'point_geom', 'footprint_geom', 'population', 'importance_score',
+            'is_public', 'is_verified', 'verification_status', 'verified_at',
+            'deleted_at', 'updated_at', 'created_at'
+        ],
+        'point_geom',
+        ARRAY['canonical_name', 'name_mm', 'name_en'],
+        ARRAY['settlement_type_id'],
+        false, true, true, true, true
+    ),
+    (
         'core_streets', 'roads', true, true,
         ARRAY[
             'id', 'public_id', 'external_id', 'source_type_id', 'source_refs',
@@ -196,6 +210,12 @@ VALUES
     (
         'ref_poi_categories', 'ref', false, false,
         ARRAY['id', 'code', 'name', 'parent_id'],
+        NULL, ARRAY['name', 'code'], ARRAY[]::text[],
+        false, false, false, false, false
+    ),
+    (
+        'ref_settlement_types', 'ref', false, false,
+        ARRAY['id', 'code', 'name', 'sort_order'],
         NULL, ARRAY['name', 'code'], ARRAY[]::text[],
         false, false, false, false, false
     ),

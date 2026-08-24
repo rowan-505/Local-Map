@@ -28,6 +28,7 @@ WITH families AS (
     FROM (
         VALUES
             ('places', 'place', 'search.v_search_places_source', 'core.core_places'),
+            ('settlements', 'settlement', 'search.v_search_settlements_source', 'core.core_settlements'),
             ('admin_areas', 'admin_area', 'search.v_search_admin_areas_source', 'core.core_admin_areas'),
             ('street_groups', 'street_group', 'search.v_search_street_groups_source', 'core.core_streets (grouped)'),
             ('addresses', 'address', 'search.v_search_addresses_source', 'core.core_addresses'),
@@ -44,6 +45,9 @@ WITH families AS (
 canonical AS (
     SELECT entity_type, entity_id::bigint AS entity_id, source_updated_at
     FROM search.v_search_places_source
+    UNION ALL
+    SELECT entity_type, entity_id::bigint, source_updated_at
+    FROM search.v_search_settlements_source
     UNION ALL
     SELECT entity_type, entity_id::bigint, source_updated_at
     FROM search.v_search_admin_areas_source

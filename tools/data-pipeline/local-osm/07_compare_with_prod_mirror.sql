@@ -170,6 +170,7 @@ INSERT INTO stage07_family_config (
 )
 VALUES
     ('places', 'staging_place_candidates', 'core_places', true, false, false, 'point_geom', 'footprint_geom', NULL, 'point_geom', 'geom', 30),
+    ('settlements', 'staging_settlement_candidates', 'core_settlements', false, false, false, 'point_geom', NULL, NULL, 'point_geom', NULL, 80),
     ('roads', 'staging_road_candidates', 'core_streets', true, false, false, NULL, 'geom', NULL, NULL, 'geom', 10),
     ('buildings', 'staging_building_candidates', 'core_buildings', true, false, false, NULL, 'geom', NULL, 'centroid', 'geom', 10),
     ('admin_areas', 'staging_admin_area_candidates', 'core_admin_areas', false, true, true, NULL, 'geom', NULL, 'centroid', 'geom', 10),

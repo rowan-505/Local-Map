@@ -56,6 +56,10 @@ AS $$
             'canonical_name', 'name', 'class_code', 'water_class_id', 'geom'
         ]
         WHEN 'routing_barriers' THEN ARRAY[]::text[]
+        WHEN 'settlements' THEN ARRAY[
+            'canonical_name', 'name', 'class_code', 'settlement_type_code',
+            'point_geom', 'admin_area_id', 'name_mm', 'name_en', 'population'
+        ]
         ELSE ARRAY['canonical_name', 'name', 'class_code', 'geom', 'point_geom']
     END;
 $$;
@@ -75,6 +79,7 @@ AS $$
         WHEN 'water_polygons' THEN 5
         WHEN 'water_lines' THEN 10
         WHEN 'routing_barriers' THEN 10
+        WHEN 'settlements' THEN 80
         ELSE 15
     END;
 $$;

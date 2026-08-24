@@ -187,4 +187,26 @@ export class CoreReviewRefValidator {
         }
         return [];
     }
+
+    async validateTownshipId(
+        townshipId: bigint | null | undefined,
+        path = "townshipId",
+    ): Promise<ValidationIssue[]> {
+        if (townshipId === undefined || townshipId === null) {
+            return [];
+        }
+        const rows = await this.prisma.$queryRaw<{ id: bigint }[]>(Prisma.sql`
+            SELECT aa.id
+            FROM core.core_admin_areas AS aa
+            INNER JOIN ref.ref_admin_levels AS al ON al.id = aa.admin_level_id
+            WHERE aa.id = ${townshipId}
+              AND aa.deleted_at IS NULL
+              AND aa.is_active IS TRUE
+              AND lower(trim(al.code)) = 'township'
+            LIMIT 1
+        `);
+        return rows.length > 0
+            ? []
+            : [{ path, message: "township_id must be an active township admin area" }];
+    }
 }

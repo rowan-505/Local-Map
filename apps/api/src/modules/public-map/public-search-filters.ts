@@ -5,6 +5,7 @@ import { expandSearchEntityTypeFilters } from "../search/transport-search-entity
 /** Default searchable entity surface when category=all and no legacy types filter. */
 export const DEFAULT_PUBLIC_SEARCH_ENTITY_TYPES = [
     "place",
+    "settlement",
     "address",
     "transport_stop",
     "transport_terminal",
@@ -59,7 +60,7 @@ export const PUBLIC_SEARCH_TRANSPORT_MODES = [
 export type PublicSearchTransportMode = (typeof PUBLIC_SEARCH_TRANSPORT_MODES)[number];
 
 const CATEGORY_ENTITY_TYPES: Record<Exclude<PublicSearchCategory, "all">, readonly string[]> = {
-    places: ["place"],
+    places: ["place", "settlement"],
     areas: ["admin_area"],
     roads: ["street_group", "street"],
     transport: [

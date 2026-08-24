@@ -17,6 +17,13 @@ export const CORE_REVIEW_VERIFICATION_SUMMARY_CONFIGS: readonly VerificationSumm
         idColumns: ["id"],
     },
     {
+        family: "settlements",
+        label: "Settlements",
+        table: "core.core_settlements",
+        path: "settlements",
+        idColumns: ["id"],
+    },
+    {
         family: "roads",
         label: "Roads",
         table: "core.core_streets",

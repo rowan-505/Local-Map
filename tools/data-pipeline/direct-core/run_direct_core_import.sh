@@ -103,6 +103,10 @@ case "${FAMILY}" in
     SQL_FILE="${SCRIPT_DIR}/sql/coastlines.sql"
     EXPECTED_HEADER="scope,snapshot_version,source_snapshot_id,source_registry_id,source_checksum,source_way_count,component_count,length_km,geom_ewkt"
     ;;
+  settlements)
+    SQL_FILE="${SCRIPT_DIR}/sql/settlements.sql"
+    EXPECTED_HEADER="classification,local_staging_id,external_id,canonical_name,name_mm,name_en,class_code,township_id,population,point_ewkt,source_refs,normalized_data"
+    ;;
   *) db_target_die "unsupported family: ${FAMILY}" ;;
 esac
 
@@ -177,6 +181,11 @@ fi
 if [[ "${MODE}" == "apply" && "${DB_TARGET}" == "production" && "${FAMILY}" == "routing_turn_restrictions" ]]; then
   if [[ "${EXECUTE_ROUTING_TURN_RESTRICTIONS_DIRECT_CORE:-}" != "I_UNDERSTAND" ]]; then
     db_target_die "set EXECUTE_ROUTING_TURN_RESTRICTIONS_DIRECT_CORE=I_UNDERSTAND for routing_turn_restrictions production apply"
+  fi
+fi
+if [[ "${MODE}" == "apply" && "${DB_TARGET}" == "production" && "${FAMILY}" == "settlements" ]]; then
+  if [[ "${EXECUTE_SETTLEMENTS_DIRECT_CORE:-}" != "I_UNDERSTAND" ]]; then
+    db_target_die "set EXECUTE_SETTLEMENTS_DIRECT_CORE=I_UNDERSTAND for settlements production apply"
   fi
 fi
 

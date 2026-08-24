@@ -146,6 +146,7 @@ INSERT INTO stage10_manifest (
 )
 VALUES
     ('places', 'staging_place_candidates', 'v_no_conflict_place_candidates', 'v_review_place_conflicts', 'v_manual_protected_place_candidates'),
+    ('settlements', 'staging_settlement_candidates', 'v_no_conflict_settlement_candidates', 'v_review_settlement_conflicts', NULL),
     ('roads', 'staging_road_candidates', 'v_no_conflict_road_candidates', 'v_review_road_conflicts', 'v_manual_protected_road_candidates'),
     ('buildings', 'staging_building_candidates', 'v_no_conflict_building_candidates', 'v_review_building_conflicts', 'v_manual_protected_building_candidates'),
     ('landuse', 'staging_landuse_candidates', 'v_no_conflict_land_area_candidates', 'v_review_landuse_conflicts', 'v_manual_protected_land_area_candidates'),
@@ -939,5 +940,120 @@ SELECT
 FROM stage10_warnings
 WHERE value_n > 0
 ORDER BY warning_type, entity_scope;
+
+CREATE TEMP TABLE IF NOT EXISTS stage10_settlement_metrics (
+    metric text PRIMARY KEY,
+    value_n bigint NOT NULL
+) ON COMMIT DROP;
+
+TRUNCATE stage10_settlement_metrics;
+
+DO $stage10_settlement_metrics$
+DECLARE
+    ctx stage10_context%ROWTYPE;
+    v_sql text;
+BEGIN
+    IF NOT pg_temp.pipeline_entity_family_enabled('settlements') THEN
+        RETURN;
+    END IF;
+
+    SELECT * INTO STRICT ctx FROM stage10_context;
+
+    IF to_regclass(format('%I.staging_settlement_candidates', ctx.staging_schema)) IS NULL THEN
+        INSERT INTO stage10_settlement_metrics VALUES ('table_missing', 1);
+        RETURN;
+    END IF;
+
+    v_sql := format(
+        $q$
+        INSERT INTO stage10_settlement_metrics (metric, value_n)
+        SELECT metric, value_n
+        FROM (
+            SELECT 'total_candidates'::text AS metric, count(*)::bigint AS value_n
+            FROM %1$I.staging_settlement_candidates s
+            WHERE s.source_snapshot_id = %2$s
+            UNION ALL
+            SELECT 'city', count(*) FROM %1$I.staging_settlement_candidates s
+            WHERE s.source_snapshot_id = %2$s AND s.class_code = 'city'
+            UNION ALL
+            SELECT 'town', count(*) FROM %1$I.staging_settlement_candidates s
+            WHERE s.source_snapshot_id = %2$s AND s.class_code = 'town'
+            UNION ALL
+            SELECT 'village', count(*) FROM %1$I.staging_settlement_candidates s
+            WHERE s.source_snapshot_id = %2$s AND s.class_code = 'village'
+            UNION ALL
+            SELECT 'local_area', count(*) FROM %1$I.staging_settlement_candidates s
+            WHERE s.source_snapshot_id = %2$s AND s.class_code = 'local_area'
+            UNION ALL
+            SELECT 'missing_names', count(*) FROM %1$I.staging_settlement_candidates s
+            WHERE s.source_snapshot_id = %2$s
+              AND nullif(btrim(coalesce(s.canonical_name, '')), '') IS NULL
+            UNION ALL
+            SELECT 'missing_point_geom', count(*) FROM %1$I.staging_settlement_candidates s
+            WHERE s.source_snapshot_id = %2$s AND s.point_geom IS NULL
+            UNION ALL
+            SELECT 'duplicate_source_ids', count(*) FROM (
+                SELECT s.external_id
+                FROM %1$I.staging_settlement_candidates s
+                WHERE s.source_snapshot_id = %2$s
+                GROUP BY s.external_id
+                HAVING count(*) > 1
+            ) d
+            UNION ALL
+            SELECT 'township_assigned', count(*) FROM %1$I.staging_settlement_candidates s
+            WHERE s.source_snapshot_id = %2$s
+              AND nullif(s.normalized_data->>'admin_area_id', '') IS NOT NULL
+            UNION ALL
+            SELECT 'township_unassigned', count(*) FROM %1$I.staging_settlement_candidates s
+            WHERE s.source_snapshot_id = %2$s
+              AND nullif(s.normalized_data->>'admin_area_id', '') IS NULL
+            UNION ALL
+            SELECT 'township_multiple_match', count(*) FROM %1$I.staging_settlement_candidates s
+            WHERE s.source_snapshot_id = %2$s
+              AND s.normalized_data->>'township_match_status' = 'multiple_match'
+            UNION ALL
+            SELECT 'dedup_merged', count(*) FROM %1$I.staging_settlement_candidates s
+            WHERE s.source_snapshot_id = %2$s
+              AND s.normalized_data->>'dedup_status' = 'merged'
+            UNION ALL
+            SELECT 'dedup_needs_review', count(*) FROM %1$I.staging_settlement_candidates s
+            WHERE s.source_snapshot_id = %2$s
+              AND s.normalized_data->>'dedup_status' = 'needs_review'
+            UNION ALL
+            SELECT 'osm_point', count(*) FROM %1$I.staging_settlement_candidates s
+            WHERE s.source_snapshot_id = %2$s
+              AND s.source_entity_type = 'osm_point'
+            UNION ALL
+            SELECT 'osm_polygon', count(*) FROM %1$I.staging_settlement_candidates s
+            WHERE s.source_snapshot_id = %2$s
+              AND s.source_entity_type = 'osm_polygon'
+            UNION ALL
+            SELECT 'safe_new', count(*) FROM %1$I.staging_settlement_candidates s
+            WHERE s.source_snapshot_id = %2$s AND lower(btrim(coalesce(s.import_class, ''))) = 'safe_new'
+            UNION ALL
+            SELECT 'safe_update', count(*) FROM %1$I.staging_settlement_candidates s
+            WHERE s.source_snapshot_id = %2$s AND lower(btrim(coalesce(s.import_class, ''))) = 'safe_update'
+            UNION ALL
+            SELECT 'unchanged', count(*) FROM %1$I.staging_settlement_candidates s
+            WHERE s.source_snapshot_id = %2$s AND lower(btrim(coalesce(s.import_class, ''))) = 'unchanged'
+            UNION ALL
+            SELECT 'needs_review_or_conflict', count(*) FROM %1$I.staging_settlement_candidates s
+            WHERE s.source_snapshot_id = %2$s
+              AND lower(btrim(coalesce(s.import_class, ''))) IN ('conflict', 'needs_review', 'duplicate')
+        ) m
+        $q$,
+        ctx.staging_schema,
+        ctx.snapshot_id
+    );
+    EXECUTE v_sql;
+END
+$stage10_settlement_metrics$;
+
+SELECT
+    'stage10_settlement_metrics' AS section,
+    metric,
+    value_n
+FROM stage10_settlement_metrics
+ORDER BY metric;
 
 COMMIT;

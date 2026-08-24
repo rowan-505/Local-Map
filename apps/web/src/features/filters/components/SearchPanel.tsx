@@ -817,6 +817,8 @@ function searchResultTypeMeta(type: SearchResultType): {
       return { badge: 'St', label: 'Street', labelMy: 'လမ်း', className: 'bg-orange-50 text-orange-700' };
     case 'admin_area':
       return { badge: 'A', label: 'Area', labelMy: 'ဧရိယာ', className: 'bg-violet-50 text-violet-800' };
+    case 'settlement':
+      return { badge: 'Set', label: 'Settlement', labelMy: 'အခြေချရာ', className: 'bg-teal-50 text-teal-800' };
     case 'address':
       return { badge: 'Ad', label: 'Address', labelMy: 'လိပ်စာ', className: 'bg-blue-50 text-blue-700' };
     case 'bus_route':

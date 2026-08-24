@@ -1,8 +1,9 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
+import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { transportPath } from "@/src/lib/dashboardNavigation";
 import { useDashboardRoleAccess } from "@/src/hooks/useDashboardRoleAccess";
@@ -17,8 +18,6 @@ import {
     transportReviewStatusLabel,
 } from "./constants";
 import TransportDetailDrawer from "./TransportDetailDrawer";
-import TransportRouteDetailContent from "./TransportRouteDetailContent";
-import TransportStopDetailContent from "./TransportStopDetailContent";
 import NewTransportRouteDialog from "./NewTransportRouteDialog";
 import {
     formatRouteListPublicName,
@@ -26,6 +25,16 @@ import {
     TransportRouteListWorkStatus,
 } from "./transportReviewUi";
 import type { TransportRouteListItem } from "./types";
+
+const TransportRouteDetailContent = dynamic(() => import("./TransportRouteDetailContent"), {
+    ssr: false,
+    loading: () => <p className="p-5 text-sm text-gray-500">Loading route details…</p>,
+});
+
+const TransportStopDetailContent = dynamic(() => import("./TransportStopDetailContent"), {
+    ssr: false,
+    loading: () => <p className="p-5 text-sm text-gray-500">Loading stop details…</p>,
+});
 
 const PAGE_SIZE = 50;
 
@@ -111,6 +120,52 @@ function TriSelect({
     );
 }
 
+function RouteSearchForm({
+    initialValue,
+    onSearch,
+    onReset,
+}: {
+    readonly initialValue: string;
+    readonly onSearch: (search: string) => void;
+    readonly onReset: () => void;
+}) {
+    const [value, setValue] = useState(initialValue);
+
+    return (
+        <form
+            className="flex flex-col gap-2 sm:flex-row"
+            onSubmit={(event) => {
+                event.preventDefault();
+                onSearch(value.trim());
+            }}
+        >
+            <input
+                type="search"
+                value={value}
+                onChange={(event) => setValue(event.target.value)}
+                placeholder="Search code, name, origin, destination…"
+                autoComplete="off"
+                className="min-w-0 flex-1 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-500 focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
+            />
+            <div className="flex gap-2">
+                <button
+                    type="submit"
+                    className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800"
+                >
+                    Search
+                </button>
+                <button
+                    type="button"
+                    onClick={onReset}
+                    className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                >
+                    Reset
+                </button>
+            </div>
+        </form>
+    );
+}
+
 export default function TransportRoutesPage() {
     const { canWrite } = useDashboardRoleAccess();
     const router = useRouter();
@@ -129,7 +184,6 @@ export default function TransportRoutesPage() {
     const stopPublicId = searchParams.get("stop");
 
     const queryClient = useQueryClient();
-    const [searchInput, setSearchInput] = useState(filters.search);
     const [createOpen, setCreateOpen] = useState(false);
     const [advancedFiltersOpen, setAdvancedFiltersOpen] = useState(
         () =>
@@ -166,7 +220,7 @@ export default function TransportRoutesPage() {
             queryFn: (signal) => getTransportRoutes(apiQuery, { signal }),
         });
 
-    const items = data?.items ?? [];
+    const items = useMemo(() => data?.items ?? [], [data?.items]);
     const total = data?.total ?? 0;
     const loading = isPending || (isFetching && (isPlaceholderData || !data));
     const error = isError
@@ -174,10 +228,6 @@ export default function TransportRoutesPage() {
             ? queryError.message
             : "Failed to load routes."
         : "";
-
-    useEffect(() => {
-        setSearchInput(filters.search);
-    }, [filters.search]);
 
     const applyFilters = useCallback(
         (patch: Partial<Filters>, resetPage = true) => {
@@ -286,40 +336,12 @@ export default function TransportRoutesPage() {
                 </header>
 
                 <div className="flex flex-col gap-4 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-                    <form
-                        className="flex flex-col gap-2 sm:flex-row"
-                        onSubmit={(e) => {
-                            e.preventDefault();
-                            applyFilters({ search: searchInput.trim() });
-                        }}
-                    >
-                        <input
-                            type="search"
-                            value={searchInput}
-                            onChange={(e) => setSearchInput(e.target.value)}
-                            placeholder="Search code, name, origin, destination…"
-                            autoComplete="off"
-                            className="min-w-0 flex-1 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-500 focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
-                        />
-                        <div className="flex gap-2">
-                            <button
-                                type="submit"
-                                className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800"
-                            >
-                                Search
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setSearchInput("");
-                                    router.replace(transportPath("routes"));
-                                }}
-                                className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                            >
-                                Reset
-                            </button>
-                        </div>
-                    </form>
+                    <RouteSearchForm
+                        key={filters.search}
+                        initialValue={filters.search}
+                        onSearch={(search) => applyFilters({ search })}
+                        onReset={() => router.replace(transportPath("routes"))}
+                    />
 
                     <div className="flex flex-wrap items-end gap-3">
                         <label className="flex flex-col gap-1">

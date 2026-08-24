@@ -61,6 +61,7 @@ CREATE TEMP TABLE stage08b_family (
 
 INSERT INTO stage08b_family VALUES
     ('places', 'staging_place_candidates'),
+    ('settlements', 'staging_settlement_candidates'),
     ('roads', 'staging_road_candidates'),
     ('buildings', 'staging_building_candidates'),
     ('admin_areas', 'staging_admin_area_candidates'),

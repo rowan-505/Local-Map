@@ -15,7 +15,7 @@ INSERT INTO direct_core_test_cases
 SELECT family,case_name,import_class,expected_sink
 FROM unnest(ARRAY[
   'places','roads','buildings','landuse','water_lines','water_polygons',
-  'routing_barriers'
+  'routing_barriers','settlements'
 ])family
 CROSS JOIN(VALUES
  ('safe_new','safe_new','core'),
@@ -35,7 +35,7 @@ DECLARE f text;
 BEGIN
  FOREACH f IN ARRAY ARRAY[
   'places','roads','buildings','landuse','water_lines','water_polygons',
-  'routing_barriers'
+  'routing_barriers','settlements'
  ]LOOP
   IF(SELECT count(*)FROM direct_core_test_cases
      WHERE entity_family=f AND expected_sink='core')<>2 THEN
@@ -83,20 +83,20 @@ INSERT INTO direct_core_mock(entity_family,stable_identity,payload)
 SELECT family,family||':safe_update','before'
 FROM unnest(ARRAY[
  'places','roads','buildings','landuse','water_lines','water_polygons',
- 'routing_barriers'
+ 'routing_barriers','settlements'
 ])family
 UNION ALL
 SELECT family,family||':unchanged','same'
 FROM unnest(ARRAY[
  'places','roads','buildings','landuse','water_lines','water_polygons',
- 'routing_barriers'
+ 'routing_barriers','settlements'
 ])family;
 
 INSERT INTO direct_core_mock_candidates
 SELECT family,case_name,family||':'||case_name,payload,expected_sink
 FROM unnest(ARRAY[
  'places','roads','buildings','landuse','water_lines','water_polygons',
- 'routing_barriers'
+ 'routing_barriers','settlements'
 ])family
 CROSS JOIN(VALUES
  ('safe_new','new','core'),
@@ -143,7 +143,7 @@ DECLARE rerun_updated integer;
 BEGIN
  FOREACH f IN ARRAY ARRAY[
   'places','roads','buildings','landuse','water_lines','water_polygons',
-  'routing_barriers'
+  'routing_barriers','settlements'
  ]LOOP
   IF(SELECT count(*)FROM direct_core_mock_changes
      WHERE entity_family=f AND action='insert')<>1 THEN
@@ -200,7 +200,7 @@ DECLARE f text;
 BEGIN
  FOREACH f IN ARRAY ARRAY[
   'places','roads','buildings','landuse','water_lines','water_polygons',
-  'routing_barriers'
+  'routing_barriers','settlements'
  ]LOOP
   BEGIN
    INSERT INTO direct_core_rollback_probe VALUES(f);

@@ -64,6 +64,17 @@ describe("explainUnifiedSearchScore", () => {
         );
     });
 
+    it("ranks canonical settlements slightly above POI places", () => {
+        assert.equal(
+            computeUnifiedSearchEntityTypeWeight("settlement"),
+            UNIFIED_SEARCH_ENTITY_TYPE_WEIGHTS.settlement,
+        );
+        assert.ok(
+            computeUnifiedSearchEntityTypeWeight("settlement") >
+                computeUnifiedSearchEntityTypeWeight("place"),
+        );
+    });
+
     it("rejects fuzzy-only matches below the similarity threshold", () => {
         const explanation = explainUnifiedSearchScore("kyauk", "full", {
             displayName: "Regional Office Near Kyauk",

@@ -12,6 +12,7 @@ IMMUTABLE
 AS $$
     SELECT ARRAY[
         'places',
+        'settlements',
         'roads',
         'buildings',
         'landuse',
@@ -165,6 +166,7 @@ AS $$
     SELECT CASE lower(btrim(p_stage05_key))
         WHEN 'place' THEN system.pipeline_family_enabled(p_entity_families, 'places')
         WHEN 'place_name' THEN system.pipeline_family_enabled(p_entity_families, 'places')
+        WHEN 'settlement' THEN system.pipeline_family_enabled(p_entity_families, 'settlements')
         WHEN 'bus_stop' THEN system.pipeline_family_enabled(p_entity_families, 'bus_stops')
         WHEN 'bus_stop_name' THEN system.pipeline_family_enabled(p_entity_families, 'bus_stops')
         WHEN 'address' THEN system.pipeline_family_enabled(p_entity_families, 'addresses')

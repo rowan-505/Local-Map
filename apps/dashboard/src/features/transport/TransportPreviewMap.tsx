@@ -49,6 +49,7 @@ import { dashboardMyanmarTextFont } from "@/src/lib/map/dashboardMapFonts";
 import MapPreviewCard from "@/src/components/map/MapPreviewCard";
 
 import { candidateMapLabelText } from "./reviewMapCandidateDisplay";
+import { selectedStopFocusWindow } from "./reviewMapStopFocus";
 import type { GeoJsonGeometry, TransportNearbyStopCandidate } from "./types";
 
 export type TransportPreviewLngLat = { lng: number; lat: number };
@@ -1689,6 +1690,7 @@ export default function TransportPreviewMap({
         routePath,
         geometry,
         stopsGeo,
+        stops.length,
         stopSequenceGuideData,
         showStopSequenceGuideLine,
         linkedPoint,
@@ -1755,19 +1757,29 @@ export default function TransportPreviewMap({
                 selectionPanTargetRef.current = selectedStopId;
             }
 
-            const selected = selectedStopId ? stopsById.get(selectedStopId) : null;
-            if (
-                shouldPan &&
-                selected &&
-                Number.isFinite(selected.lng) &&
-                Number.isFinite(selected.lat) &&
-                !map.getBounds().contains([selected.lng, selected.lat])
-            ) {
-                map.easeTo({
-                    center: [selected.lng, selected.lat],
-                    duration: 450,
-                    zoom: Math.max(map.getZoom(), pointZoom - 1),
-                });
+            if (shouldPan && selectedStopId) {
+                const focusStops = selectedStopFocusWindow(stops, selectedStopId);
+                const positions: Position[] = [];
+                for (const stop of focusStops) {
+                    const point =
+                        stop.id === selectedStopId && isValidPreviewPoint(selectedStopPreviewPoint)
+                            ? selectedStopPreviewPoint
+                            : stop;
+                    pushFinite(positions, point.lng, point.lat);
+                }
+                const target = positionsToFitTarget(positions);
+                if (target.kind === "point") {
+                    map.easeTo({ center: target.center, zoom: pointZoom, duration: 450 });
+                } else if (target.kind === "bounds") {
+                    const wideReviewMap = map.getContainer().clientWidth >= 900;
+                    map.fitBounds(target.bounds, {
+                        padding: wideReviewMap
+                            ? { top: 72, right: 72, bottom: 72, left: 420 }
+                            : 56,
+                        maxZoom: 17,
+                        duration: 450,
+                    });
+                }
             }
 
             return true;
@@ -1786,7 +1798,14 @@ export default function TransportPreviewMap({
         return () => {
             map.off("idle", onIdle);
         };
-    }, [mapReady, selectedStopId, stopsById, pointZoom, useSplitSelectedStopMarkers]);
+    }, [
+        mapReady,
+        selectedStopId,
+        selectedStopPreviewPoint,
+        stops,
+        pointZoom,
+        useSplitSelectedStopMarkers,
+    ]);
 
     useEffect(() => {
         const map = mapRef.current;

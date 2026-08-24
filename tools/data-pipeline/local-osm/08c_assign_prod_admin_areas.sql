@@ -91,6 +91,7 @@ CREATE TEMP TABLE stage08c_family (
 
 INSERT INTO stage08c_family VALUES
     ('places', 'staging_place_candidates', 'point'),
+    ('settlements', 'staging_settlement_candidates', 'point'),
     ('roads', 'staging_road_candidates', 'line'),
     ('buildings', 'staging_building_candidates', 'polygon'),
     ('landuse', 'staging_landuse_candidates', 'polygon');
@@ -128,6 +129,16 @@ BEGIN
     FOR fam IN
         SELECT * FROM stage08c_family ORDER BY entity_family
     LOOP
+        -- Settlements: assign every candidate, including non-importable rows.
+        -- Handled after this loop so township status can be reported.
+        IF fam.entity_family = 'settlements' THEN
+            INSERT INTO stage08c_report VALUES (
+                fam.entity_family, 'deferred_full_candidate_pass', 0, 'INFO',
+                'settlement township assign runs for all candidates after other families'
+            );
+            CONTINUE;
+        END IF;
+
         IF to_regclass(format('%I.%I', ctx.staging_schema, fam.staging_table)) IS NULL THEN
             INSERT INTO stage08c_report VALUES (
                 fam.entity_family, 'skipped', 0, 'WARN',
@@ -317,6 +328,174 @@ BEGIN
 END
 $stage08c$;
 
+CREATE TEMP TABLE stage08c_settlement_township (
+    township_id bigint,
+    township_name text,
+    candidate_count bigint
+) ON COMMIT DROP;
+
+DO $stage08c_settlements$
+DECLARE
+    ctx stage08c_context%ROWTYPE;
+    v_updated bigint := 0;
+    v_assigned bigint := 0;
+    v_unassigned bigint := 0;
+    v_multiple bigint := 0;
+    v_unavailable bigint := 0;
+    v_last_id bigint := 0;
+    v_batch integer;
+    v_sql text;
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM stage08c_family WHERE entity_family = 'settlements'
+    ) THEN
+        RETURN;
+    END IF;
+
+    SELECT * INTO ctx FROM stage08c_context LIMIT 1;
+
+    IF to_regclass(format('%I.staging_settlement_candidates', ctx.staging_schema)) IS NULL THEN
+        INSERT INTO stage08c_report VALUES (
+            'settlements', 'skipped', 0, 'WARN',
+            format('missing table %.staging_settlement_candidates', ctx.staging_schema)
+        );
+        RETURN;
+    END IF;
+
+    -- Set-based GIST join (same pattern as Stage 05). Per-row ST_IsValid
+    -- inside pipeline_township_containment_for_point_prod cannot use the
+    -- township GIST index and hangs on a national extract.
+    v_sql := format(
+        $u$
+        WITH township_ok AS MATERIALIZED (
+            SELECT aa.id, aa.geom
+            FROM %2$I.core_admin_areas AS aa
+            INNER JOIN %2$I.ref_admin_levels AS al
+                ON al.id = aa.admin_level_id
+            WHERE aa.deleted_at IS NULL
+              AND aa.geom IS NOT NULL
+              AND NOT ST_IsEmpty(aa.geom)
+              AND ST_IsValid(aa.geom)
+              AND system.pipeline_prod_admin_is_operational_township(aa.id, al.code)
+        ),
+        hits AS (
+            SELECT
+                s.id,
+                t.id AS township_id
+            FROM %1$I.staging_settlement_candidates AS s
+            INNER JOIN township_ok AS t
+                ON s.point_geom IS NOT NULL
+               AND ST_Covers(t.geom, s.point_geom)
+            WHERE s.source_snapshot_id = $1
+        ),
+        agg AS (
+            SELECT
+                s.id,
+                jsonb_build_object(
+                    'township_id', CASE WHEN count(h.township_id) = 1 THEN min(h.township_id) ELSE NULL END,
+                    'match_count', count(h.township_id)::integer,
+                    'status', CASE
+                        WHEN count(h.township_id) = 1 THEN 'assigned'
+                        WHEN count(h.township_id) > 1 THEN 'multiple_match'
+                        ELSE 'unassigned'
+                    END
+                ) AS containment
+            FROM %1$I.staging_settlement_candidates AS s
+            LEFT JOIN hits AS h ON h.id = s.id
+            WHERE s.source_snapshot_id = $1
+            GROUP BY s.id
+        ),
+        upd AS (
+            UPDATE %1$I.staging_settlement_candidates AS s
+            SET
+                normalized_data = system.pipeline_apply_township_containment_normalized_data(
+                    s.normalized_data,
+                    a.containment
+                ),
+                updated_at = now()
+            FROM agg AS a
+            WHERE s.id = a.id
+            RETURNING s.id
+        )
+        SELECT count(*)::bigint FROM upd
+        $u$,
+        ctx.staging_schema,
+        ctx.prod_mirror_schema
+    );
+
+    EXECUTE v_sql INTO v_updated USING ctx.source_snapshot_id;
+
+    EXECUTE format(
+        $c$
+        SELECT
+            count(*) FILTER (WHERE s.normalized_data->>'township_match_status' = 'assigned'),
+            count(*) FILTER (WHERE s.normalized_data->>'township_match_status' = 'unassigned'),
+            count(*) FILTER (WHERE s.normalized_data->>'township_match_status' = 'multiple_match'),
+            count(*) FILTER (WHERE s.normalized_data->>'township_match_status' = 'unavailable')
+        FROM %I.staging_settlement_candidates AS s
+        WHERE s.source_snapshot_id = $1
+        $c$,
+        ctx.staging_schema
+    )
+    INTO v_assigned, v_unassigned, v_multiple, v_unavailable
+    USING ctx.source_snapshot_id;
+
+    INSERT INTO stage08c_report VALUES (
+        'settlements', 'updated_rows', v_updated, 'PASS',
+        'all settlement candidates; prod_mirror townships are read-only'
+    );
+    INSERT INTO stage08c_report VALUES (
+        'settlements', 'township_assigned', v_assigned, 'PASS',
+        'exactly one operational township covers the point'
+    );
+    INSERT INTO stage08c_report VALUES (
+        'settlements', 'township_unassigned', v_unassigned,
+        CASE WHEN v_unassigned = 0 THEN 'PASS' ELSE 'WARN' END,
+        'no operational township covers the point'
+    );
+    INSERT INTO stage08c_report VALUES (
+        'settlements', 'township_multiple_match', v_multiple,
+        CASE WHEN v_multiple = 0 THEN 'PASS' ELSE 'WARN' END,
+        'two or more operational townships cover the point'
+    );
+    INSERT INTO stage08c_report VALUES (
+        'settlements', 'township_unavailable', v_unavailable,
+        CASE WHEN v_unavailable = 0 THEN 'PASS' ELSE 'WARN' END,
+        'prod_mirror township lookup was unavailable'
+    );
+
+    v_sql := format(
+        $t$
+        INSERT INTO stage08c_settlement_township (township_id, township_name, candidate_count)
+        SELECT
+            (s.normalized_data->>'admin_area_id')::bigint AS township_id,
+            coalesce(
+                to_jsonb(aa)->>'canonical_name',
+                to_jsonb(aa)->>'name',
+                '(unnamed township)'
+            ) AS township_name,
+            count(*)::bigint
+        FROM %I.staging_settlement_candidates AS s
+        LEFT JOIN %I.core_admin_areas AS aa
+            ON aa.id = (s.normalized_data->>'admin_area_id')::bigint
+        WHERE s.source_snapshot_id = $1
+          AND nullif(s.normalized_data->>'admin_area_id', '') IS NOT NULL
+        GROUP BY 1, 2
+        $t$,
+        ctx.staging_schema,
+        ctx.prod_mirror_schema
+    );
+    EXECUTE v_sql USING ctx.source_snapshot_id;
+END
+$stage08c_settlements$;
+
 SELECT * FROM stage08c_report ORDER BY entity_family, metric;
+
+SELECT
+    township_id,
+    township_name,
+    candidate_count
+FROM stage08c_settlement_township
+ORDER BY candidate_count DESC, township_name, township_id;
 
 COMMIT;

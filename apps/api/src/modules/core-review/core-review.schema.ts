@@ -76,6 +76,8 @@ export const coreReviewListQuerySchema = z
         landAreaClassId: optionalBigintIdSchema,
         detailLevel: z.enum(["zone", "parcel"]).optional(),
         cropCode: optionalSearchSchema,
+        settlementType: optionalSearchSchema,
+        settlement_type: optionalSearchSchema,
         boundaryStatus: optionalSearchSchema,
         addressUsage: optionalSearchSchema,
         isOfficialBoundary: optionalBooleanSchema,
@@ -107,13 +109,15 @@ export const coreReviewListQuerySchema = z
             verificationStatus = query.isVerified ? "verified" : "unverified";
         }
         const includeTotal = query.includeTotal ?? query.include_total;
+        const settlementType = query.settlementType ?? query.settlement_type;
         const {
             verification_status: _verification_status,
             isVerified: _isVerified,
             include_total: _include_total,
+            settlement_type: _settlement_type,
             ...rest
         } = query;
-        return { ...rest, verificationStatus, includeTotal };
+        return { ...rest, verificationStatus, includeTotal, settlementType };
     });
 
 export type CoreReviewListQueryParsed = z.infer<typeof coreReviewListQuerySchema>;

@@ -1151,6 +1151,7 @@ export function isWithinServiceArea(lat: number, lng: number): boolean {
 /** Entity types whose geometry is point-like and must never be simplified. */
 const POINT_LIKE_GEOMETRY_TYPES = new Set<GeometryEntityType>([
     "place",
+    "settlement",
     "address",
     "bus_stop",
     "transport_stop",

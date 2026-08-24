@@ -160,8 +160,12 @@ function createAdminListMockPrisma(rows: unknown[], count: bigint): PrismaClient
         if (sql.includes("count(*)::bigint AS count") && sql.includes("FROM transport.routes r")) {
             return [{ count }];
         }
-        if (sql.includes("FROM transport.routes r") && sql.includes("ORDER BY r.updated_at")) {
-            return rows;
+        if (sql.includes("FROM transport.routes r") && sql.includes("AS search_rank")) {
+            return rows.map((row) => ({
+                ...(row as Record<string, unknown>),
+                search_rank: 0,
+                total_count: count,
+            }));
         }
         return [];
     };

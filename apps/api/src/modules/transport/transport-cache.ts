@@ -16,6 +16,8 @@
 type CacheEntry = { value: unknown; expiresAt: number };
 
 const store = new Map<string, CacheEntry>();
+const inFlight = new Map<string, Promise<unknown>>();
+let generation = 0;
 
 const CACHE_LOG = process.env.TRANSPORT_CACHE_LOG === "1";
 
@@ -42,16 +44,36 @@ export async function getTransportCached<T>(
         log(`HIT ${key}`);
         return hit.value as T;
     }
+    const pending = inFlight.get(key);
+    if (pending) {
+        log(`JOIN ${key}`);
+        return pending as Promise<T>;
+    }
     log(`MISS ${key}`);
-    const value = await loader();
-    store.set(key, { value, expiresAt: now + ttlMs });
-    return value;
+    const startedGeneration = generation;
+    const promise = (async () => {
+        const value = await loader();
+        if (generation === startedGeneration) {
+            store.set(key, { value, expiresAt: Date.now() + ttlMs });
+        }
+        return value;
+    })();
+    inFlight.set(key, promise);
+    try {
+        return await promise;
+    } finally {
+        if (inFlight.get(key) === promise) {
+            inFlight.delete(key);
+        }
+    }
 }
 
 /** Drops every cached Transport entry. Called after any Transport mutation. */
 export function clearTransportCache(): void {
     const size = store.size;
+    generation += 1;
     store.clear();
+    inFlight.clear();
     log(`CLEAR (${size} entr${size === 1 ? "y" : "ies"})`);
 }
 

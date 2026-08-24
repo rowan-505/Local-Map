@@ -36,6 +36,7 @@ CREATE TEMP TABLE prod_mirror_validation_manifest (
 
 INSERT INTO prod_mirror_validation_manifest VALUES
     ('core_places', true, true, true, false, true, true, true),
+    ('core_settlements', false, false, true, false, true, true, true),
     ('core_streets', true, true, true, true, true, true, true),
     ('core_buildings', true, true, true, false, true, true, true),
     ('core_admin_areas', false, true, true, false, true, true, true),

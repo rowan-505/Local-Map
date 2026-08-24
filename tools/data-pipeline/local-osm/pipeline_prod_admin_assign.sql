@@ -40,11 +40,14 @@ $$;
 -- Importable classes that receive production township admin_area_id (policy 1C).
 CREATE OR REPLACE FUNCTION system.pipeline_importable_for_admin_classes()
 RETURNS text[]
-LANGUAGE sql
+LANGUAGE plpgsql
 IMMUTABLE
 AS $$
-    SELECT system.pipeline_direct_core_classes()
+BEGIN
+    -- plpgsql so Stage 05 can load this file before import-class helpers exist.
+    RETURN system.pipeline_direct_core_classes()
         || system.pipeline_ir_conflict_classes();
+END;
 $$;
 
 CREATE OR REPLACE FUNCTION system.pipeline_is_importable_for_admin_class(p_class text)
@@ -127,6 +130,143 @@ $$;
 
 COMMENT ON FUNCTION system.pipeline_find_township_for_point_prod(geometry, text) IS
     'Operational township id from prod_mirror (migration 146 exact-one ST_Covers) or NULL.';
+
+-- Read-only containment status. Distinguishes 0 vs 1 vs 2+ township matches.
+-- Does not raise when prod_mirror is missing (Stage 05 still extracts).
+CREATE OR REPLACE FUNCTION system.pipeline_township_containment_for_point_prod(
+    p_geom geometry,
+    p_prod_mirror_schema text DEFAULT 'prod_mirror'
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+AS $$
+DECLARE
+    v_point geometry(Point, 4326);
+    v_schema text := coalesce(nullif(btrim(p_prod_mirror_schema), ''), 'prod_mirror');
+    v_match_count integer := 0;
+    v_township_id bigint;
+    v_status text;
+BEGIN
+    IF p_geom IS NULL OR ST_IsEmpty(p_geom) THEN
+        RETURN jsonb_build_object(
+            'township_id', NULL,
+            'match_count', 0,
+            'status', 'unassigned'
+        );
+    END IF;
+
+    BEGIN
+        IF GeometryType(p_geom) IN ('POINT', 'MULTIPOINT') THEN
+            v_point := ST_SetSRID(
+                ST_GeometryN(ST_CollectionExtract(p_geom, 1), 1),
+                4326
+            )::geometry(Point, 4326);
+        ELSE
+            v_point := ST_SetSRID(ST_PointOnSurface(p_geom), 4326)::geometry(Point, 4326);
+        END IF;
+    EXCEPTION
+        WHEN OTHERS THEN
+            RETURN jsonb_build_object(
+                'township_id', NULL,
+                'match_count', 0,
+                'status', 'unassigned'
+            );
+    END;
+
+    IF v_point IS NULL OR ST_IsEmpty(v_point) OR NOT ST_IsValid(v_point) THEN
+        RETURN jsonb_build_object(
+            'township_id', NULL,
+            'match_count', 0,
+            'status', 'unassigned'
+        );
+    END IF;
+
+    IF to_regclass(format('%I.core_admin_areas', v_schema)) IS NULL
+       OR to_regclass(format('%I.ref_admin_levels', v_schema)) IS NULL THEN
+        RETURN jsonb_build_object(
+            'township_id', NULL,
+            'match_count', 0,
+            'status', 'unavailable'
+        );
+    END IF;
+
+    EXECUTE format(
+        $q$
+        SELECT count(*)::integer, min(aa.id)
+        FROM %I.core_admin_areas AS aa
+        INNER JOIN %I.ref_admin_levels AS al ON al.id = aa.admin_level_id
+        WHERE aa.deleted_at IS NULL
+          AND aa.geom IS NOT NULL
+          AND NOT ST_IsEmpty(aa.geom)
+          AND ST_IsValid(aa.geom)
+          AND system.pipeline_prod_admin_is_operational_township(aa.id, al.code)
+          AND ST_Covers(aa.geom, $1)
+        $q$,
+        v_schema,
+        v_schema
+    )
+    INTO v_match_count, v_township_id
+    USING v_point;
+
+    v_match_count := coalesce(v_match_count, 0);
+    IF v_match_count = 1 THEN
+        v_status := 'assigned';
+    ELSIF v_match_count > 1 THEN
+        v_status := 'multiple_match';
+        v_township_id := NULL;
+    ELSE
+        v_status := 'unassigned';
+        v_township_id := NULL;
+    END IF;
+
+    RETURN jsonb_build_object(
+        'township_id', to_jsonb(v_township_id),
+        'match_count', v_match_count,
+        'status', v_status
+    );
+EXCEPTION
+    WHEN OTHERS THEN
+        RETURN jsonb_build_object(
+            'township_id', NULL,
+            'match_count', 0,
+            'status', 'unavailable'
+        );
+END;
+$$;
+
+COMMENT ON FUNCTION system.pipeline_township_containment_for_point_prod(geometry, text) IS
+    'Read-only prod_mirror township containment: assigned / unassigned / multiple_match / unavailable.';
+
+CREATE OR REPLACE FUNCTION system.pipeline_apply_township_containment_normalized_data(
+    p_normalized_data jsonb,
+    p_containment jsonb
+)
+RETURNS jsonb
+LANGUAGE sql
+IMMUTABLE
+AS $$
+    SELECT (
+        (
+            coalesce(p_normalized_data, '{}'::jsonb)
+            - 'core_admin_area_id'
+            - 'admin_area_id'
+            - 'township_match_count'
+            - 'township_match_status'
+        )
+        || CASE
+            WHEN coalesce(p_containment->>'status', '') = 'assigned'
+                 AND nullif(p_containment->>'township_id', '') IS NOT NULL
+            THEN jsonb_build_object('admin_area_id', (p_containment->>'township_id')::bigint)
+            ELSE '{}'::jsonb
+           END
+        || jsonb_build_object(
+            'township_match_count', coalesce((p_containment->>'match_count')::integer, 0),
+            'township_match_status', coalesce(p_containment->>'status', 'unassigned'),
+            'admin_assign_source', 'prod_mirror_township'
+        )
+    );
+$$;
 
 -- Line → production township via dominant overlap (migration 146 margins).
 CREATE OR REPLACE FUNCTION system.pipeline_find_township_for_line_prod(
