@@ -30,6 +30,8 @@ type PlacePointMapPickerProps = {
     /** Optional labels for the API-backed `place-live-overlay` symbol layer */
     overlayNames?: PlaceLiveOverlayLabelProps | null;
     basemapMode?: DataReviewBasemapMode;
+    /** When `move`, map clicks do not replace the point; the marker stays draggable. */
+    interactionMode?: "set" | "move";
     onMapReady?: (map: MaplibreMap | null) => void;
     mapSurfaceRef?: MutableRefObject<MaplibreMap | null>;
     viewportClassName?: string;
@@ -59,6 +61,7 @@ export default function PlacePointMapPicker({
     onChange,
     overlayNames = null,
     basemapMode = "map",
+    interactionMode = "set",
     onMapReady,
     mapSurfaceRef,
     viewportClassName = MAP_PREVIEW_VIEWPORT_FORM,
@@ -70,10 +73,15 @@ export default function PlacePointMapPicker({
     const [isMapReady, setIsMapReady] = useState(false);
     const clientMounted = useClientMounted();
     const onChangeRef = useRef(onChange);
-    onChangeRef.current = onChange;
     const onMapReadyRef = useRef(onMapReady);
-    onMapReadyRef.current = onMapReady;
+    const interactionModeRef = useRef(interactionMode);
     const mapSurfaceRefStable = mapSurfaceRef;
+
+    useEffect(() => {
+        onChangeRef.current = onChange;
+        onMapReadyRef.current = onMapReady;
+        interactionModeRef.current = interactionMode;
+    }, [onChange, onMapReady, interactionMode]);
 
     useEffect(() => {
         if (!clientMounted || !containerRef.current || mapRef.current) {
@@ -110,6 +118,9 @@ export default function PlacePointMapPicker({
             }
 
             map.on("click", (event) => {
+                if (interactionModeRef.current === "move") {
+                    return;
+                }
                 if (isPlaceLinkOverlayHit(map, event.point)) {
                     return;
                 }

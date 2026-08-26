@@ -15,7 +15,7 @@ export function coreReviewFitButtonLabel(geometryKind: DataReviewGeometryKind): 
     if (geometryKind === "line") {
         return "Fit to line";
     }
-    return "Fit";
+    return "Fit to point";
 }
 
 export function placeCoordinatesToGeoJson(

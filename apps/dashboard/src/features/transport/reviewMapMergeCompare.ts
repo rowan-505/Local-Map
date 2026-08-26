@@ -116,18 +116,18 @@ export function hasStopMergeDirectionUsageMismatch(
         "inboundCount" | "outboundCount" | "clockwiseCount" | "anticlockwiseCount"
     >,
 ): boolean {
-    const currentInboundOnly =
+    const currentDirection1Only =
         current.inboundCount > 0 && current.outboundCount === 0;
-    const candidateOutboundOnly =
+    const candidateDirection0Only =
         candidate.outboundCount > 0 && candidate.inboundCount === 0;
-    const currentOutboundOnly =
+    const currentDirection0Only =
         current.outboundCount > 0 && current.inboundCount === 0;
-    const candidateInboundOnly =
+    const candidateDirection1Only =
         candidate.inboundCount > 0 && candidate.outboundCount === 0;
 
     if (
-        (currentInboundOnly && candidateOutboundOnly) ||
-        (currentOutboundOnly && candidateInboundOnly)
+        (currentDirection1Only && candidateDirection0Only) ||
+        (currentDirection0Only && candidateDirection1Only)
     ) {
         return true;
     }
@@ -151,8 +151,8 @@ export function formatDirectionUsageSummary(
     summary: TransportStopRouteUsageSummary,
 ): string {
     return [
-        `Inbound ${summary.inboundCount}`,
-        `Outbound ${summary.outboundCount}`,
+        `Direction ID 1 ${summary.inboundCount}`,
+        `Direction ID 0 ${summary.outboundCount}`,
         `Clockwise ${summary.clockwiseCount}`,
         `Anticlockwise ${summary.anticlockwiseCount}`,
     ].join(" · ");

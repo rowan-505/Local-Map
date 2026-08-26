@@ -6,7 +6,9 @@ type CacheEntry = {
 };
 
 const CACHE_KEY = "search:index-health:report";
-const DEFAULT_TTL_MS = 30_000;
+// Full reconciliation materializes canonical geospatial source views. Keep the
+// result long enough that ordinary dashboard navigation never repeats that work.
+const DEFAULT_TTL_MS = 5 * 60_000;
 
 const store = new Map<string, CacheEntry>();
 

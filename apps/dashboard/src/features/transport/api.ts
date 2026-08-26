@@ -527,6 +527,7 @@ export function mapStopRouteUsageDetailItemToRouteUsage(
         variant_public_id: item.variantId,
         variant_code: item.variantCode,
         direction_name: item.directionName,
+        direction_id: item.directionId,
         headsign: null,
         stop_sequence: item.stopSequence,
     };

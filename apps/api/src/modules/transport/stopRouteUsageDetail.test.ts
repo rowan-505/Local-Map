@@ -22,6 +22,28 @@ describe("stopRouteUsageDetail direction helpers", () => {
         );
     });
 
+    it("does not let legacy direction strings override direction_id", () => {
+        const d0 = { variantCode: "YBS-1-D0", directionName: "inbound", directionId: 0 };
+        const d1 = { variantCode: "YBS-1-D1", directionName: "outbound", directionId: 1 };
+
+        assert.equal(isInboundRouteUsage(d0), false);
+        assert.equal(isOutboundRouteUsage(d0), true);
+        assert.equal(isInboundRouteUsage(d1), true);
+        assert.equal(isOutboundRouteUsage(d1), false);
+    });
+
+    it("does not infer a YBS machine direction from legacy strings when direction_id is absent", () => {
+        const abnormal = {
+            routeMode: "bus",
+            variantCode: "YBS-1-OUTBOUND",
+            directionName: "outbound",
+            directionId: null,
+        };
+
+        assert.equal(isInboundRouteUsage(abnormal), false);
+        assert.equal(isOutboundRouteUsage(abnormal), false);
+    });
+
     it("detects clockwise and anticlockwise from variant_code", () => {
         assert.equal(
             isClockwiseRouteUsage({

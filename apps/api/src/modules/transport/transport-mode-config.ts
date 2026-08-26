@@ -16,7 +16,7 @@ export type TransportModeKey = "bus" | "train" | "ferry";
 export type TransportVariantSeed = {
     readonly variant_code: string;
     readonly direction_name: string;
-    /** GTFS-style direction_id: 0 = outbound, 1 = inbound. */
+    /** Machine direction identity; display/geographic semantics are source-specific. */
     readonly direction_id: number;
 };
 

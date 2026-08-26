@@ -49,11 +49,13 @@ tmp/transport-imports/ybs-all/reports/phase6-stop-resolution-report.md
 ## Variant code format
 
 ```text
-<route_code>-OUTBOUND
-<route_code>-INBOUND
+<route_code>-D0
+<route_code>-D1
 ```
 
-Example: `YBS-1-OUTBOUND`
+Example: `YBS-1-D0`. D0/D1 are derived from `direction_id` and do not imply
+geographic direction. Source `inbound`/`outbound` wording remains in existing
+provenance keys and source-link IDs.
 
 ## Supabase source link external id
 
@@ -205,4 +207,3 @@ npx tsx tools/data-pipeline/transport-json-import/ybs-db-prepare/prepare-geometr
   --run tmp/transport-imports/ybs-all \
   --skip-supabase
 ```
-

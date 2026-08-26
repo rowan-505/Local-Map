@@ -124,6 +124,7 @@ export type TransportStopContextCardProps = {
     readonly primaryActions?: readonly TransportMapStopDetailCardAction[];
     readonly mainActions?: readonly TransportMapStopDetailCardAction[];
     readonly destructiveActions?: readonly TransportMapStopDetailCardAction[];
+    readonly candidateInsertActions?: readonly TransportMapStopDetailCardAction[];
     readonly candidateCheckRoutesAction?: TransportMapStopDetailCardAction | null;
     readonly candidateKeepCurrentAction?: TransportMapStopDetailCardAction | null;
     readonly candidateKeepCandidateAction?: TransportMapStopDetailCardAction | null;
@@ -158,6 +159,7 @@ export default function TransportStopContextCard({
     primaryActions = [],
     mainActions = [],
     destructiveActions = [],
+    candidateInsertActions = [],
     candidateCheckRoutesAction = null,
     candidateKeepCurrentAction = null,
     candidateKeepCandidateAction = null,
@@ -205,6 +207,7 @@ export default function TransportStopContextCard({
     const hasSelectedActions =
         primaryActions.length > 0 || mainActions.length > 0 || destructiveActions.length > 0;
     const hasCandidateActions =
+        candidateInsertActions.length > 0 ||
         candidateCheckRoutesAction ||
         candidateKeepCurrentAction ||
         candidateKeepCandidateAction ||
@@ -257,7 +260,7 @@ export default function TransportStopContextCard({
                         <InfoRow label="Routes" value={candidateRoutesText} />
                         <InfoRow label="Variants" value={candidateVariantsText} />
                         <InfoRow
-                            label="Direction usage"
+                            label="Route variant directions"
                             value={candidateDirectionText}
                             valueTitle={candidateDirectionText}
                         />
@@ -340,6 +343,15 @@ export default function TransportStopContextCard({
                         >
                             ← Back to selected stop
                         </button>
+                    ) : null}
+                    {candidateInsertActions.length > 0 ? (
+                        <div className="border-b border-purple-100 pb-1.5">
+                            <ActionRow
+                                actions={candidateInsertActions}
+                                busy={busy}
+                                className={MERGE_GRID_CLASS}
+                            />
+                        </div>
                     ) : null}
                     {candidateCheckRoutesAction ? (
                         <ActionRow actions={[candidateCheckRoutesAction]} busy={busy} />

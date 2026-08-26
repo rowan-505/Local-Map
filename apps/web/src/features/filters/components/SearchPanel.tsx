@@ -56,6 +56,7 @@ type SearchPanelProps = {
   readonly searchLoading?: boolean;
   readonly searchLoadingMore?: boolean;
   readonly searchError?: boolean;
+  readonly searchUnavailable?: boolean;
   readonly searchFetchMoreError?: boolean;
   readonly hasMoreSearch?: boolean;
   readonly searchReachedCap?: boolean;
@@ -100,6 +101,7 @@ function SearchPanelInner({
   searchLoading = false,
   searchLoadingMore = false,
   searchError = false,
+  searchUnavailable = false,
   searchFetchMoreError = false,
   hasMoreSearch = false,
   searchReachedCap = false,
@@ -201,6 +203,7 @@ function SearchPanelInner({
             searchLoading={searchLoading}
             searchLoadingMore={searchLoadingMore}
             searchError={searchError}
+            searchUnavailable={searchUnavailable}
             searchFetchMoreError={searchFetchMoreError}
             hasMoreSearch={hasMoreSearch}
             searchReachedCap={searchReachedCap}
@@ -482,6 +485,7 @@ function SearchResults({
   searchLoading,
   searchLoadingMore,
   searchError,
+  searchUnavailable,
   searchFetchMoreError,
   hasMoreSearch,
   searchReachedCap,
@@ -495,6 +499,7 @@ function SearchResults({
   readonly searchLoading: boolean;
   readonly searchLoadingMore: boolean;
   readonly searchError: boolean;
+  readonly searchUnavailable: boolean;
   readonly searchFetchMoreError: boolean;
   readonly hasMoreSearch: boolean;
   readonly searchReachedCap: boolean;
@@ -541,17 +546,21 @@ function SearchResults({
         <SidebarSectionTitle>{t('ရှာဖွေမှုရလဒ်များ', 'Search results')}</SidebarSectionTitle>
       </div>
       {initialLoading ? (
-        <SearchStateMessage
-          title={t('ရှာဖွေနေသည်…', 'Searching...')}
-          body={t('မြေပုံဒေတာကို စစ်ဆေးနေသည်။', 'Checking map data.')}
-        />
+        <SearchResultSkeleton />
       ) : null}
       {searchError ? (
         <div className="px-3.5 py-3">
           <SearchStateMessage
             tone="error"
             title={t('ရလဒ်များ မရပါ။', 'Results unavailable.')}
-            body={t('ချိတ်ဆက်မှုကို စစ်ဆေးပါ။', 'Check your connection.')}
+            body={
+              searchUnavailable
+                ? t(
+                    'ရှာဖွေမှု အချိန်ကြာနေသည်။ ခဏနေ ပြန်ကြိုးစားပါ။',
+                    'Search took too long. Please retry.',
+                  )
+                : t('ချိတ်ဆက်မှုကို စစ်ဆေးပါ။', 'Check your connection.')
+            }
           />
           {onRetrySearch ? (
             <button
@@ -656,6 +665,28 @@ function SearchResults({
             : t('ရလဒ်ကုန်ပါပြီ။', 'End of results.')}
         </p>
       ) : null}
+    </div>
+  );
+}
+
+/** Stable three-row placeholder: immediate feedback without layout shifts. */
+function SearchResultSkeleton() {
+  const t = useMapUiText();
+  return (
+    <div
+      className="divide-y divide-map-border/65"
+      role="status"
+      aria-label={t('ရှာဖွေနေသည်', 'Searching')}
+    >
+      {Array.from({ length: 3 }).map((_, index) => (
+        <div key={index} className="flex items-center gap-3 px-3.5 py-3" aria-hidden="true">
+          <span className="h-7 w-7 shrink-0 animate-pulse rounded-full bg-map-border/60" />
+          <span className="min-w-0 flex-1 space-y-2">
+            <span className="block h-3.5 w-2/3 animate-pulse rounded bg-map-border/70" />
+            <span className="block h-3 w-1/2 animate-pulse rounded bg-map-border/45" />
+          </span>
+        </div>
+      ))}
     </div>
   );
 }

@@ -8,13 +8,14 @@ import {
 } from "./routeDirectionSwap";
 
 /**
- * Confirms swapping inbound/outbound direction metadata between the route's two
- * active variants. Stop order and geometry on each variant stay unchanged.
+ * Confirms swapping direction_id metadata between the route's two active
+ * variants. Stop order and geometry on each variant stay unchanged.
  */
 export default function SwapRouteDirectionDialog({
     open,
     pair,
     routeCode,
+    routeMode,
     isBusy,
     error,
     onConfirm,
@@ -23,6 +24,7 @@ export default function SwapRouteDirectionDialog({
     readonly open: boolean;
     readonly pair: RouteDirectionSwapPair | null;
     readonly routeCode: string;
+    readonly routeMode: string;
     readonly isBusy?: boolean;
     readonly error?: string;
     readonly onConfirm: () => void;
@@ -48,6 +50,7 @@ export default function SwapRouteDirectionDialog({
     if (!open || !pair) {
         return null;
     }
+    const canonicalYbs = routeMode === "bus" && routeCode.startsWith("YBS-");
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -58,33 +61,33 @@ export default function SwapRouteDirectionDialog({
                 aria-labelledby={titleId}
             >
                 <h3 id={titleId} className="text-sm font-semibold text-gray-900">
-                    Change direction
+                    Swap direction assignments
                 </h3>
                 <p className="mt-1 text-xs text-gray-600">
-                    Swap inbound/outbound labels for route{" "}
-                    <span className="font-medium">{routeCode}</span>. Stop order and geometry on
-                    each variant stay the same.
+                    Route <span className="font-medium">{routeCode}</span>. Swaps the direction
+                    assignment between the two route variants. Stops and route paths remain on
+                    their existing physical variants.
+                    {canonicalYbs ? " D0/D1 do not imply geographic direction." : ""}
                 </p>
 
                 <dl className="mt-3 space-y-2 text-xs">
                     <div className="rounded-md border border-gray-200 bg-gray-50 px-2.5 py-2">
-                        <dt className="font-medium text-gray-700">Outbound (now)</dt>
+                        <dt className="font-medium text-gray-700">
+                            {canonicalYbs ? "D0 (now)" : "Direction 0 (now)"}
+                        </dt>
                         <dd className="mt-0.5 text-gray-900">
-                            {formatVariantDirectionSummary(pair.outbound)}
+                            {formatVariantDirectionSummary(pair.direction0)}
                         </dd>
                     </div>
                     <div className="rounded-md border border-gray-200 bg-gray-50 px-2.5 py-2">
-                        <dt className="font-medium text-gray-700">Inbound (now)</dt>
+                        <dt className="font-medium text-gray-700">
+                            {canonicalYbs ? "D1 (now)" : "Direction 1 (now)"}
+                        </dt>
                         <dd className="mt-0.5 text-gray-900">
-                            {formatVariantDirectionSummary(pair.inbound)}
+                            {formatVariantDirectionSummary(pair.direction1)}
                         </dd>
                     </div>
                 </dl>
-
-                <p className="mt-3 text-xs text-gray-600">
-                    After swap, variant codes and direction metadata exchange (-A/-B, outbound ↔
-                    inbound).
-                </p>
 
                 {error ? (
                     <p className="mt-2 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs text-red-800">
@@ -108,7 +111,7 @@ export default function SwapRouteDirectionDialog({
                         disabled={isBusy}
                         className="rounded-md bg-gray-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-800 disabled:opacity-60"
                     >
-                        {isBusy ? "Swapping…" : "Swap direction"}
+                        {isBusy ? "Swapping…" : "Swap assignments"}
                     </button>
                 </div>
             </div>

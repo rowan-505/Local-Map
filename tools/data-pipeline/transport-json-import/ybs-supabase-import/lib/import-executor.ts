@@ -9,6 +9,7 @@
 
 import type pg from "pg";
 
+import { buildVariantCode } from "../../ybs-db-prepare/stop-normalize.js";
 import {
     ensureSourceLink,
     findLinkedEntityId,
@@ -462,7 +463,29 @@ async function insertRouteVariant(ctx: ExecutorContext, action: PlanAction): Pro
         throw new Error(`route_variant references unresolved route ${routeRef}.`);
     }
 
-    const variantCode = String(action.payload.variant_code);
+    const routeIdentity = await ctx.client.query<{ route_code: string; mode: string }>(
+        `SELECT route_code, mode FROM transport.routes WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+        [routeId],
+    );
+    const route = routeIdentity.rows[0];
+    if (!route) {
+        throw new Error(`route_variant references missing route id ${routeId}.`);
+    }
+
+    const requestedDirectionId =
+        typeof action.payload.direction_id === "number" ? action.payload.direction_id : null;
+    const canonicalYbs = route.mode === MODE_BUS && route.route_code.startsWith("YBS-");
+    if (canonicalYbs && requestedDirectionId !== 0 && requestedDirectionId !== 1) {
+        throw new Error(
+            `YBS route_variant ${action.entity_ref} requires direction_id 0 (D0) or 1 (D1).`,
+        );
+    }
+    const variantCode = canonicalYbs
+        ? `${route.route_code}-D${requestedDirectionId}`
+        : String(action.payload.variant_code);
+    const directionName = canonicalYbs
+        ? `D${requestedDirectionId}`
+        : (action.payload.direction_name ?? null);
 
     if (action.external_id) {
         const linkedVariantId = await findLinkedEntityId(
@@ -489,8 +512,7 @@ async function insertRouteVariant(ctx: ExecutorContext, action: PlanAction): Pro
         return;
     }
 
-    const directionId =
-        typeof action.payload.direction_id === "number" ? action.payload.direction_id : null;
+    const directionId = requestedDirectionId;
     const inserted = await ctx.client.query<{ id: string }>(
         `
         INSERT INTO transport.route_variants (
@@ -504,7 +526,7 @@ async function insertRouteVariant(ctx: ExecutorContext, action: PlanAction): Pro
         [
             routeId,
             variantCode,
-            action.payload.direction_name ?? null,
+            directionName,
             directionId,
             action.payload.origin_name ?? null,
             action.payload.destination_name ?? null,
@@ -799,7 +821,7 @@ export function buildRouteStopExpectations(
         const directionKey =
             String(action.payload.direction_key ?? "") ||
             (action.external_id?.split(":")[3] ?? "");
-        const variantCode = `${routeCode}-${directionKey.toUpperCase()}`;
+        const variantCode = buildVariantCode(routeCode, directionKey);
         const sequence = Number(action.payload.stop_sequence);
         const bucket =
             byVariant.get(variantRef) ??

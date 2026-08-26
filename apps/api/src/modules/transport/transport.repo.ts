@@ -34,6 +34,10 @@ import {
 } from "./transport-audit.js";
 import { getTransportTypeFallbackLabel } from "./transport-naming.js";
 import {
+    canonicalYbsVariantIdentity,
+    isCanonicalYbsRoute,
+} from "./ybs-direction.js";
+import {
     derivePublicVisibility,
     deriveRouteGeometryStatus,
     deriveStopGeometryStatus,
@@ -321,6 +325,7 @@ type StopRouteUsageDetailRow = {
     route_stop_id: string;
     route_id: string;
     route_code: string;
+    route_mode: string;
     route_name: string | null;
     variant_id: string;
     variant_code: string;
@@ -541,6 +546,7 @@ type VariantSummaryRow = {
     headsign: string | null;
     origin_name: string | null;
     destination_name: string | null;
+    first_stop_name: string | null;
     stop_count: bigint;
     path_count: bigint;
     distance_m: number | null;
@@ -729,9 +735,9 @@ type CreateRouteVariantSeed = {
 
 /**
  * Builds the auto-variant seeds for a new route from its create payload, applying
- * the endpoint rules: loop → one LOOP variant; bus/train → outbound + inbound;
- * ferry → outbound, plus inbound only when create_return_variant is set. Inbound
- * variants swap the route origin/destination.
+ * the endpoint rules: YBS bus → neutral D0 + D1; loop → one LOOP variant;
+ * other bus/train → outbound + inbound; ferry → outbound, plus inbound only
+ * when create_return_variant is set. The second variant swaps route endpoints.
  */
 function buildCreateRouteVariantSeeds(
     input: CreateRouteInput,
@@ -739,6 +745,25 @@ function buildCreateRouteVariantSeeds(
     destinationName: string | null
 ): CreateRouteVariantSeed[] {
     const code = input.route_code;
+
+    if (isCanonicalYbsRoute(input.mode, code)) {
+        return [
+            {
+                variant_code: `${code}-D0`,
+                direction_name: "D0",
+                direction_id: 0,
+                origin_name: originName,
+                destination_name: destinationName,
+            },
+            {
+                variant_code: `${code}-D1`,
+                direction_name: "D1",
+                direction_id: 1,
+                origin_name: destinationName,
+                destination_name: originName,
+            },
+        ];
+    }
 
     if (input.is_loop) {
         return [
@@ -3364,6 +3389,7 @@ export class TransportRepository {
                 rs.id::text AS route_stop_id,
                 r.public_id::text AS route_id,
                 r.route_code,
+                r.mode AS route_mode,
                 COALESCE(r.public_name, r.route_code) AS route_name,
                 v.public_id::text AS variant_id,
                 v.variant_code,
@@ -3396,6 +3422,7 @@ export class TransportRepository {
                 route_stop_id: row.route_stop_id,
                 route_id: row.route_id,
                 route_code: row.route_code,
+                route_mode: row.route_mode,
                 route_name: row.route_name,
                 variant_id: row.variant_id,
                 variant_code: row.variant_code,
@@ -3424,6 +3451,7 @@ export class TransportRepository {
 
         const summary = buildStopRouteUsageSummary(
             rows.map((row) => ({
+                routeMode: row.route_mode,
                 variantCode: row.variant_code,
                 directionName: row.direction_name,
                 directionId: row.direction_id === null ? null : num(row.direction_id),
@@ -3784,6 +3812,7 @@ export class TransportRepository {
                     route_stop_id: row.route_stop_id,
                     route_id: row.route_id,
                     route_code: row.route_code,
+                    route_mode: row.route_mode,
                     route_name: row.route_name ?? row.route_code,
                     variant_id: row.variant_id,
                     variant_code: row.variant_code,
@@ -3797,6 +3826,7 @@ export class TransportRepository {
                     route_stop_id: row.route_stop_id,
                     route_id: row.route_id,
                     route_code: row.route_code,
+                    route_mode: row.route_mode,
                     route_name: row.route_name ?? row.route_code,
                     variant_id: row.variant_id,
                     variant_code: row.variant_code,
@@ -5452,7 +5482,8 @@ export class TransportRepository {
      * is_active = true, manual/admin source_refs) and `route_kind` comes from the
      * mode config. Variants are generated from `route_code` per the create rules:
      *   - is_loop: one `${code}-LOOP` variant (direction_id 2)
-     *   - bus/train: `${code}-A` outbound (0) + `${code}-B` inbound (1)
+     *   - YBS bus: `${code}-D0` (0) + `${code}-D1` (1), with no geographic meaning
+     *   - other bus/train: `${code}-A` outbound (0) + `${code}-B` inbound (1)
      *   - ferry: `${code}-A` outbound (0); `${code}-B` inbound (1) only when
      *     create_return_variant is set
      * A pre-check + unique-violation guard map duplicate route_code / variant_code
@@ -5971,6 +6002,16 @@ export class TransportRepository {
                 v.headsign,
                 v.origin_name,
                 v.destination_name,
+                (SELECT COALESCE(
+                        NULLIF(btrim(s.name), ''),
+                        NULLIF(btrim(s.name_mm), ''),
+                        NULLIF(btrim(s.name_en), '')
+                    )
+                    FROM transport.route_stops rs
+                    JOIN transport.stops s ON s.id = rs.stop_id AND s.deleted_at IS NULL
+                    WHERE rs.route_variant_id = v.id
+                    ORDER BY rs.stop_sequence ASC, rs.id ASC
+                    LIMIT 1) AS first_stop_name,
                 (SELECT count(*) FROM transport.route_stops rs
                     WHERE rs.route_variant_id = v.id)::bigint AS stop_count,
                 (SELECT count(*) FROM transport.route_paths p
@@ -5996,6 +6037,7 @@ export class TransportRepository {
                 headsign: row.headsign,
                 origin_name: row.origin_name,
                 destination_name: row.destination_name,
+                first_stop_name: row.first_stop_name,
                 stop_count: num(row.stop_count),
                 path_count: pathCount,
                 path_status: pathCount > 0 ? "has_path" : "none",
@@ -6688,6 +6730,16 @@ export class TransportRepository {
                 v.headsign,
                 v.origin_name,
                 v.destination_name,
+                (SELECT COALESCE(
+                        NULLIF(btrim(s.name), ''),
+                        NULLIF(btrim(s.name_mm), ''),
+                        NULLIF(btrim(s.name_en), '')
+                    )
+                    FROM transport.route_stops rs
+                    JOIN transport.stops s ON s.id = rs.stop_id AND s.deleted_at IS NULL
+                    WHERE rs.route_variant_id = v.id
+                    ORDER BY rs.stop_sequence ASC, rs.id ASC
+                    LIMIT 1) AS first_stop_name,
                 (SELECT count(*) FROM transport.route_stops rs
                     WHERE rs.route_variant_id = v.id)::bigint AS stop_count,
                 (SELECT count(*) FROM transport.route_paths p
@@ -6717,6 +6769,7 @@ export class TransportRepository {
             headsign: row.headsign,
             origin_name: row.origin_name,
             destination_name: row.destination_name,
+            first_stop_name: row.first_stop_name,
             stop_count: num(row.stop_count),
             path_count: pathCount,
             path_status: pathCount > 0 ? "has_path" : "none",
@@ -6741,25 +6794,61 @@ export class TransportRepository {
     ): Promise<TransportVariantSummary> {
         await this.assertSchemaAvailable();
 
+        const routeIdentityRows = await this.prisma.$queryRaw<
+            { route_code: string; mode: string; direction_id: number | null }[]
+        >`
+            SELECT r.route_code, r.mode, v.direction_id::int
+            FROM transport.route_variants AS v
+            JOIN transport.routes AS r ON r.id = v.route_id
+            WHERE v.public_id = ${variantPublicId}::uuid
+              AND v.deleted_at IS NULL
+              AND r.deleted_at IS NULL
+            LIMIT 1
+        `;
+        const routeIdentity = routeIdentityRows[0];
+        if (!routeIdentity) {
+            throw new TransportNotFoundError("route variant", variantPublicId);
+        }
+
+        const effectiveInput: UpdateVariantInput = { ...input };
+        if (isCanonicalYbsRoute(routeIdentity.mode, routeIdentity.route_code)) {
+            const ybsIdentity = canonicalYbsVariantIdentity(
+                routeIdentity.route_code,
+                input.direction_id === undefined ? routeIdentity.direction_id : input.direction_id
+            );
+            if (ybsIdentity === null) {
+                throw new TransportRouteMetadataError(
+                    "YBS variants require direction_id 0 (D0) or 1 (D1)."
+                );
+            }
+            effectiveInput.variant_code = ybsIdentity.variantCode;
+            effectiveInput.direction_name = ybsIdentity.directionName;
+            effectiveInput.direction_id = ybsIdentity.directionId;
+        }
+
         const sets: Prisma.Sql[] = [];
-        if (input.variant_code !== undefined)
-            sets.push(Prisma.sql`variant_code = ${input.variant_code}`);
-        if (input.direction_name !== undefined)
-            sets.push(Prisma.sql`direction_name = ${input.direction_name}`);
-        if (input.direction_id !== undefined)
-            sets.push(Prisma.sql`direction_id = ${input.direction_id}`);
-        if (input.headsign !== undefined) sets.push(Prisma.sql`headsign = ${input.headsign}`);
-        if (input.origin_name !== undefined)
-            sets.push(Prisma.sql`origin_name = ${input.origin_name}`);
-        if (input.destination_name !== undefined)
-            sets.push(Prisma.sql`destination_name = ${input.destination_name}`);
-        if (input.estimated_duration_min !== undefined)
-            sets.push(Prisma.sql`estimated_duration_min = ${input.estimated_duration_min}`);
-        if (input.review_status !== undefined)
-            sets.push(Prisma.sql`review_status = ${input.review_status}`);
-        if (input.confidence_score !== undefined)
-            sets.push(Prisma.sql`confidence_score = ${input.confidence_score}`);
-        if (input.is_active !== undefined) sets.push(Prisma.sql`is_active = ${input.is_active}`);
+        if (effectiveInput.variant_code !== undefined)
+            sets.push(Prisma.sql`variant_code = ${effectiveInput.variant_code}`);
+        if (effectiveInput.direction_name !== undefined)
+            sets.push(Prisma.sql`direction_name = ${effectiveInput.direction_name}`);
+        if (effectiveInput.direction_id !== undefined)
+            sets.push(Prisma.sql`direction_id = ${effectiveInput.direction_id}`);
+        if (effectiveInput.headsign !== undefined)
+            sets.push(Prisma.sql`headsign = ${effectiveInput.headsign}`);
+        if (effectiveInput.origin_name !== undefined)
+            sets.push(Prisma.sql`origin_name = ${effectiveInput.origin_name}`);
+        if (effectiveInput.destination_name !== undefined)
+            sets.push(Prisma.sql`destination_name = ${effectiveInput.destination_name}`);
+        if (effectiveInput.estimated_duration_min !== undefined)
+            sets.push(
+                Prisma.sql`estimated_duration_min = ${effectiveInput.estimated_duration_min}`
+            );
+        if (effectiveInput.review_status !== undefined)
+            sets.push(Prisma.sql`review_status = ${effectiveInput.review_status}`);
+        if (effectiveInput.confidence_score !== undefined)
+            sets.push(Prisma.sql`confidence_score = ${effectiveInput.confidence_score}`);
+        if (effectiveInput.is_active !== undefined)
+            sets.push(Prisma.sql`is_active = ${effectiveInput.is_active}`);
 
         // Resolve optional endpoint stop pointers (public_id -> stops.id). undefined
         // means "leave unchanged"; null clears the pointer. Resolved up front so a
@@ -6814,7 +6903,7 @@ export class TransportRepository {
                 WHERE public_id = ${variantPublicId}::uuid AND deleted_at IS NULL
             `);
 
-            const diff = diffScalarFields(before, input, VARIANT_AUDIT_FIELDS);
+            const diff = diffScalarFields(before, effectiveInput, VARIANT_AUDIT_FIELDS);
             // Endpoint stop pointers are not scalar body fields; diff them manually.
             if (originStopId !== undefined && before.origin_stop_id !== originStopId) {
                 diff.changedFields.push("origin_stop_id");
@@ -6898,8 +6987,8 @@ export class TransportRepository {
                       "destination_stop_public_id"
                   );
 
-        const directionName = input.direction_name ?? null;
-        const directionId = input.direction_id ?? null;
+        const requestedDirectionName = input.direction_name ?? null;
+        const requestedDirectionId = input.direction_id ?? null;
         const headsign = input.headsign ?? null;
         const originName = input.origin_name ?? null;
         const destinationName = input.destination_name ?? null;
@@ -6908,8 +6997,10 @@ export class TransportRepository {
 
         const publicId = await this.prisma
             .$transaction(async (tx) => {
-                const routeRows = await tx.$queryRaw<{ id: bigint }[]>`
-                    SELECT id FROM transport.routes
+                const routeRows = await tx.$queryRaw<
+                    { id: bigint; route_code: string; mode: string }[]
+                >`
+                    SELECT id, route_code, mode FROM transport.routes
                     WHERE public_id = ${routePublicId}::uuid AND deleted_at IS NULL
                     LIMIT 1
                 `;
@@ -6918,13 +7009,28 @@ export class TransportRepository {
                     throw new TransportNotFoundError("route", routePublicId);
                 }
 
+                const ybsIdentity = isCanonicalYbsRoute(route.mode, route.route_code)
+                    ? canonicalYbsVariantIdentity(route.route_code, requestedDirectionId)
+                    : null;
+                if (
+                    isCanonicalYbsRoute(route.mode, route.route_code) &&
+                    ybsIdentity === null
+                ) {
+                    throw new TransportRouteMetadataError(
+                        "YBS variants require direction_id 0 (D0) or 1 (D1)."
+                    );
+                }
+                const variantCode = ybsIdentity?.variantCode ?? input.variant_code;
+                const directionName = ybsIdentity?.directionName ?? requestedDirectionName;
+                const directionId = ybsIdentity?.directionId ?? requestedDirectionId;
+
                 const inserted = await tx.$queryRaw<{ id: bigint; public_id: string }[]>`
                     INSERT INTO transport.route_variants
                         (route_id, variant_code, direction_name, direction_id, headsign,
                          origin_name, destination_name, origin_stop_id, destination_stop_id,
                          confidence_score, review_status, is_active)
                     VALUES
-                        (${route.id}, ${input.variant_code}, ${directionName}, ${directionId},
+                        (${route.id}, ${variantCode}, ${directionName}, ${directionId},
                          ${headsign}, ${originName}, ${destinationName}, ${originStopId},
                          ${destinationStopId}, ${confidenceScore}, ${reviewStatus}, true)
                     RETURNING id, public_id::text AS public_id
@@ -6954,7 +7060,7 @@ export class TransportRepository {
                     ],
                     oldValues: null,
                     newValues: {
-                        variant_code: input.variant_code,
+                        variant_code: variantCode,
                         direction_name: directionName,
                         direction_id: directionId,
                         headsign,
@@ -6976,7 +7082,7 @@ export class TransportRepository {
             .catch((error: unknown) => {
                 if (isUniqueViolation(error)) {
                     throw new TransportRouteConflictError(
-                        `Variant code "${input.variant_code}" already exists for this route.`
+                        `The canonical variant code for this direction already exists for this route.`
                     );
                 }
                 throw error;
@@ -8958,10 +9064,9 @@ export class TransportRepository {
     }
 
     /**
-     * Swaps inbound/outbound direction metadata between the route's two active
-     * variants (direction_id 0 and 1). Stops, paths, and endpoint pointers are
-     * untouched. Uses temporary variant_code values inside the transaction to
-     * avoid (route_id, variant_code) unique conflicts.
+     * Swaps direction_id 0/1 metadata between the route's two active variants.
+     * Stops, paths, and endpoint pointers are untouched. YBS variants receive
+     * neutral D0/D1 identities; legacy non-YBS semantics remain mode-specific.
      */
     async swapRouteDirectionByPublicId(
         routePublicId: string,
@@ -8979,8 +9084,10 @@ export class TransportRepository {
         };
 
         const swappedPublicIds = await this.prisma.$transaction(async (tx) => {
-            const routeRows = await tx.$queryRaw<{ id: bigint; route_code: string }[]>`
-                SELECT id, route_code
+            const routeRows = await tx.$queryRaw<
+                { id: bigint; route_code: string; mode: string }[]
+            >`
+                SELECT id, route_code, mode
                 FROM transport.routes
                 WHERE public_id = ${routePublicId}::uuid AND deleted_at IS NULL
                 FOR UPDATE
@@ -9005,53 +9112,73 @@ export class TransportRepository {
                 FOR UPDATE
             `;
 
+            const canonicalYbs = isCanonicalYbsRoute(route.mode, route.route_code);
             if (rows.length !== 2) {
                 throw new TransportRouteMetadataError(
-                    "Change direction requires exactly two active variants (one inbound, one outbound)."
+                    canonicalYbs
+                        ? "Change direction requires exactly two active variants (D0 and D1)."
+                        : "Change direction requires exactly two active variants (one inbound, one outbound)."
                 );
             }
 
-            const outbound = rows.find((row) => row.direction_id === 0);
-            const inbound = rows.find((row) => row.direction_id === 1);
-            if (!outbound || !inbound) {
+            const direction0 = rows.find((row) => row.direction_id === 0);
+            const direction1 = rows.find((row) => row.direction_id === 1);
+            if (!direction0 || !direction1) {
                 throw new TransportRouteMetadataError(
-                    "Change direction requires one outbound (direction_id 0) and one inbound (direction_id 1) variant."
+                    canonicalYbs
+                        ? "Change direction requires one D0 (direction_id 0) and one D1 (direction_id 1) variant."
+                        : "Change direction requires one outbound (direction_id 0) and one inbound (direction_id 1) variant."
                 );
             }
 
-            const outboundBecomesInbound = {
-                variant_code: `${route.route_code}-B`,
-                direction_id: 1,
-                direction_name: "inbound",
-                direction_value: "inbound",
-            };
-            const inboundBecomesOutbound = {
-                variant_code: `${route.route_code}-A`,
-                direction_id: 0,
-                direction_name: "outbound",
-                direction_value: "outbound",
-            };
+            const direction0BecomesDirection1 = canonicalYbs
+                ? {
+                      variant_code: `${route.route_code}-D1`,
+                      direction_id: 1,
+                      direction_name: "D1",
+                      direction_value: null,
+                  }
+                : {
+                      variant_code: `${route.route_code}-B`,
+                      direction_id: 1,
+                      direction_name: "inbound",
+                      direction_value: "inbound",
+                  };
+            const direction1BecomesDirection0 = canonicalYbs
+                ? {
+                      variant_code: `${route.route_code}-D0`,
+                      direction_id: 0,
+                      direction_name: "D0",
+                      direction_value: null,
+                  }
+                : {
+                      variant_code: `${route.route_code}-A`,
+                      direction_id: 0,
+                      direction_name: "outbound",
+                      direction_value: "outbound",
+                  };
 
-            const outboundTemp = `__DIRSWAP_${outbound.public_id}`;
-            const inboundTemp = `__DIRSWAP_${inbound.public_id}`;
+            const direction0Temp = `__DIRSWAP_${direction0.public_id}`;
+            const direction1Temp = `__DIRSWAP_${direction1.public_id}`;
 
             await tx.$executeRaw`
                 UPDATE transport.route_variants
-                SET variant_code = ${outboundTemp}, updated_at = now()
-                WHERE id = ${outbound.id}
+                SET variant_code = ${direction0Temp}, updated_at = now()
+                WHERE id = ${direction0.id}
             `;
             await tx.$executeRaw`
                 UPDATE transport.route_variants
-                SET variant_code = ${inboundTemp}, updated_at = now()
-                WHERE id = ${inbound.id}
+                SET variant_code = ${direction1Temp}, updated_at = now()
+                WHERE id = ${direction1.id}
             `;
 
             const applySwap = async (
                 row: SwapVariantRow,
-                target: typeof outboundBecomesInbound,
+                target: typeof direction0BecomesDirection1,
                 partnerPublicId: string
             ) => {
                 const hadNormalizedDirection =
+                    target.direction_value !== null &&
                     row.normalized_data !== null &&
                     typeof row.normalized_data === "object" &&
                     "direction" in row.normalized_data;
@@ -9109,10 +9236,18 @@ export class TransportRepository {
                 });
             };
 
-            await applySwap(outbound, outboundBecomesInbound, inbound.public_id);
-            await applySwap(inbound, inboundBecomesOutbound, outbound.public_id);
+            await applySwap(
+                direction0,
+                direction0BecomesDirection1,
+                direction1.public_id
+            );
+            await applySwap(
+                direction1,
+                direction1BecomesDirection0,
+                direction0.public_id
+            );
 
-            return [outbound.public_id, inbound.public_id] as const;
+            return [direction0.public_id, direction1.public_id] as const;
         });
 
         const variants = await Promise.all(

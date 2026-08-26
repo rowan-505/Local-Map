@@ -42,6 +42,7 @@ export type CoreReviewListDraft = {
     verificationStatusFilter: CoreReviewVerificationStatusFilter;
     statusFilter: CoreReviewLifecycleStatusFilter;
     adminAreaId: string;
+    settlementType: string;
     categoryId: string;
     buildingTypeId: string;
     roadClassId: string;
@@ -151,6 +152,7 @@ function readDraftFromSearchParams(
             searchParams.get("isVerified")
         ),
         adminAreaId: searchParams.get("adminAreaId")?.trim() ?? "",
+        settlementType: searchParams.get("settlementType")?.trim() ?? "",
         categoryId: searchParams.get("categoryId")?.trim() ?? "",
         buildingTypeId: searchParams.get("buildingTypeId")?.trim() ?? "",
         roadClassId: searchParams.get("roadClassId")?.trim() ?? "",
@@ -194,6 +196,9 @@ export function buildListParamsFromDraft(
     }
     if (filterSupport.adminAreaId && draft.adminAreaId) {
         params.adminAreaId = draft.adminAreaId;
+    }
+    if (filterSupport.settlementType && draft.settlementType) {
+        params.settlementType = draft.settlementType;
     }
     if (filterSupport.categoryId && draft.categoryId) {
         params.categoryId = draft.categoryId;
@@ -283,6 +288,7 @@ function buildCoreReviewListQueryKey(input: {
     status: string;
     verificationStatus: string;
     adminAreaId: string;
+    settlementType: string;
     categoryId: string;
     buildingTypeId: string;
     roadClassId: string;
@@ -309,6 +315,7 @@ function buildCoreReviewListQueryKey(input: {
         input.status,
         input.verificationStatus,
         input.adminAreaId,
+        input.settlementType,
         input.categoryId,
         input.buildingTypeId,
         input.roadClassId,
@@ -344,6 +351,9 @@ function draftToUrlParams(
     }
     if (draft.adminAreaId) {
         p.adminAreaId = draft.adminAreaId;
+    }
+    if (draft.settlementType) {
+        p.settlementType = draft.settlementType;
     }
     if (draft.categoryId) {
         p.categoryId = draft.categoryId;
@@ -443,6 +453,7 @@ export function useCoreReviewListState<T extends Record<string, unknown>>(option
             status: listParams.status ?? "active",
             verificationStatus: listParams.verification_status ?? "",
             adminAreaId: listParams.adminAreaId?.trim() ?? "",
+            settlementType: listParams.settlementType?.trim() ?? "",
             categoryId: listParams.categoryId?.trim() ?? "",
             buildingTypeId: listParams.buildingTypeId?.trim() ?? "",
             roadClassId: listParams.roadClassId?.trim() ?? "",
@@ -470,6 +481,7 @@ export function useCoreReviewListState<T extends Record<string, unknown>>(option
         defaultSortBy,
         listParams.addressUsage,
         listParams.adminAreaId,
+        listParams.settlementType,
         listParams.boundaryStatus,
         listParams.buildingTypeId,
         listParams.categoryId,

@@ -2,6 +2,7 @@ import type { CoreEntityConfig } from "./types";
 import { BUILDINGS_ENTITY_CONFIG } from "./buildings";
 import { LAND_AREAS_ENTITY_CONFIG } from "./land-areas";
 import { PLACES_ENTITY_CONFIG } from "./places";
+import { SETTLEMENTS_ENTITY_CONFIG } from "./settlements";
 import { STREETS_ENTITY_CONFIG } from "./streets";
 import {
     ADMIN_AREAS_ENTITY_CONFIG,
@@ -20,6 +21,7 @@ export type {
 export { BUILDINGS_ENTITY_CONFIG } from "./buildings";
 export { LAND_AREAS_ENTITY_CONFIG } from "./land-areas";
 export { PLACES_ENTITY_CONFIG } from "./places";
+export { SETTLEMENTS_ENTITY_CONFIG } from "./settlements";
 export { STREETS_ENTITY_CONFIG } from "./streets";
 export {
     ADMIN_AREAS_ENTITY_CONFIG,
@@ -31,6 +33,7 @@ export {
 export const CORE_ENTITY_CONFIGS = {
     buildings: BUILDINGS_ENTITY_CONFIG,
     places: PLACES_ENTITY_CONFIG,
+    settlements: SETTLEMENTS_ENTITY_CONFIG,
     streets: STREETS_ENTITY_CONFIG,
     "land-areas": LAND_AREAS_ENTITY_CONFIG,
     "water-lines": WATER_LINES_ENTITY_CONFIG,

@@ -355,6 +355,8 @@ export type TransportStopRouteUsage = {
     variant_public_id: string;
     variant_code: string;
     direction_name: string | null;
+    /** Present on the authoritative route-usage detail read model. */
+    direction_id?: number | null;
     headsign: string | null;
     stop_sequence: number;
 };
@@ -752,6 +754,8 @@ export type TransportVariantSummary = {
     headsign: string | null;
     origin_name: string | null;
     destination_name: string | null;
+    /** Display name of this physical variant's first ordered route stop. */
+    first_stop_name: string | null;
     stop_count: number;
     path_count: number;
     path_status: "has_path" | "none";
@@ -1031,8 +1035,8 @@ export type UpdateTransportVariantBody = {
 
 /**
  * POST /transport/routes/:routePublicId/variants body. `variant_code` is required
- * and unique per route. direction_id: 0 outbound, 1 inbound, 2 loop/branch, null
- * unknown. review_status / confidence_score default server-side when omitted.
+ * and unique per route. direction_id is the machine identity (YBS 0=D0, 1=D1;
+ * other modes retain existing semantics), 2 is loop/branch, null unknown.
  */
 export type CreateTransportVariantBody = {
     variant_code: string;

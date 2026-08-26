@@ -100,8 +100,7 @@ COMMENT ON VIEW search.v_search_landuse_source IS
 
 -- Migrate indexed documents atomically.
 UPDATE search.search_documents
-SET entity_type = 'land_area',
-    updated_at = now()
+SET entity_type = 'land_area'
 WHERE entity_type = 'landuse';
 
 -- Keep rebuild function on the new view name when present.
@@ -109,16 +108,17 @@ DO $$
 DECLARE
   def text;
 BEGIN
-  IF to_regprocedure('search.rebuild_search_documents()') IS NULL THEN
-    RAISE NOTICE '158: search.rebuild_search_documents() missing — skip body rewrite';
+  IF to_regprocedure('search.rebuild_search_documents(text[])') IS NULL THEN
+    RAISE NOTICE '158: search.rebuild_search_documents(text[]) missing — skip body rewrite';
     RETURN;
   END IF;
 
-  def := pg_get_functiondef('search.rebuild_search_documents()'::regprocedure);
+  def := pg_get_functiondef('search.rebuild_search_documents(text[])'::regprocedure);
+  def := replace(def, '''landuse''', '''land_area''');
   IF def ILIKE '%v_search_landuse_source%' AND def NOT ILIKE '%v_search_land_area_source%' THEN
     def := replace(def, 'search.v_search_landuse_source', 'search.v_search_land_area_source');
-    EXECUTE def;
   END IF;
+  EXECUTE def;
 END $$;
 
 -- Alias helper maps (if present from mig 131/134)
@@ -141,4 +141,3 @@ SET entity_family = 'land_areas',
 WHERE entity_family = 'landuse';
 
 COMMIT;
-

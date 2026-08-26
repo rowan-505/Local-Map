@@ -14,6 +14,7 @@ import {
 } from "../hooks/coreReviewRefQueries";
 
 import type { CoreReviewFilterSupport } from "../config/entity-config-types";
+import { SETTLEMENT_TYPE_OPTIONS } from "@/src/lib/core-review/settlementTypes";
 import type { CoreReviewLifecycleStatusFilter } from "../lifecycle/coreReviewLifecycleUtils";
 import type { CoreReviewListDraft } from "../hooks/useCoreReviewListState";
 import {
@@ -189,6 +190,18 @@ export default function CoreReviewEntityFilters({
                     </label>
                 ) : null}
 
+                {filterSupport.settlementType ? (
+                    <FilterSelect
+                        label="Settlement type"
+                        value={draft.settlementType}
+                        options={SETTLEMENT_TYPE_OPTIONS.map((option) => ({
+                            id: option.value,
+                            label: option.label,
+                        }))}
+                        onChange={(v) => setDraft((d) => ({ ...d, settlementType: v }))}
+                    />
+                ) : null}
+
                 {filterSupport.buildingTypeId ? (
                     <FilterSelect
                         label="Building type"
@@ -221,7 +234,7 @@ export default function CoreReviewEntityFilters({
 
                 {filterSupport.adminAreaId ? (
                     <FilterSelect
-                        label="Admin area"
+                        label={adminAreaTownshipOnly ? "Township" : "Admin area"}
                         value={draft.adminAreaId}
                         options={adminAreas}
                         onOpen={() => enableRef("adminAreas")}

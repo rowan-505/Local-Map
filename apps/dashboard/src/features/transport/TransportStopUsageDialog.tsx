@@ -8,6 +8,11 @@ import { transportPath } from "@/src/lib/dashboardNavigation";
 import { getTransportStopRouteUsageDetail, mapStopRouteUsageDetailItemToRouteUsage, removeTransportRouteStop } from "./api";
 import { formatReviewMapStopActionError } from "./reviewMapActionFeedback";
 import { formatRouteUsageDirectionBreakdown, formatRouteUsageSummary } from "./routeUsageSummaryDisplay";
+import {
+    canonicalYbsVariantCode,
+    isCanonicalYbsRouteUsage,
+    routeUsageDirectionLabel,
+} from "./variantDirection";
 import type { TransportRouteStopMutationResult, TransportStopRouteUsage, TransportStopRouteUsageSummary } from "./types";
 
 const ROUTES_PAGE_SIZE = 25;
@@ -42,10 +47,21 @@ export type TransportStopUsageDialogProps = {
 };
 
 function variantLabel(route: TransportStopRouteUsage): string {
-    const parts = [route.variant_code];
-    if (route.direction_name) {
-        parts.push(route.direction_name);
-    } else if (route.headsign) {
+    const canonicalYbs = isCanonicalYbsRouteUsage(route.mode, route.route_code);
+    const parts = [
+        canonicalYbs
+            ? (canonicalYbsVariantCode(route.route_code, route.direction_id) ?? route.variant_code)
+            : route.variant_code,
+    ];
+    const direction = routeUsageDirectionLabel({
+        mode: route.mode,
+        routeCode: route.route_code,
+        directionName: route.direction_name,
+        directionId: route.direction_id,
+    });
+    if (direction) {
+        parts.push(direction);
+    } else if (!canonicalYbs && route.headsign) {
         parts.push(route.headsign);
     }
     return parts.join(" · ");
@@ -235,7 +251,7 @@ export default function TransportStopUsageDialog({
                     {usageSummary && !loading ? (
                         <p className="mt-1 text-xs text-slate-500">
                             {formatRouteUsageDirectionBreakdown(usageSummary) ??
-                                "No inbound/outbound/loop direction tags"}
+                                "No route-variant direction tags"}
                         </p>
                     ) : null}
                 </div>

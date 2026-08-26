@@ -139,6 +139,16 @@ export class PublicTransportTerminalNotFoundError extends Error {
     }
 }
 
+/** A bounded database search exceeded its runtime budget; clients may safely retry. */
+export class PublicSearchUnavailableError extends Error {
+    readonly statusCode = 503;
+
+    constructor(message = "Search is temporarily unavailable. Please retry.") {
+        super(message);
+        this.name = "PublicSearchUnavailableError";
+    }
+}
+
 /** Public admin-area option for the profile region picker (no internal fields). */
 export type PublicAdminAreaResult = {
     readonly id: string;
@@ -413,7 +423,6 @@ export class PublicMapService {
             });
 
         const startedAt = Date.now();
-        let timedOut = false;
         let rows: UnifiedSearchRow[] = [];
         try {
             rows = await this.publicMapRepo.searchUnifiedDocuments({
@@ -428,11 +437,21 @@ export class PublicMapService {
             });
         } catch (error) {
             if (isStatementTimeoutError(error)) {
-                // Graceful degradation: a slow search returns empty, never a 500.
-                timedOut = true;
-            } else {
-                throw error;
+                const durationMs = Date.now() - startedAt;
+                logger?.warn(
+                    {
+                        event: "public_search_timeout",
+                        query: q,
+                        mode: plan.mode,
+                        duration_ms: durationMs,
+                    },
+                    "Public search exceeded its statement timeout",
+                );
+                // A timeout is not a legitimate zero-result search. Surface a
+                // retryable error and keep it out of failed-search analytics.
+                throw new PublicSearchUnavailableError();
             }
+            throw error;
         }
 
         const durationMs = Date.now() - startedAt;
@@ -444,11 +463,11 @@ export class PublicMapService {
                 mode: plan.mode,
                 duration_ms: durationMs,
                 result_count: rows.length,
-                timed_out: timedOut,
+                timed_out: false,
             },
             "Public search timing",
         );
-        if (logger && (timedOut || durationMs >= PUBLIC_SEARCH_SLOW_MS)) {
+        if (logger && durationMs >= PUBLIC_SEARCH_SLOW_MS) {
             logger.warn(
                 {
                     event: "public_search_slow",
@@ -456,40 +475,59 @@ export class PublicMapService {
                     mode: plan.mode,
                     duration_ms: durationMs,
                     result_count: rows.length,
-                    timed_out: timedOut,
+                    timed_out: false,
                 },
                 "Slow public search",
             );
         }
 
-        // Telemetry: record zero-result (or timed-out) queries. Best-effort, non-blocking.
-        const analytics = this.beginSearchRequestAnalytics({
-            q,
-            lang: input.lang ?? null,
-            filters,
-            resultCount: rows.length,
-            latencyMs: durationMs,
-            sessionKey: input.sessionKey ?? null,
-            isPaginationContinuation: Boolean(input.after),
-            searchAllowed: plan.allowed,
-        });
-
         if (rows.length === 0) {
-            this.recordFailedSearchTelemetry({
-                q,
-                lang: input.lang ?? null,
-                lat: input.lat,
-                lng: input.lng,
-                filters,
-                legacyTypes,
-                resultCount: 0,
-                isPaginationContinuation: Boolean(input.after),
-                searchAllowed: plan.allowed,
-            });
+            const analytics = this.beginSearchRequestAnalytics(
+                {
+                    q,
+                    lang: input.lang ?? null,
+                    filters,
+                    resultCount: 0,
+                    latencyMs: durationMs,
+                    sessionKey: input.sessionKey ?? null,
+                    isPaginationContinuation: Boolean(input.after),
+                    searchAllowed: plan.allowed,
+                },
+                logger,
+            );
+            await this.recordFailedSearchTelemetry(
+                {
+                    q,
+                    lang: input.lang ?? null,
+                    lat: input.lat,
+                    lng: input.lng,
+                    filters,
+                    legacyTypes,
+                    resultCount: 0,
+                    isPaginationContinuation: Boolean(input.after),
+                    searchAllowed: plan.allowed,
+                },
+                logger,
+            );
             return emptyPage(analytics ?? undefined);
         }
 
         const page = buildPublicSearchPage(rows, limit, cursorContext);
+        const analytics = this.beginSearchRequestAnalytics(
+            {
+                q,
+                lang: input.lang ?? null,
+                filters,
+                // `rows` includes the limit+1 pagination lookahead; analytics must
+                // describe only what was actually returned to the client.
+                resultCount: page.items.length,
+                latencyMs: durationMs,
+                sessionKey: input.sessionKey ?? null,
+                isPaginationContinuation: Boolean(input.after),
+                searchAllowed: plan.allowed,
+            },
+            logger,
+        );
         return analytics ? { ...page, analytics } : page;
     }
 
@@ -562,18 +600,21 @@ export class PublicMapService {
         return coordinatePinResult(lat, lng, reverse, outsideServiceArea);
     }
 
-    /** Best-effort zero-result telemetry. Never awaited — must not slow search. */
-    private recordFailedSearchTelemetry(input: {
-        q: string;
-        lang?: PublicSearchLang | null;
-        lat?: number;
-        lng?: number;
-        filters: ResolvedPublicSearchFilters;
-        legacyTypes?: readonly string[];
-        resultCount: number;
-        isPaginationContinuation: boolean;
-        searchAllowed: boolean;
-    }): void {
+    /** Persist genuine zero-result telemetry before returning the empty page. */
+    private async recordFailedSearchTelemetry(
+        input: {
+            q: string;
+            lang?: PublicSearchLang | null;
+            lat?: number;
+            lng?: number;
+            filters: ResolvedPublicSearchFilters;
+            legacyTypes?: readonly string[];
+            resultCount: number;
+            isPaginationContinuation: boolean;
+            searchAllowed: boolean;
+        },
+        logger?: SearchTelemetryLogger,
+    ): Promise<void> {
         const payload = buildFailedSearchLogPayload({
             q: input.q,
             lang: input.lang ?? null,
@@ -595,24 +636,30 @@ export class PublicMapService {
             return;
         }
 
-        void this.publicMapRepo.logFailedSearch(payload).catch(() => {
-            // Telemetry failure never fails the search response.
+        await this.publicMapRepo.logFailedSearch(payload).catch((error) => {
+            logger?.warn(
+                { event: "failed_search_telemetry_write_failed", error },
+                "Failed to persist zero-result search telemetry",
+            );
         });
     }
 
     /**
      * Returns analytics correlation id for the client; persists the event asynchronously.
      */
-    private beginSearchRequestAnalytics(input: {
-        q: string;
-        lang?: PublicSearchLang | null;
-        filters: ResolvedPublicSearchFilters;
-        resultCount: number;
-        latencyMs: number;
-        sessionKey?: string | null;
-        isPaginationContinuation: boolean;
-        searchAllowed: boolean;
-    }): PublicSearchAnalytics | null {
+    private beginSearchRequestAnalytics(
+        input: {
+            q: string;
+            lang?: PublicSearchLang | null;
+            filters: ResolvedPublicSearchFilters;
+            resultCount: number;
+            latencyMs: number;
+            sessionKey?: string | null;
+            isPaginationContinuation: boolean;
+            searchAllowed: boolean;
+        },
+        logger?: SearchTelemetryLogger,
+    ): PublicSearchAnalytics | null {
         const payload = buildSearchRequestAnalyticsPayload({
             q: input.q,
             lang: input.lang ?? null,
@@ -634,15 +681,21 @@ export class PublicMapService {
             return null;
         }
 
-        void this.publicMapRepo.insertSearchRequestEvent(payload).catch(() => {
-            // Analytics failure never fails the search response.
+        void this.publicMapRepo.insertSearchRequestEvent(payload).catch((error) => {
+            logger?.warn(
+                { event: "search_request_analytics_write_failed", error },
+                "Failed to persist search request analytics",
+            );
         });
 
         return { eventId: payload.correlationId };
     }
 
     /** Best-effort search result click analytics. Never awaited by callers. */
-    recordSearchResultClick(input: SearchResultClickAnalyticsInput): void {
+    recordSearchResultClick(
+        input: SearchResultClickAnalyticsInput,
+        logger?: SearchTelemetryLogger,
+    ): void {
         const payload = {
             searchCorrelationId: input.searchCorrelationId.trim(),
             entityType: input.entityType,
@@ -651,8 +704,11 @@ export class PublicMapService {
             timeToClickMs: clampTimeToClickMs(input.timeToClickMs),
         };
 
-        void this.publicMapRepo.insertSearchResultClickEvent(payload).catch(() => {
-            // Analytics failure never breaks user flows.
+        void this.publicMapRepo.insertSearchResultClickEvent(payload).catch((error) => {
+            logger?.warn(
+                { event: "search_click_analytics_write_failed", error },
+                "Failed to persist search click analytics",
+            );
         });
     }
 

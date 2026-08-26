@@ -4,6 +4,7 @@ import {
     coreReviewEntityIdParamSchema,
     coreReviewEntityParamSchema,
     coreReviewListQuerySchema,
+    settlementDuplicateWarningQuerySchema,
 } from "./core-review.schema.js";
 import { CoreReviewService } from "./core-review.service.js";
 import { getCoreReviewEntityByPath } from "./core-review.entity-registry.js";
@@ -261,6 +262,71 @@ const coreReviewRoutes: FastifyPluginAsync = async (app) => {
                 return replyCoreReviewReadError(request, reply, error, "core-review streets count failed", {
                     entity: def.slug,
                 });
+            }
+        },
+    );
+
+    app.get(
+        "/:entity/duplicate-warnings",
+        {
+            preHandler: [app.authenticate, app.requireDashboardAccess],
+        },
+        async (request, reply) => {
+            const paramsParsed = coreReviewEntityParamSchema.safeParse(request.params);
+            if (!paramsParsed.success) {
+                return reply.code(400).send({
+                    message: "Invalid entity path",
+                    issues: paramsParsed.error.flatten(),
+                });
+            }
+
+            const def = getCoreReviewEntityByPath(paramsParsed.data.entity);
+            if (!def || def.slug !== "settlements") {
+                return reply.code(404).send({
+                    message: "Duplicate warnings are not available for this entity",
+                });
+            }
+
+            const queryParsed = settlementDuplicateWarningQuerySchema.safeParse(request.query);
+            if (!queryParsed.success) {
+                return reply.code(400).send({
+                    message: "Invalid duplicate-warning query",
+                    issues: queryParsed.error.flatten(),
+                });
+            }
+
+            try {
+                const result = await service.duplicateWarnings(def.path, {
+                    canonicalName: queryParsed.data.canonicalName,
+                    nameMm: queryParsed.data.nameMm,
+                    nameEn: queryParsed.data.nameEn,
+                    lat: queryParsed.data.lat,
+                    lng: queryParsed.data.lng,
+                    townshipId: queryParsed.data.townshipId
+                        ? BigInt(queryParsed.data.townshipId)
+                        : undefined,
+                    excludePublicId: queryParsed.data.excludePublicId,
+                });
+                if (!result) {
+                    return reply.code(404).send({
+                        message: "Duplicate warnings are not available for this entity",
+                    });
+                }
+
+                request.log.info(
+                    { entity: def.slug, count: result.data.length },
+                    "core-review settlement duplicate warnings",
+                );
+
+                return reply.send(result);
+            } catch (error) {
+                return replyCoreReviewReadError(
+                    request,
+                    reply,
+                    error,
+                    "core-review duplicate warnings failed",
+                    { entity: def.slug },
+                );
             }
         },
     );

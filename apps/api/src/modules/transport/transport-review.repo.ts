@@ -29,15 +29,19 @@ function variantDirectionKey(input: {
     variant_code: string;
     direction_name: string | null;
     direction_id: number | null;
+    canonical_ybs: boolean;
 }): "outbound" | "inbound" | null {
+    // direction_id is the machine identity. The return names are legacy readiness
+    // field keys and do not assign geographic meaning to YBS D0/D1 variants.
+    if (input.direction_id === 0) return "outbound";
+    if (input.direction_id === 1) return "inbound";
+    if (input.canonical_ybs) return null;
     const code = input.variant_code.toLowerCase();
     if (code.includes("outbound") || code.endsWith("-a")) return "outbound";
     if (code.includes("inbound") || code.endsWith("-b")) return "inbound";
     const direction = (input.direction_name ?? "").trim().toLowerCase();
     if (direction === "outbound" || direction === "out") return "outbound";
     if (direction === "inbound" || direction === "in") return "inbound";
-    if (input.direction_id === 0) return "outbound";
-    if (input.direction_id === 1) return "inbound";
     return null;
 }
 
@@ -102,7 +106,13 @@ export class TransportReviewOperations {
 
         const directions = new Set(
             variants
-                .map((variant) => variantDirectionKey(variant))
+                .map((variant) =>
+                    variantDirectionKey({
+                        ...variant,
+                        canonical_ybs:
+                            route.mode === "bus" && route.route_code.startsWith("YBS-"),
+                    })
+                )
                 .filter((value): value is "outbound" | "inbound" => value !== null),
         );
 

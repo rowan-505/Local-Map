@@ -6,7 +6,7 @@ import {
     buildPublicSearchFilterSql,
     type ResolvedPublicSearchFilters,
 } from "./public-search-filters.js";
-import { buildUnifiedSearchCandidateMatchSql, buildUnifiedSearchScoreSql, resolveFuzzySimilarityThreshold } from "./public-search-ranking.js";
+import { buildUnifiedSearchScoreSql, resolveFuzzySimilarityThreshold } from "./public-search-ranking.js";
 import {
     buildPublicSearchMatchedNameLanguageOrderSql,
     normalizePublicSearchLang,
@@ -35,9 +35,17 @@ type SearchPublicMapParams = {
 /**
  * Statement timeout (ms) for the public text search query. Keeps a pathological
  * query (or missing index) from holding a connection; on timeout the service
- * returns an empty result instead of a 500.
+ * returns a typed retryable 503 instead of a false zero-result response.
  */
 export const PUBLIC_SEARCH_STATEMENT_TIMEOUT_MS = 2000;
+
+/**
+ * Bound the rows that reach expensive ranking (similarity, distance and lateral
+ * name selection). Each candidate branch is independently index-backed and
+ * capped, so broad admin-context terms cannot force ranking over the full index.
+ */
+export const PUBLIC_SEARCH_CANDIDATE_BRANCH_LIMIT = 200;
+export const PUBLIC_SEARCH_FUZZY_CANDIDATE_LIMIT = 250;
 
 export type ViewportPublicPlacesParams = {
     bbox: [number, number, number, number];
@@ -883,14 +891,6 @@ export class PublicMapRepository {
 
         const fuzzyThreshold = resolveFuzzySimilarityThreshold(qNorm, isPrefixMode ? "prefix" : "full");
 
-        const candidateMatch = buildUnifiedSearchCandidateMatchSql({
-            qNorm,
-            prefix,
-            isPrefixMode,
-            multiTokenMatch,
-            fuzzyThreshold,
-        });
-
         const scoreSql = buildUnifiedSearchScoreSql({
             qNorm,
             prefix,
@@ -905,21 +905,133 @@ export class PublicMapRepository {
         // Matched-name lateral: skip the `%` trigram operator in prefix mode.
         const nameMatch = isPrefixMode
             ? Prisma.sql`(
-                  lower(n.normalized_name) = ${qNorm}
+                  n.normalized_name = ${qNorm}
                   OR n.normalized_name LIKE ${prefix}
               )`
             : Prisma.sql`(
-                  lower(n.normalized_name) = ${qNorm}
+                  n.normalized_name = ${qNorm}
                   OR n.normalized_name LIKE ${prefix}
                   OR n.normalized_name % ${qNorm}
               )`;
+
+        const candidateFilters = Prisma.sql`
+            d.is_public = true
+            AND d.is_active = true
+            ${sqlFilters.entityTypeFilter}
+            ${sqlFilters.transportModeFilter}
+            ${sqlFilters.transportStopTypeFilter}
+        `;
+
+        const aliasCandidateMatch = isPrefixMode
+            ? Prisma.sql`(
+                  n.normalized_name = ${qNorm}
+                  OR n.normalized_name LIKE ${prefix}
+              )`
+            : Prisma.sql`(
+                  n.normalized_name = ${qNorm}
+                  OR n.normalized_name LIKE ${prefix}
+                  OR n.normalized_name % ${qNorm}
+              )`;
+
+        // Keep candidate generation as separate index-backed branches. A single
+        // large OR (especially `similarity(...) >= threshold`) made Postgres
+        // choose a sequential scan once settlements expanded the index.
+        const candidatePoolSql = multiTokenMatch
+            ? Prisma.sql`
+                  SELECT d.id
+                  FROM search.search_documents d
+                  WHERE ${candidateFilters}
+                    AND (${multiTokenMatch})
+                  ORDER BY COALESCE(d.importance_score, 0) DESC, d.id ASC
+                  LIMIT ${PUBLIC_SEARCH_FUZZY_CANDIDATE_LIMIT}
+              `
+            : Prisma.sql`
+                  (
+                      SELECT d.id
+                      FROM search.search_documents d
+                      WHERE ${candidateFilters}
+                        AND d.code IS NOT NULL
+                        AND lower(d.code) = ${qNorm}
+                      ORDER BY COALESCE(d.importance_score, 0) DESC, d.id ASC
+                      LIMIT 50
+                  )
+                  UNION ALL
+                  (
+                      SELECT d.id
+                      FROM search.search_documents d
+                      WHERE ${candidateFilters}
+                        AND d.trigram_text LIKE ${prefix}
+                      ORDER BY COALESCE(d.importance_score, 0) DESC, d.id ASC
+                      LIMIT ${PUBLIC_SEARCH_CANDIDATE_BRANCH_LIMIT}
+                  )
+                  ${
+                      isPrefixMode
+                          ? Prisma.empty
+                          : Prisma.sql`
+                                UNION ALL
+                                (
+                                    SELECT d.id
+                                    FROM search.search_documents d
+                                    WHERE ${candidateFilters}
+                                      AND d.search_vector @@ plainto_tsquery('simple', ${qNorm})
+                                    ORDER BY
+                                        ts_rank_cd(d.search_vector, plainto_tsquery('simple', ${qNorm})) DESC,
+                                        COALESCE(d.importance_score, 0) DESC,
+                                        d.id ASC
+                                    LIMIT ${PUBLIC_SEARCH_CANDIDATE_BRANCH_LIMIT}
+                                )
+                                UNION ALL
+                                (
+                                    SELECT d.id
+                                    FROM search.search_documents d
+                                    WHERE ${candidateFilters}
+                                      AND d.trigram_text % ${qNorm}
+                                    ORDER BY
+                                        similarity(d.trigram_text, ${qNorm}) DESC,
+                                        COALESCE(d.importance_score, 0) DESC,
+                                        d.id ASC
+                                    LIMIT ${PUBLIC_SEARCH_FUZZY_CANDIDATE_LIMIT}
+                                )
+                            `
+                  }
+                  UNION ALL
+                  (
+                      SELECT d.id
+                      FROM search.search_document_names n
+                      INNER JOIN search.search_documents d ON d.id = n.search_document_id
+                      WHERE ${candidateFilters}
+                        AND ${aliasCandidateMatch}
+                      ORDER BY
+                          CASE
+                              WHEN n.normalized_name = ${qNorm} THEN 1
+                              WHEN n.normalized_name LIKE ${prefix} THEN 2
+                              ELSE 3
+                          END,
+                          ${
+                              isPrefixMode
+                                  ? Prisma.sql`n.search_weight DESC`
+                                  : Prisma.sql`similarity(coalesce(n.normalized_name, ''), ${qNorm}) DESC`
+                          },
+                          n.search_weight DESC,
+                          d.id ASC
+                      LIMIT ${PUBLIC_SEARCH_CANDIDATE_BRANCH_LIMIT}
+                  )
+              `;
 
         const keysetFilter = params.after
             ? Prisma.sql`AND ${buildUnifiedSearchKeysetClause(params.after)}`
             : Prisma.empty;
 
         const query = Prisma.sql`
-            WITH scored AS (
+            WITH candidate_pool AS MATERIALIZED (
+                ${candidatePoolSql}
+            ),
+            candidate_ids AS MATERIALIZED (
+                SELECT id
+                FROM candidate_pool
+                GROUP BY id
+            ),
+            scored AS (
                 SELECT
                     d.entity_type,
                     d.entity_id::text AS entity_id,
@@ -949,14 +1061,15 @@ export class PublicMapRepository {
                     d.address_parts,
                     COALESCE(d.importance_score, 0)::double precision AS importance_score,
                     COALESCE(${scoreSql}, 0)::double precision AS score
-                FROM search.search_documents d
+                FROM candidate_ids c
+                INNER JOIN search.search_documents d ON d.id = c.id
                 LEFT JOIN LATERAL (
                     SELECT n.name
                     FROM search.search_document_names n
                     WHERE n.search_document_id = d.id
                       AND ${nameMatch}
                     ORDER BY
-                        CASE WHEN lower(n.normalized_name) = ${qNorm} THEN 1
+                        CASE WHEN n.normalized_name = ${qNorm} THEN 1
                              WHEN n.normalized_name LIKE ${prefix} THEN 2
                              ELSE 3 END,
                         ${matchedNameLanguageOrder},
@@ -964,12 +1077,6 @@ export class PublicMapRepository {
                         similarity(coalesce(n.normalized_name, ''), ${qNorm}) DESC
                     LIMIT 1
                 ) mn ON true
-                WHERE d.is_public = true
-                  AND d.is_active = true
-                  ${sqlFilters.entityTypeFilter}
-                  ${sqlFilters.transportModeFilter}
-                  ${sqlFilters.transportStopTypeFilter}
-                  AND ${candidateMatch}
             )
             SELECT
                 scored.entity_type,
@@ -1012,12 +1119,21 @@ export class PublicMapRepository {
             LIMIT ${params.limit}
         `;
 
-        // SET LOCAL statement_timeout bounds runtime; on timeout Postgres raises
-        // 57014, which the service maps to a graceful empty result (never a 500).
+        // SET LOCAL bounds runtime. Full search also aligns pg_trgm's `%`
+        // operator with the same query-length threshold used by ranking.
         return this.prisma.$transaction(async (tx) => {
             await tx.$executeRawUnsafe(
                 `SET LOCAL statement_timeout = ${PUBLIC_SEARCH_STATEMENT_TIMEOUT_MS}`,
             );
+            if (!isPrefixMode) {
+                await tx.$queryRaw(Prisma.sql`
+                    SELECT set_config(
+                        'pg_trgm.similarity_threshold',
+                        ${String(fuzzyThreshold)},
+                        true
+                    )
+                `);
+            }
             return tx.$queryRaw<UnifiedSearchRow[]>(query);
         });
     }
@@ -1069,7 +1185,8 @@ export class PublicMapRepository {
                 ${input.areaContextKey},
                 ${input.dedupeKey}
             )
-            ON CONFLICT (dedupe_key) WHERE resolved_at IS NULL
+            ON CONFLICT (dedupe_key)
+            WHERE resolved_at IS NULL AND dedupe_key IS NOT NULL
             DO UPDATE SET
                 query = EXCLUDED.query,
                 normalized_query = EXCLUDED.normalized_query,

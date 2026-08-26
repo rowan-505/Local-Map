@@ -153,14 +153,9 @@ function parseArgs(argv: string[]): CliOptions {
     return { routeCode, execute, runRoot, databaseUrl };
 }
 
-function variantDirectionKey(variantCode: string): "inbound" | "outbound" | null {
-    const code = variantCode.trim().toUpperCase();
-    if (code.endsWith("-INBOUND")) {
-        return "inbound";
-    }
-    if (code.endsWith("-OUTBOUND")) {
-        return "outbound";
-    }
+function variantDirectionKey(directionId: number | null): "inbound" | "outbound" | null {
+    if (directionId === 0) return "outbound";
+    if (directionId === 1) return "inbound";
     return null;
 }
 
@@ -252,9 +247,13 @@ async function loadRoute(client: pg.Client, routeCode: string): Promise<RouteRow
 }
 
 async function loadVariants(client: pg.Client, routeId: number): Promise<VariantRow[]> {
-    const result = await client.query<{ id: number; variant_code: string }>(
+    const result = await client.query<{
+        id: number;
+        variant_code: string;
+        direction_id: number | null;
+    }>(
         `
-        select id::int, variant_code
+        select id::int, variant_code, direction_id::int
         from transport.route_variants
         where route_id = $1 and deleted_at is null
         order by variant_code
@@ -264,7 +263,7 @@ async function loadVariants(client: pg.Client, routeId: number): Promise<Variant
 
     return result.rows
         .map((row) => {
-            const direction = variantDirectionKey(row.variant_code);
+            const direction = variantDirectionKey(row.direction_id);
             if (!direction) {
                 return null;
             }

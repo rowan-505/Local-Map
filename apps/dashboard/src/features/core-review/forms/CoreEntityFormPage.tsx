@@ -29,6 +29,7 @@ import {
     type CoreEntityKey,
 } from "@/src/lib/core-review/entityConfigs";
 import { getFormGeometry } from "@/src/lib/core-review/geometryFieldUtils";
+import { confirmSettlementCreateDespiteDuplicates } from "@/src/lib/core-review/settlementDuplicateWarning";
 import { dashDevLog } from "@/src/lib/dashDevLog";
 import { summarizeCoreReviewSavePayload } from "@/src/lib/core-review/savePayloadUtils";
 
@@ -151,14 +152,20 @@ export default function CoreEntityFormPage({ entityKey, mode, id }: CoreEntityFo
     }, [entityKey, mode, createForm]);
 
     useEffect(() => {
-        if (mode !== "create" || entityKey !== "admin-areas") {
+        if (mode !== "create") {
             return;
         }
         const manual = createRefStates["reference-options:source_types"]?.options.find(
             (option) => option.code === "manual",
         );
-        if (manual?.value) {
+        if (!manual?.value) {
+            return;
+        }
+        if (entityKey === "admin-areas") {
             createForm.setValue("source_type_id", manual.value);
+        }
+        if (entityKey === "settlements") {
+            createForm.setValue("sourceTypeId", manual.value);
         }
     }, [entityKey, mode, createRefStates, createForm]);
 
@@ -216,6 +223,15 @@ export default function CoreEntityFormPage({ entityKey, mode, id }: CoreEntityFo
             }
 
             const payload = config.formValuesToCreatePayload(values);
+            if (entityKey === "settlements") {
+                const proceed = await confirmSettlementCreateDespiteDuplicates(
+                    payload as Record<string, unknown>,
+                );
+                if (!proceed) {
+                    setCreateIsSaving(false);
+                    return;
+                }
+            }
             dashDevLog(`${entityKey}:create:save-payload`, summarizeCoreReviewSavePayload(payload));
             const created = await config.createEntity(payload);
             config.onAfterCreate?.(created);

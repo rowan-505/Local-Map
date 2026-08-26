@@ -4,6 +4,10 @@ import { describe, it } from "node:test";
 import { getSearchOverviewSchema } from "./search-overview.openapi.js";
 import type { SearchOverviewCounts, SearchOverviewRepository } from "./search-overview.repo.js";
 import { SearchOverviewService } from "./search-overview.service.js";
+import {
+    clearSearchIndexHealthCache,
+    getSearchIndexHealthSeveritySummary,
+} from "./search-index-health.js";
 
 class MockSearchOverviewRepository {
     constructor(private readonly counts: SearchOverviewCounts) {}
@@ -77,5 +81,35 @@ describe("getSearchOverviewSchema", () => {
             "overall_index_health_severity",
         ]);
         assert.equal(response.additionalProperties, false);
+    });
+});
+
+describe("search overview health summary", () => {
+    it("uses rebuild metadata on a cold cache without running full reconciliation", async () => {
+        clearSearchIndexHealthCache();
+        let fullHealthQueries = 0;
+        const finishedAt = new Date();
+        const prisma = {
+            $queryRawUnsafe: async (sql: string) => {
+                if (sql.includes("WITH families AS")) {
+                    fullHealthQueries += 1;
+                    return [];
+                }
+                return [
+                    {
+                        id: 1n,
+                        status: "completed",
+                        started_at: finishedAt,
+                        finished_at: finishedAt,
+                        entity_counts: {},
+                    },
+                ];
+            },
+        };
+
+        const result = await getSearchIndexHealthSeveritySummary(prisma as never);
+
+        assert.equal(result.overall_severity, "healthy");
+        assert.equal(fullHealthQueries, 0);
     });
 });

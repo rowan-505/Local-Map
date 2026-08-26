@@ -8,6 +8,7 @@ import type { CoreReviewEntitySlug, EntityAdminAreaKind } from "@/src/lib/api";
 export type CoreEntityKey =
     | "buildings"
     | "places"
+    | "settlements"
     | "streets"
     | "land-areas"
     | "water-lines"
@@ -34,6 +35,7 @@ export type CoreRefSourceKind =
     | "place-form-options:source_types"
     | "place-form-options:publish_statuses"
     | "admin-areas"
+    | "township-admin-areas"
     | "reference-options:source_types"
     | "reference-options:admin_levels"
     | "streets"

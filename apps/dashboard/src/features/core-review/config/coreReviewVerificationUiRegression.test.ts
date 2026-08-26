@@ -14,6 +14,7 @@ const SHARED_CONFIG_PATH = join(ENTITY_CONFIGS_DIR, "shared.ts");
 const EDIT_CONFIG_EXPORTS = [
     { file: "buildings.ts", exportName: "BUILDINGS_ENTITY_CONFIG" },
     { file: "places.ts", exportName: "PLACES_ENTITY_CONFIG" },
+    { file: "settlements.ts", exportName: "SETTLEMENTS_ENTITY_CONFIG" },
     { file: "streets.ts", exportName: "STREETS_ENTITY_CONFIG" },
     { file: "land-areas.ts", exportName: "LAND_AREAS_ENTITY_CONFIG" },
     { file: "extendedEntities.tsx", exportName: "WATER_LINES_ENTITY_CONFIG" },
@@ -25,6 +26,7 @@ const EDIT_CONFIG_EXPORTS = [
 const LIST_CONFIG_EXPORTS = [
     "CORE_REVIEW_BUILDINGS_CONFIG",
     "CORE_REVIEW_PLACES_CONFIG",
+    "CORE_REVIEW_SETTLEMENTS_CONFIG",
     "CORE_REVIEW_STREETS_CONFIG",
     "CORE_REVIEW_LAND_AREAS_CONFIG",
     "CORE_REVIEW_WATER_LINES_CONFIG",
@@ -117,7 +119,7 @@ describe("core-review verification UI regression", () => {
             assert.ok(block, `${exportName} must exist in entity-configs.tsx`);
             assert.match(
                 block,
-                /standardNameAndVerificationColumns|id:\s*["']verification["']|TransportVerificationStatusCell|genericClassColumns/,
+                /standardNameAndVerificationColumns|verificationStatusColumn|id:\s*["']verification["']|TransportVerificationStatusCell|genericClassColumns/,
                 `${exportName} must expose a verification status table column`
             );
             assert.doesNotMatch(

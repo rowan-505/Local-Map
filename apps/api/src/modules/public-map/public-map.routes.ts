@@ -8,6 +8,7 @@ import { PublicMapRepository } from "./public-map.repo.js";
 import {
     PublicMapService,
     PublicPlaceNotFoundError,
+    PublicSearchUnavailableError,
     PublicTransportStopNotFoundError,
     PublicTransportTerminalNotFoundError,
     planPublicSearch,
@@ -271,25 +272,36 @@ const publicMapRoutes: FastifyPluginAsync = async (app) => {
             }
         }
 
-        const results = await publicMapService.search(
-            {
-                q,
-                limit: parsed.data.limit,
-                lat: parsed.data.lat,
-                lng: parsed.data.lng,
-                lang: parsed.data.lang,
-                types: legacyTypes,
-                category: parsed.data.category,
-                transportType: parsed.data.transportType,
-                transportMode: parsed.data.mode,
-                filters,
-                after,
-                cursorContext,
-                sessionKey: anonymousSessionKey(request),
-            },
-            request.log,
-        );
-        return reply.send(results);
+        try {
+            const results = await publicMapService.search(
+                {
+                    q,
+                    limit: parsed.data.limit,
+                    lat: parsed.data.lat,
+                    lng: parsed.data.lng,
+                    lang: parsed.data.lang,
+                    types: legacyTypes,
+                    category: parsed.data.category,
+                    transportType: parsed.data.transportType,
+                    transportMode: parsed.data.mode,
+                    filters,
+                    after,
+                    cursorContext,
+                    sessionKey: anonymousSessionKey(request),
+                },
+                request.log,
+            );
+            return reply.send(results);
+        } catch (error) {
+            if (error instanceof PublicSearchUnavailableError) {
+                return reply.code(error.statusCode).send({
+                    code: "SEARCH_TIMEOUT",
+                    message: error.message,
+                    retryable: true,
+                });
+            }
+            throw error;
+        }
     });
 
     app.post(
@@ -304,13 +316,16 @@ const publicMapRoutes: FastifyPluginAsync = async (app) => {
                 });
             }
 
-            publicMapService.recordSearchResultClick({
-                searchCorrelationId: parsed.data.event_id,
-                entityType: parsed.data.entity_type,
-                entityId: parsed.data.entity_id,
-                clickedRank: parsed.data.clicked_rank,
-                timeToClickMs: parsed.data.time_to_click_ms,
-            });
+            publicMapService.recordSearchResultClick(
+                {
+                    searchCorrelationId: parsed.data.event_id,
+                    entityType: parsed.data.entity_type,
+                    entityId: parsed.data.entity_id,
+                    clickedRank: parsed.data.clicked_rank,
+                    timeToClickMs: parsed.data.time_to_click_ms,
+                },
+                request.log,
+            );
 
             return reply.code(204).send();
         },

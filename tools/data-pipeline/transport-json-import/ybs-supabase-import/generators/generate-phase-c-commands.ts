@@ -51,7 +51,7 @@ const SAFETY_NOTES = `## Notes
 
 - Phase C keeps A/B/C suffixes as separate \`route_code\` values (for example \`YBS-7-A\`, not \`YBS-7\`).
 - Old parent rows like \`YBS-7\` may remain until optional manual cleanup; importing \`YBS-7-A\` does not require deleting \`YBS-7\` first.
-- After dry-run, confirm \`reports/route-code-map.json\` shows the hyphenated code and variants like \`YBS-7-A-INBOUND\`.
+- After dry-run, confirm \`reports/route-code-map.json\` shows the hyphenated code and variants like \`YBS-7-A-D0\` and \`YBS-7-A-D1\`.
 - Stop if import dry-run has blockers > 0 in \`reports/final-summary.md\`.
 `;
 

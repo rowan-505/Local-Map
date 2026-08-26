@@ -73,6 +73,7 @@ import type {
 } from '@/features/poi/api/publicSearchConstants';
 import { PUBLIC_SEARCH_ADDRESSES_FILTER_ENABLED } from '@/features/poi/api/publicSearchConstants';
 import { publicSearchApiLang } from '@/features/poi/api/publicSearchLang';
+import { publicSearchErrorStatus } from '@/features/poi/api/publicSearchRetry';
 import {
   computePublicSearchClickedRank,
   recordPublicSearchResultClick,
@@ -153,7 +154,7 @@ export default function HomePage() {
         }
       : null,
   );
-  const debouncedSearchQuery = useDebouncedValue(filterState.searchQuery, 300);
+  const debouncedSearchQuery = useDebouncedValue(filterState.searchQuery, 200);
   const debouncedMapViewport = useDebouncedValue(mapViewport, 250);
 
   const categoriesQuery = usePublicCategories();
@@ -230,9 +231,16 @@ export default function HomePage() {
     geoBias: searchGeoBias,
   });
 
-  const searchResults = useMemo(
+  const loadedSearchResults = useMemo(
     () => flattenPublicSearchPages(searchResultsQuery.data?.pages),
     [searchResultsQuery.data?.pages],
+  );
+  const searchInputPending = searchQuery.trim() !== debouncedSearchQuery.trim();
+  // Never flash results for the previous input while the next debounced request
+  // is being prepared. The user sees an immediate lightweight loading state.
+  const searchResults = useMemo(
+    () => (searchInputPending ? [] : loadedSearchResults),
+    [loadedSearchResults, searchInputPending],
   );
   const searchAnalyticsEventId = useMemo(
     () => resolvePublicSearchAnalyticsEventId(searchResultsQuery.data?.pages),
@@ -256,6 +264,8 @@ export default function HomePage() {
     !searchResultsQuery.isFetchingNextPage;
   const searchInitialError =
     searchResultsQuery.isError && searchResultsQuery.data === undefined;
+  const searchUnavailable =
+    searchInitialError && publicSearchErrorStatus(searchResultsQuery.error) === 503;
   const searchFetchMoreError =
     searchResultsQuery.isError && searchResultsQuery.data !== undefined;
 
@@ -905,9 +915,10 @@ export default function HomePage() {
               placesCount={visiblePlacesCount}
               selectedPoiId={selectedPoiIdForMap}
               onSelectPoiId={onSelectPoiId}
-              searchLoading={searchResultsQuery.isLoading}
+              searchLoading={searchInputPending || searchResultsQuery.isLoading}
               searchLoadingMore={searchResultsQuery.isFetchingNextPage}
               searchError={searchInitialError}
+              searchUnavailable={searchUnavailable}
               searchFetchMoreError={searchFetchMoreError}
               hasMoreSearch={searchHasMore}
               searchReachedCap={searchReachedCap}

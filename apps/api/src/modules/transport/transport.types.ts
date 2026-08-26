@@ -688,6 +688,8 @@ export type TransportVariantSummary = {
     headsign: string | null;
     origin_name: string | null;
     destination_name: string | null;
+    /** Display name of this physical variant's first ordered route stop. */
+    first_stop_name: string | null;
     stop_count: number;
     path_count: number;
     path_status: "has_path" | "none";

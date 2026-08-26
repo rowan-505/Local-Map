@@ -18,6 +18,12 @@ import {
 } from "./transportReviewUi";
 import type { TransportRouteDetail, TransportVariantSummary } from "./types";
 import type { RouteDirectionSwapPair } from "./routeDirectionSwap";
+import {
+    canonicalYbsVariantCode,
+    isCanonicalYbsRoute,
+    variantDirectionLabel,
+    variantHumanRoute,
+} from "./variantDirection";
 
 export type RouteReviewChecklistItem = {
     readonly key: string;
@@ -534,8 +540,14 @@ function variantPathStatusLabel(variant: TransportVariantSummary): string {
     return variant.path_status === "has_path" ? "Has path" : "No path";
 }
 
+export function transportVariantFirstStopLabel(variant: TransportVariantSummary): string {
+    return variant.first_stop_name?.trim() || "—";
+}
+
 export function RouteVariantsCard({
     variants,
+    routeCode,
+    routeMode,
     routeLoading,
     addingVariant,
     addVariantSlot,
@@ -546,6 +558,8 @@ export function RouteVariantsCard({
     canWrite,
 }: {
     readonly variants: readonly TransportVariantSummary[];
+    readonly routeCode: string;
+    readonly routeMode: string;
     readonly routeLoading: boolean;
     readonly addingVariant: boolean;
     readonly addVariantSlot?: ReactNode;
@@ -555,6 +569,8 @@ export function RouteVariantsCard({
     readonly onChangeDirection?: () => void;
     readonly canWrite: boolean;
 }) {
+    const canonicalYbs = isCanonicalYbsRoute(routeMode, routeCode);
+
     return (
         <section className={`${CARD_CLASS} p-0`}>
             <div className="flex items-center justify-between border-b border-gray-100 px-3 py-2">
@@ -562,7 +578,7 @@ export function RouteVariantsCard({
                     Variants {variants.length > 0 ? `(${variants.length})` : ""}
                 </h2>
                 <div className="flex items-center gap-2">
-                    {directionSwapPair && onChangeDirection ? (
+                    {!canonicalYbs && directionSwapPair && onChangeDirection ? (
                         <button
                             type="button"
                             onClick={onChangeDirection}
@@ -570,7 +586,7 @@ export function RouteVariantsCard({
                             title={!canWrite ? "Read-only viewers cannot change route direction" : undefined}
                             className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                            Change direction
+                            Swap direction assignments
                         </button>
                     ) : null}
                     {!addingVariant ? (
@@ -606,15 +622,38 @@ export function RouteVariantsCard({
                             key={v.public_id}
                             className="grid grid-cols-1 items-center gap-2 px-3 py-2 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:gap-3"
                         >
-                            <div className="min-w-0">
-                                <p className="text-sm font-medium text-gray-900">
-                                    {v.variant_code}
-                                    {v.direction_name ? ` · ${v.direction_name}` : ""}
-                                </p>
-                                <p className="truncate text-xs text-gray-500">
-                                    {v.headsign || v.destination_name || "—"}
-                                </p>
-                            </div>
+                            {canonicalYbs ? (
+                                <dl className="grid min-w-0 grid-cols-[3.5rem_minmax(0,1fr)] gap-x-3 gap-y-0.5">
+                                    <dt className="text-[10px] font-medium uppercase tracking-wide text-gray-500">
+                                        Direction
+                                    </dt>
+                                    <dd className="text-sm font-semibold text-gray-900">
+                                        {variantDirectionLabel(v, true)}
+                                    </dd>
+                                    <dt className="text-[10px] font-medium uppercase tracking-wide text-gray-500">
+                                        Route
+                                    </dt>
+                                    <dd className="truncate text-sm text-gray-800" title={variantHumanRoute(v)}>
+                                        {variantHumanRoute(v)}
+                                    </dd>
+                                    <dt className="text-[10px] font-medium uppercase tracking-wide text-gray-500">
+                                        Code
+                                    </dt>
+                                    <dd className="truncate font-mono text-xs text-gray-600">
+                                        {canonicalYbsVariantCode(routeCode, v.direction_id) ?? "—"}
+                                    </dd>
+                                </dl>
+                            ) : (
+                                <div className="min-w-0">
+                                    <p className="text-sm font-medium text-gray-900">
+                                        {v.variant_code}
+                                        {v.direction_name ? ` · ${v.direction_name}` : ""}
+                                    </p>
+                                    <p className="truncate text-xs text-gray-500">
+                                        {transportVariantFirstStopLabel(v)}
+                                    </p>
+                                </div>
+                            )}
                             <p className="text-xs text-gray-600 sm:text-center">
                                 {v.stop_count} stops · {variantPathStatusLabel(v)}
                             </p>
@@ -623,7 +662,9 @@ export function RouteVariantsCard({
                                 onClick={() => onOpenReviewMap(v.public_id)}
                                 className="justify-self-start rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 sm:justify-self-end"
                             >
-                                Open in Review Map
+                                {canonicalYbs
+                                    ? `Open ${variantDirectionLabel(v, true)}`
+                                    : "Open in Review Map"}
                             </button>
                         </li>
                     ))}

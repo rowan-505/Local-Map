@@ -25,6 +25,7 @@ export type CoreReviewFilterSupport = {
     boundaryStatus?: boolean;
     addressUsage?: boolean;
     isOfficialBoundary?: boolean;
+    settlementType?: boolean;
 };
 
 export type CoreReviewOverviewStatus = "ready" | "partial" | "todo";

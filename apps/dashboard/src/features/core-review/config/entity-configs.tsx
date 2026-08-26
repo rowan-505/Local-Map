@@ -19,6 +19,7 @@ import {
     applyLandAreaDetailToListRow,
     applyMapFeatureDetailToListRow,
     applyPlaceDetailToListRow,
+    applySettlementDetailToListRow,
 } from "./applyInlineEditDetailToListRow";
 import { dash, formatArea, formatDate, yesNo } from "../utils/formatters";
 import {
@@ -43,6 +44,7 @@ import type {
     CoreReviewLandAreaRow,
     CoreReviewMapFeatureRow,
     CoreReviewPlaceRow,
+    CoreReviewSettlementRow,
     CoreReviewStreetRow,
 } from "./types";
 
@@ -81,6 +83,18 @@ const FILTER_PLACES: CoreReviewFilterSupport = {
     isPublic: true,
     includeDeleted: false,
     routeId: false,
+};
+
+const FILTER_SETTLEMENTS: CoreReviewFilterSupport = {
+    isVerified: true,
+    adminAreaId: true,
+    categoryId: false,
+    buildingTypeId: false,
+    roadClassId: false,
+    isPublic: false,
+    includeDeleted: false,
+    routeId: false,
+    settlementType: true,
 };
 
 const FILTER_STREETS: CoreReviewFilterSupport = {
@@ -271,6 +285,68 @@ export const CORE_REVIEW_PLACES_CONFIG: CoreReviewEntityConfig<CoreReviewPlaceRo
         { label: "Category", value: dash(r.categoryName) },
         { label: "Admin area", value: dash(r.adminAreaName) },
         { label: "Coordinates", value: `${r.lat}, ${r.lng}` },
+        verificationStatusDetailField(r),
+        { label: "Created", value: formatDate(r.createdAt) },
+        { label: "Updated", value: formatDate(r.updatedAt) },
+    ],
+};
+
+export const CORE_REVIEW_SETTLEMENTS_CONFIG: CoreReviewEntityConfig<CoreReviewSettlementRow> = {
+    segment: "settlements",
+    entityKey: "settlements",
+    apiSlug: "settlements",
+    supportsInlineEdit: true,
+    applyDetailToListRow: applySettlementDetailToListRow,
+    title: "Settlements",
+    description: "Cities, towns, villages, and local areas reviewed as point features.",
+    overviewStatus: "ready",
+    idKind: "public_id",
+    geometryKind: "point",
+    mapEntityType: "place",
+    defaultSortBy: "updated_at",
+    sortOptions: [
+        { value: "name", label: "Name", type: "text" },
+        { value: "settlement_type", label: "Settlement type", type: "text" },
+        { value: "township", label: "Township", type: "text" },
+        { value: "updated_at", label: "Updated", type: "date" },
+    ],
+    filterSupport: FILTER_SETTLEMENTS,
+    getRowId: (r) => r.publicId,
+    getRowTitle: (r) => r.canonicalName || r.nameEn || r.nameMm || r.publicId,
+    getRowSubtitle: (r) => r.publicId,
+    getGeometry: (r) => r.geometry,
+    searchPlaceholder: "Search settlements…",
+    newPath: coreReviewPath("settlements/new"),
+    columns: [
+        {
+            id: "type",
+            header: "Type",
+            cell: (r, q) => hl(dash(r.settlementTypeName), q),
+        },
+        myanmarNameColumn<CoreReviewSettlementRow>((r) => r.nameMm),
+        englishNameColumn<CoreReviewSettlementRow>((r) => r.nameEn),
+        {
+            id: "township",
+            header: "Township",
+            cell: (r, q) => hl(dash(r.townshipName), q),
+        },
+        {
+            id: "footprint",
+            header: "Polygon/footprint available",
+            cell: (r) => yesNo(r.hasFootprint),
+        },
+        verificationStatusColumn<CoreReviewSettlementRow>(),
+        { id: "updated", header: "Updated", cell: (r) => formatDate(r.updatedAt) },
+    ],
+    detailFields: (r) => [
+        { label: "Public ID", value: r.publicId },
+        { label: "Type", value: dash(r.settlementTypeName) },
+        { label: "Canonical name", value: dash(r.canonicalName) },
+        { label: "Myanmar name", value: dash(r.nameMm) },
+        { label: "English name", value: dash(r.nameEn) },
+        { label: "Township", value: dash(r.townshipName) },
+        { label: "Polygon/footprint available", value: yesNo(r.hasFootprint) },
+        { label: "Coordinates", value: r.lat != null && r.lng != null ? `${r.lat}, ${r.lng}` : "—" },
         verificationStatusDetailField(r),
         { label: "Created", value: formatDate(r.createdAt) },
         { label: "Updated", value: formatDate(r.updatedAt) },
@@ -651,6 +727,7 @@ export const CORE_REVIEW_ADMIN_AREAS_CONFIG: CoreReviewEntityConfig<CoreReviewAd
 export const CORE_REVIEW_ENTITY_CONFIG_BY_SEGMENT = {
     buildings: CORE_REVIEW_BUILDINGS_CONFIG,
     places: CORE_REVIEW_PLACES_CONFIG,
+    settlements: CORE_REVIEW_SETTLEMENTS_CONFIG,
     roads: CORE_REVIEW_STREETS_CONFIG,
     "land-areas": CORE_REVIEW_LAND_AREAS_CONFIG,
     "water-lines": CORE_REVIEW_WATER_LINES_CONFIG,

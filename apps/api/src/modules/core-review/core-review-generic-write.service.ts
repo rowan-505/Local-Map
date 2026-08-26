@@ -28,6 +28,8 @@ import { pickAlias, pickGeometry } from "./core-review-write.schema.js";
 import { buildDetailResponse } from "./core-review.pagination.js";
 import { serializeGenericCoreRow } from "./core-review-serializers.js";
 import { getCoreReviewLandAreaDetail } from "./entities/land-areas.handler.js";
+import { getCoreReviewSettlementDetail } from "./entities/settlements.handler.js";
+import { CoreReviewSettlementsRepository } from "./entities/settlements.repo.js";
 import { scheduleUnifiedSearchDocuments } from "../search/unified-search-sync.js";
 import type { CoreReviewEntitySlug } from "./core-review.types.js";
 
@@ -58,6 +60,7 @@ export class CoreReviewGenericWriteService {
     private readonly entitiesRepo: CoreReviewEntitiesRepository;
     private readonly refValidator: CoreReviewRefValidator;
     private readonly landAreasRepo: CoreReviewLandAreasRepository;
+    private readonly settlementsRepo: CoreReviewSettlementsRepository;
     private readonly entityAdminArea: EntityAdminAreaService;
 
     constructor(prisma: PrismaClient) {
@@ -66,6 +69,7 @@ export class CoreReviewGenericWriteService {
         this.entitiesRepo = new CoreReviewEntitiesRepository(prisma);
         this.refValidator = new CoreReviewRefValidator(prisma);
         this.landAreasRepo = new CoreReviewLandAreasRepository(prisma);
+        this.settlementsRepo = new CoreReviewSettlementsRepository(prisma);
         this.entityAdminArea = new EntityAdminAreaService(new EntityAdminAreaRepository(prisma));
     }
 
@@ -222,6 +226,29 @@ export class CoreReviewGenericWriteService {
                 }
                 return buildDetailResponse(serializeGenericCoreRow(row!));
             }
+            case "settlements": {
+                const townshipId =
+                    pickAlias<bigint | null>(body, "townshipId", "township_id") ??
+                    pickAlias<bigint | null>(body, "adminAreaId", "admin_area_id") ??
+                    null;
+                body.township_id = townshipId;
+                const sourceTypeId = await resolveSourceTypeId(this.refValidator, body);
+                body.source_type_id = sourceTypeId;
+                await this.validateIssues([
+                    this.refValidator.validateTownshipId(townshipId),
+                    this.refValidator.validateSourceTypeId(sourceTypeId),
+                ]);
+                const publicId = await this.settlementsRepo.createSettlement(body);
+                if (!publicId) throw new CoreReviewValidationError("Failed to create settlement");
+                const detail = await getCoreReviewSettlementDetail(this.settlementsRepo, publicId);
+                const settlementId = (detail?.data as { id?: string } | undefined)?.id;
+                if (settlementId) {
+                    scheduleUnifiedSearchDocuments(this.prisma, [
+                        { entityType: "settlement", entityId: BigInt(settlementId) },
+                    ]);
+                }
+                return detail;
+            }
             default:
                 throw new CoreReviewValidationError(`Write not supported for ${slug}`);
         }
@@ -360,6 +387,43 @@ export class CoreReviewGenericWriteService {
                     ]);
                 }
                 return buildDetailResponse(serializeGenericCoreRow(row!));
+            }
+            case "settlements": {
+                const existing = await this.settlementsRepo.getSettlementById(id, { anyStatus: true });
+                if (!existing) {
+                    throw new CoreReviewNotFoundError();
+                }
+                if (
+                    body.townshipId !== undefined ||
+                    body.township_id !== undefined ||
+                    body.adminAreaId !== undefined ||
+                    body.admin_area_id !== undefined
+                ) {
+                    const townshipId =
+                        pickAlias<bigint | null>(body, "townshipId", "township_id") ??
+                        pickAlias<bigint | null>(body, "adminAreaId", "admin_area_id") ??
+                        null;
+                    body.township_id = townshipId;
+                    await this.validateIssues([this.refValidator.validateTownshipId(townshipId)]);
+                }
+                await this.validateIssues([
+                    this.refValidator.validateSourceTypeId(
+                        pickAlias<bigint | null>(body, "sourceTypeId", "source_type_id"),
+                    ),
+                ]);
+                const ok = await this.settlementsRepo.updateSettlement(id, body);
+                if (!ok) throw new CoreReviewNotFoundError();
+                const detail = await getCoreReviewSettlementDetail(this.settlementsRepo, id, {
+                    anyStatus: true,
+                });
+                if (!detail) throw new CoreReviewNotFoundError();
+                const settlementId = (detail.data as { id?: string }).id;
+                if (settlementId) {
+                    scheduleUnifiedSearchDocuments(this.prisma, [
+                        { entityType: "settlement", entityId: BigInt(settlementId) },
+                    ]);
+                }
+                return detail;
             }
             default:
                 throw new CoreReviewValidationError(`Write not supported for ${slug}`);

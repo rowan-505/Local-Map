@@ -64,6 +64,33 @@ export type CoreReviewPlaceRow = {
     deletedAt?: string | null;
 };
 
+export type CoreReviewSettlementRow = {
+    id: string;
+    publicId: string;
+    settlementTypeId: string | null;
+    settlementTypeCode: string | null;
+    settlementTypeName: string | null;
+    canonicalName: string;
+    nameMm: string | null;
+    nameEn: string | null;
+    townshipId: string | null;
+    townshipName: string | null;
+    adminAreaId: string | null;
+    adminAreaName: string | null;
+    population: number | null;
+    sourceTypeId: string | null;
+    hasFootprint: boolean;
+    verificationStatus?: string | null;
+    isVerified: boolean;
+    isPublic?: boolean | null;
+    deletedAt?: string | null;
+    createdAt: string | null;
+    updatedAt: string | null;
+    geometry: ImportReviewGeoJson | null;
+    lat: number | null;
+    lng: number | null;
+};
+
 export type CoreReviewStreetRow = {
     publicId: string;
     canonicalName: string;
@@ -231,6 +258,7 @@ export type CoreReviewAdminAreaRow = {
 export type CoreReviewRowBySlug = {
     buildings: CoreReviewBuildingRow;
     places: CoreReviewPlaceRow;
+    settlements: CoreReviewSettlementRow;
     streets: CoreReviewStreetRow;
     "land-areas": CoreReviewLandAreaRow;
     "water-lines": CoreReviewWaterLineRow;

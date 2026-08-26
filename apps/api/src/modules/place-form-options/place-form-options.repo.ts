@@ -38,6 +38,8 @@ export class PlaceFormOptionsRepository {
                 is_public,
                 is_searchable
             FROM ref.ref_poi_categories
+            WHERE is_public = true
+              AND is_searchable = true
             ORDER BY
                 (parent_id IS NULL) DESC,
                 sort_order ASC NULLS LAST,

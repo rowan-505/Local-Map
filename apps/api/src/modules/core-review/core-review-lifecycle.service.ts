@@ -7,6 +7,8 @@ import { StreetsRepository } from "../streets/streets.repo.js";
 import { getCoreReviewEntityByPath } from "./core-review.entity-registry.js";
 import { getCoreReviewBuildingDetail } from "./entities/buildings.handler.js";
 import { getCoreReviewPlaceDetail } from "./entities/places.handler.js";
+import { getCoreReviewSettlementDetail } from "./entities/settlements.handler.js";
+import { CoreReviewSettlementsRepository } from "./entities/settlements.repo.js";
 import { getCoreReviewStreetDetail } from "./entities/streets.handler.js";
 import { CoreReviewLandAreasRepository } from "./entities/land-areas.repo.js";
 import { getCoreReviewLandAreaDetail } from "./entities/land-areas.handler.js";
@@ -36,6 +38,7 @@ export class CoreReviewLifecycleService {
     private readonly streetsRepo: StreetsRepository;
     private readonly entitiesRepo: CoreReviewEntitiesRepository;
     private readonly landAreasRepo: CoreReviewLandAreasRepository;
+    private readonly settlementsRepo: CoreReviewSettlementsRepository;
 
     constructor(prisma: PrismaClient) {
         this.prisma = prisma;
@@ -45,6 +48,7 @@ export class CoreReviewLifecycleService {
         this.streetsRepo = new StreetsRepository(prisma);
         this.entitiesRepo = new CoreReviewEntitiesRepository(prisma);
         this.landAreasRepo = new CoreReviewLandAreasRepository(prisma);
+        this.settlementsRepo = new CoreReviewSettlementsRepository(prisma);
     }
 
     private validateIdFormat(slug: CoreReviewEntitySlug, id: string): void {
@@ -158,6 +162,17 @@ export class CoreReviewLifecycleService {
             return;
         }
 
+        if (slug === "settlements") {
+            const detail = await getCoreReviewSettlementDetail(this.settlementsRepo, id, { anyStatus: true });
+            const settlementId = (detail?.data as { id?: string } | undefined)?.id;
+            if (settlementId) {
+                await refreshUnifiedSearchDocuments(this.prisma, [
+                    { entityType: "settlement", entityId: BigInt(settlementId) },
+                ]);
+            }
+            return;
+        }
+
         if (slug === "streets") {
             const repo = new UnifiedSearchSyncRepository(this.prisma);
             const streetId = await repo.lookupStreetId(id);
@@ -218,6 +233,8 @@ export class CoreReviewLifecycleService {
                 return getCoreReviewBuildingDetail(this.buildingsRepo, id, { anyStatus: true });
             case "places":
                 return getCoreReviewPlaceDetail(this.placesRepo, id, { anyStatus: true });
+            case "settlements":
+                return getCoreReviewSettlementDetail(this.settlementsRepo, id, { anyStatus: true });
             case "streets":
                 return getCoreReviewStreetDetail(this.streetsRepo, id, { anyStatus: true });
             case "land-areas":

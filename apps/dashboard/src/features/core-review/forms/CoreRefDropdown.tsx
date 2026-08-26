@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 
 import AdminAreaCombobox from "@/src/components/admin-areas/AdminAreaCombobox";
+import RoadTownshipAdminAreaCombobox from "@/src/components/admin-areas/RoadTownshipAdminAreaCombobox";
 import PoiCategoryCombobox from "@/src/components/poi-categories/PoiCategoryCombobox";
 import { mergeBuildingTypeSelectOptions } from "@/src/lib/building-type/display";
 import { buildPoiCategoryDropdownOptions } from "@/src/lib/poi-category/display";
@@ -60,6 +61,23 @@ export default function CoreRefDropdown({
         );
     }, [options, refSource, value]);
 
+    const displayOptions = useMemo(() => {
+        if (refSource !== "building-types") {
+            const trimmed = value.trim();
+            if (!trimmed || options.some((opt) => opt.value === trimmed)) {
+                return options;
+            }
+            return [
+                ...options,
+                {
+                    value: trimmed,
+                    label: orphanOptionLabel?.trim() || `ID ${trimmed} (inactive — choose active type)`,
+                },
+            ];
+        }
+        return mergeBuildingTypeSelectOptions(options, value, orphanOptionLabel);
+    }, [options, orphanOptionLabel, refSource, value]);
+
     if (refSource === "admin-areas") {
         return (
             <label className="block" htmlFor={id}>
@@ -80,22 +98,25 @@ export default function CoreRefDropdown({
         );
     }
 
-    const displayOptions = useMemo(() => {
-        if (refSource !== "building-types") {
-            const trimmed = value.trim();
-            if (!trimmed || options.some((opt) => opt.value === trimmed)) {
-                return options;
-            }
-            return [
-                ...options,
-                {
-                    value: trimmed,
-                    label: orphanOptionLabel?.trim() || `ID ${trimmed} (inactive — choose active type)`,
-                },
-            ];
-        }
-        return mergeBuildingTypeSelectOptions(options, value, orphanOptionLabel);
-    }, [options, orphanOptionLabel, refSource, value]);
+    if (refSource === "township-admin-areas") {
+        return (
+            <label className="block" htmlFor={id}>
+                <span className="mb-1 block text-sm font-medium text-slate-700">
+                    {label}
+                    {required ? <span className="text-red-600"> *</span> : null}
+                </span>
+                <RoadTownshipAdminAreaCombobox
+                    id={id}
+                    value={value || null}
+                    onChange={(nextId) => onChange(nextId ?? "")}
+                    disabled={disabled}
+                    placeholder="Search township…"
+                />
+                {helpText ? <p className="mt-1 text-xs text-slate-500">{helpText}</p> : null}
+                {error ? <p className="mt-1 text-sm text-red-600">{error}</p> : null}
+            </label>
+        );
+    }
 
     if (refSource === "place-form-options:categories") {
         return (

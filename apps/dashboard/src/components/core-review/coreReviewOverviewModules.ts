@@ -34,6 +34,15 @@ export const CORE_REVIEW_OVERVIEW_MODULES: readonly CoreReviewOverviewModule[] =
         access: "editable",
     },
     {
+        segment: "settlements",
+        title: "Settlements",
+        description: "Cities, towns, villages, and local areas with a representative point.",
+        href: coreReviewPath("settlements"),
+        sourceTable: "core.core_settlements",
+        sourceSchema: "core",
+        access: "editable",
+    },
+    {
         segment: "roads",
         title: "Roads",
         description: "Street centerlines, road classes, and routing geometry.",

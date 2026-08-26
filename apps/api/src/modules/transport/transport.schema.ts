@@ -562,9 +562,9 @@ export const updateVariantBodySchema = z
     });
 
 /**
- * Variant `direction_id`: 0 = outbound, 1 = inbound, 2 = loop/branch/special,
- * null = unknown. Narrower than the column's smallint range on purpose so the
- * create/update endpoints only accept the meaningful values.
+ * Variant `direction_id` is the machine identity. For YBS, 0 = D0 and 1 = D1
+ * without geographic meaning. Other modes retain their existing semantics;
+ * 2 is loop/branch/special and null is unknown.
  */
 const variantDirectionIdField = z.number().int().min(0).max(2).nullable().optional();
 

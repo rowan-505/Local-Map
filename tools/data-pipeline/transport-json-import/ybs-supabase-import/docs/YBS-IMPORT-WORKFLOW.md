@@ -257,7 +257,8 @@ Expected after normalization:
 
 - `route_code`: `YBS-7-A`
 - `display_code`: `YBS 7-A`
-- `variant_code`: `YBS-7-A-INBOUND`, `YBS-7-A-OUTBOUND`
+- `variant_code`: `YBS-7-A-D0`, `YBS-7-A-D1`
+- `direction_name`: `D0`, `D1` (neutral labels; no geographic meaning)
 - `source_links`: `route:ybs_go:YBS-7-A`, `variant:ybs_go:YBS-7-A:inbound`, etc.
 
 Old parent rows like `YBS-7` may remain until optional manual cleanup.

@@ -13,6 +13,7 @@ import { isCoreReviewRowDeleted } from "./coreReviewLifecycleUtils";
 const ENTITY_KEY_TO_SLUG: Record<CoreEntityKey, CoreReviewEntitySlug> = {
     buildings: "buildings",
     places: "places",
+    settlements: "settlements",
     streets: "streets",
     "land-areas": "land-areas",
     "water-lines": "water-lines",

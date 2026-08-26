@@ -116,14 +116,6 @@ export type BuildUnifiedSearchScoreSqlParams = {
     lng?: number;
 };
 
-export type BuildUnifiedSearchCandidateMatchSqlParams = {
-    qNorm: string;
-    prefix: string;
-    isPrefixMode: boolean;
-    multiTokenMatch: Prisma.Sql | null;
-    fuzzyThreshold: number;
-};
-
 function normalizeOptionalText(value: string | null | undefined): string {
     return (value ?? "").trim().toLowerCase();
 }
@@ -440,30 +432,6 @@ function buildStrongTextSql(
         OR ${buildPrefixSql(prefix)}
         OR d.search_vector @@ plainto_tsquery('simple', ${qNorm})
         ${multiTokenClause}
-    )`;
-}
-
-/** Candidate filter for unified search — exact/prefix/strong paths always pass; fuzzy needs threshold. */
-export function buildUnifiedSearchCandidateMatchSql(
-    params: BuildUnifiedSearchCandidateMatchSqlParams,
-): Prisma.Sql {
-    const { qNorm, prefix, isPrefixMode, multiTokenMatch, fuzzyThreshold } = params;
-
-    if (isPrefixMode) {
-        return Prisma.sql`(
-            lower(d.code) = ${qNorm}
-            OR lower(d.display_name) LIKE ${prefix}
-            OR d.trigram_text LIKE ${prefix}
-        )`;
-    }
-
-    if (multiTokenMatch) {
-        return Prisma.sql`(${multiTokenMatch})`;
-    }
-
-    return Prisma.sql`(
-        ${buildStrongTextSql(qNorm, prefix, false, null)}
-        OR similarity(coalesce(d.trigram_text, ''), ${qNorm}) >= ${fuzzyThreshold}
     )`;
 }
 

@@ -44,7 +44,7 @@ describe("buildFailedSearchEntityTypesKey", () => {
 
     it("uses category-resolved entity types", () => {
         const filters = resolvePublicSearchFilters({ category: "places" });
-        assert.equal(buildFailedSearchEntityTypesKey(filters), "place");
+        assert.equal(buildFailedSearchEntityTypesKey(filters), "place,settlement");
     });
 });
 
@@ -56,10 +56,10 @@ describe("buildFailedSearchDedupeKey", () => {
             category: "places",
             transportType: "all",
             transportMode: "all",
-            entityTypesKey: "place",
+            entityTypesKey: "place,settlement",
             areaContextKey: "16.8,96.2",
         });
-        assert.equal(key, "rgn airport|en|places|all|all|place|16.8,96.2");
+        assert.equal(key, "rgn airport|en|places|all|all|place,settlement|16.8,96.2");
     });
 });
 

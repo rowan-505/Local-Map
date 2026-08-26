@@ -348,6 +348,7 @@ export function useCoreEntityRefs(sources: CoreRefSourceKind[]): Record<CoreRefS
             reload: () => void loadPlaceFormOptions(),
         },
         "admin-areas": adminAreasState,
+        "township-admin-areas": emptyRefState(),
         "reference-options:source_types": {
             options: referenceOptions
                 ? mapReferenceOptions(referenceOptions.ref_source_types)

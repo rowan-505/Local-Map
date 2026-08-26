@@ -776,6 +776,16 @@ export const getPublicSearchSchema = {
             additionalProperties: false,
         },
         400: badRequestSchema,
+        503: {
+            type: "object",
+            required: ["code", "message", "retryable"],
+            properties: {
+                code: { type: "string", enum: ["SEARCH_TIMEOUT"] },
+                message: { type: "string" },
+                retryable: { type: "boolean", enum: [true] },
+            },
+            additionalProperties: false,
+        },
     },
 } satisfies FastifySchema;
 

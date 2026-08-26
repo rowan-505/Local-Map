@@ -52,6 +52,11 @@ import { CollapsibleSection, CompactField, COMPACT_FIELD_GRID_2_CLASS } from "./
 import { STOP_CARD_CLASS, StopDetailHeader } from "./TransportStopDetailCards";
 import { TransportReviewActionBar } from "./transportReviewUi";
 import { useSelectedStopRouteUsage } from "./useSelectedStopRouteUsage";
+import {
+    canonicalYbsVariantCode,
+    isCanonicalYbsRouteUsage,
+    routeUsageDirectionLabel,
+} from "./variantDirection";
 
 const STOP_DETAIL_MAP_HEIGHT =
     "h-[min(48vh,420px)] min-h-[240px] w-full overflow-hidden rounded-lg border border-gray-200 bg-gray-100";
@@ -155,6 +160,23 @@ function normIntNullable(value: string): number | null | undefined {
     if (t === "") return null;
     const n = Number(t);
     return Number.isFinite(n) ? Math.floor(n) : undefined;
+}
+
+function stopUsageDirectionSuffix(route: TransportStopRouteUsage): string {
+    const direction = routeUsageDirectionLabel({
+        mode: route.mode,
+        routeCode: route.route_code,
+        directionName: route.direction_name,
+        directionId: route.direction_id,
+    });
+    return direction ? ` · ${direction}` : "";
+}
+
+function stopUsageVariantCode(route: TransportStopRouteUsage): string {
+    if (!isCanonicalYbsRouteUsage(route.mode, route.route_code)) {
+        return route.variant_code;
+    }
+    return canonicalYbsVariantCode(route.route_code, route.direction_id) ?? route.variant_code;
 }
 
 export type TransportStopDetailContentProps = {
@@ -1098,10 +1120,8 @@ export default function TransportStopDetailContent({
                                                             {r.route_name}
                                                         </p>
                                                         <p className="truncate text-xs text-gray-500">
-                                                            {r.variant_code}
-                                                            {r.direction_name
-                                                                ? ` · ${r.direction_name}`
-                                                                : ""}
+                                                            {stopUsageVariantCode(r)}
+                                                            {stopUsageDirectionSuffix(r)}
                                                             {r.headsign ? ` · ${r.headsign}` : ""} ·
                                                             seq {r.stop_sequence}
                                                         </p>

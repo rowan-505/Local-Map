@@ -7,6 +7,7 @@ import type {
     CoreReviewLandAreaRow,
     CoreReviewMapFeatureRow,
     CoreReviewPlaceRow,
+    CoreReviewSettlementRow,
 } from "./types";
 import { boolOrNull, geometryOrNull, numOrNull, strOrNull, verificationFieldsFromDetail } from "./detailListRowUtils";
 
@@ -346,5 +347,68 @@ export function applyAdminAreaDetailToListRow(
         updatedAt: strOrNull(d.updatedAt ?? d.updated_at) ?? row.updatedAt,
         geometry: geometryOrNull(d.geometry) ?? row.geometry,
         centroid: geometryOrNull(d.centroid) ?? row.centroid,
+    };
+}
+
+/** Maps settlement edit detail onto a core-review list row. */
+export function applySettlementDetailToListRow(
+    row: CoreReviewSettlementRow,
+    detail: unknown,
+): CoreReviewSettlementRow {
+    const d = detail as Partial<CoreReviewSettlementRow> & {
+        public_id?: string;
+        canonical_name?: string | null;
+        name_mm?: string | null;
+        name_en?: string | null;
+        settlement_type_code?: string | null;
+        settlement_type_name?: string | null;
+        township_id?: string | null;
+        township_name?: string | null;
+        admin_area_id?: string | null;
+        admin_area_name?: string | null;
+        source_type_id?: string | number | null;
+        has_footprint?: boolean | null;
+        is_verified?: boolean | null;
+        is_public?: boolean | null;
+        deleted_at?: string | null;
+        created_at?: string | null;
+        updated_at?: string | null;
+    };
+    const lat = numOrNull(d.lat) ?? row.lat;
+    const lng = numOrNull(d.lng) ?? row.lng;
+    const verification = verificationFieldsFromDetail(d, row);
+
+    return {
+        ...row,
+        id: strOrNull(d.id) ?? row.id,
+        publicId: strOrNull(d.publicId ?? d.public_id) ?? row.publicId,
+        settlementTypeId: strOrNull(d.settlementTypeId) ?? row.settlementTypeId,
+        settlementTypeCode:
+            strOrNull(d.settlementTypeCode ?? d.settlement_type_code) ?? row.settlementTypeCode,
+        settlementTypeName:
+            strOrNull(d.settlementTypeName ?? d.settlement_type_name) ?? row.settlementTypeName,
+        canonicalName: strOrNull(d.canonicalName ?? d.canonical_name) ?? row.canonicalName,
+        nameMm: strOrNull(d.nameMm ?? d.name_mm) ?? row.nameMm,
+        nameEn: strOrNull(d.nameEn ?? d.name_en) ?? row.nameEn,
+        townshipId: strOrNull(d.townshipId ?? d.township_id) ?? row.townshipId,
+        townshipName: strOrNull(d.townshipName ?? d.township_name) ?? row.townshipName,
+        adminAreaId:
+            strOrNull(d.adminAreaId ?? d.admin_area_id ?? d.townshipId ?? d.township_id) ??
+            row.adminAreaId,
+        adminAreaName:
+            strOrNull(d.adminAreaName ?? d.admin_area_name ?? d.townshipName ?? d.township_name) ??
+            row.adminAreaName,
+        population: numOrNull(d.population) ?? row.population,
+        sourceTypeId: strOrNull(d.sourceTypeId ?? d.source_type_id) ?? row.sourceTypeId,
+        hasFootprint: boolOrNull(d.hasFootprint ?? d.has_footprint) ?? row.hasFootprint,
+        verificationStatus: verification.verificationStatus,
+        isVerified: verification.isVerified,
+        isPublic: boolOrNull(d.isPublic ?? d.is_public) ?? row.isPublic,
+        deletedAt: strOrNull(d.deletedAt ?? d.deleted_at) ?? row.deletedAt,
+        createdAt: strOrNull(d.createdAt ?? d.created_at) ?? row.createdAt,
+        updatedAt: strOrNull(d.updatedAt ?? d.updated_at) ?? row.updatedAt,
+        lat,
+        lng,
+        geometry: geometryOrNull(d.geometry) ?? pointGeometryFromLatLng(lat, lng, row.geometry),
     };
 }

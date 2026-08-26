@@ -3,6 +3,7 @@ import type { PrismaClient } from "@prisma/client";
 import {
     getCachedSearchIndexHealthReport,
     clearSearchIndexHealthCache,
+    peekSearchIndexHealthCache,
 } from "./search-index-health-cache.js";
 import {
     deriveSearchIndexFamilySeverity,
@@ -497,15 +498,34 @@ export type SearchIndexHealthSeveritySummary = Pick<
     "overall_severity" | "overall_status" | "health_query_ok"
 >;
 
-/** Lightweight overview helper that reuses the cached full health report. */
+/**
+ * Lightweight overview helper. Reuse a full reconciliation when one is cached;
+ * otherwise derive a conservative status from rebuild metadata only. The search
+ * overview must not materialize every canonical geospatial view on first load.
+ */
 export async function getSearchIndexHealthSeveritySummary(
     prisma: PrismaClient,
 ): Promise<SearchIndexHealthSeveritySummary> {
-    const report = await getSearchIndexHealthReport(prisma);
+    const cached = peekSearchIndexHealthCache();
+    if (cached) {
+        return {
+            overall_severity: cached.overall_severity,
+            overall_status: cached.overall_status,
+            health_query_ok: cached.health_query_ok,
+        };
+    }
+
+    const runs = await fetchSearchIndexRunMetadata(prisma);
+    const summary = deriveSearchIndexOverallSeverity({
+        family_severities: [],
+        last_rebuild_status: runs.latest?.status ?? null,
+        last_successful_rebuild_finished_at: runs.lastSuccessful?.finished_at ?? null,
+        health_query_ok: true,
+    });
     return {
-        overall_severity: report.overall_severity,
-        overall_status: report.overall_status,
-        health_query_ok: report.health_query_ok,
+        overall_severity: summary.severity,
+        overall_status: severityToBinaryHealthStatus(summary.severity),
+        health_query_ok: true,
     };
 }
 

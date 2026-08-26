@@ -1474,9 +1474,17 @@ export async function buildDryRunPlan(
             continue;
         }
 
-        const directionKey =
-            variantDirectionByCode.get(routeStop.variant_code) ??
-            (routeStop.variant_code.endsWith("-INBOUND") ? "inbound" : "outbound");
+        const directionKey = variantDirectionByCode.get(routeStop.variant_code);
+        if (!directionKey) {
+            blockers.push({
+                code: "INVALID_VARIANT_STRUCTURE",
+                message: `Route stop references variant ${routeStop.variant_code} without a prepared source direction.`,
+                route_code: routeStop.route_code,
+                variant_code: routeStop.variant_code,
+            });
+            summary.blockers++;
+            continue;
+        }
         const variantRef = entityRefVariant(routeStop.route_code, directionKey);
 
         const resolvedStop = resolvedStopByCandidateId.get(routeStop.candidate_id);

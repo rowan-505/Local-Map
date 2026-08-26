@@ -129,22 +129,6 @@ function resolveDatabaseUrl(override?: string): string {
 }
 
 function resolveDirectionKey(row: RouteStopUsageRow): "outbound" | "inbound" | null {
-    const code = row.variant_code.toLowerCase();
-    if (code.includes("outbound") || code.endsWith("-a")) {
-        return "outbound";
-    }
-    if (code.includes("inbound") || code.endsWith("-b")) {
-        return "inbound";
-    }
-
-    const direction = (row.direction_name ?? "").trim().toLowerCase();
-    if (direction === "outbound" || direction === "out") {
-        return "outbound";
-    }
-    if (direction === "inbound" || direction === "in") {
-        return "inbound";
-    }
-
     if (row.direction_id === 0) {
         return "outbound";
     }

@@ -55,6 +55,7 @@ function verificationTotalsQueryKey(input: {
     search: string;
     status: string;
     adminAreaId: string;
+    settlementType: string;
     categoryId: string;
     buildingTypeId: string;
     roadClassId: string;
@@ -74,6 +75,7 @@ function verificationTotalsQueryKey(input: {
         input.search,
         input.status,
         input.adminAreaId,
+        input.settlementType,
         input.categoryId,
         input.buildingTypeId,
         input.roadClassId,
@@ -107,6 +109,7 @@ export function useCoreReviewVerificationTotals(options: {
             search: appliedDraft.searchDraft.trim(),
             status: appliedDraft.statusFilter,
             adminAreaId: appliedDraft.adminAreaId.trim(),
+            settlementType: appliedDraft.settlementType.trim(),
             categoryId: appliedDraft.categoryId.trim(),
             buildingTypeId: appliedDraft.buildingTypeId.trim(),
             roadClassId: appliedDraft.roadClassId.trim(),

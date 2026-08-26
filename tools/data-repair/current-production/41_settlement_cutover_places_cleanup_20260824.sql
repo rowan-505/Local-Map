@@ -1,0 +1,34 @@
+-- Settlement cutover cleanup (2026-08-24)
+-- Deleted 1540 legacy settlement-category rows from core.core_places.
+-- Canonical copy is core.core_settlements (unchanged: 57590).
+--
+-- Rollback snapshot (requested columns plus timestamps):
+--   core._settlement_cutover_places_backup_20260824
+--
+-- Restore sketch (only if needed). Required NOT NULL columns that were not
+-- snapshotted use current OSM source type + public/unverified defaults.
+
+-- INSERT INTO core.core_places (
+--   id, public_id, primary_name, display_name, category_id,
+--   point_geom, lat, lng, source_type_id, is_public, is_verified,
+--   external_id, source_refs, created_at, updated_at, deleted_at
+-- )
+-- SELECT
+--   b.id,
+--   b.public_id,
+--   b.primary_name,
+--   b.display_name,
+--   c.id,
+--   ST_SetSRID(ST_GeomFromGeoJSON(b.geometry::text), 4326),
+--   ST_Y(ST_SetSRID(ST_GeomFromGeoJSON(b.geometry::text), 4326)),
+--   ST_X(ST_SetSRID(ST_GeomFromGeoJSON(b.geometry::text), 4326)),
+--   (SELECT id FROM ref.ref_source_types WHERE code = 'osm' LIMIT 1),
+--   true,
+--   false,
+--   b.external_id,
+--   b.source_refs,
+--   b.created_at,
+--   b.updated_at,
+--   b.deleted_at
+-- FROM core._settlement_cutover_places_backup_20260824 AS b
+-- JOIN ref.ref_poi_categories AS c ON c.code = b.category;

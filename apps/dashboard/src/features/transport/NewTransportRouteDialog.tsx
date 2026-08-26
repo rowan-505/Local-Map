@@ -16,10 +16,19 @@ const INPUT_CLASS =
 
 /**
  * Describes the variants the backend will auto-create, mirroring the POST
- * /transport/routes rules: loop → one loop variant; ferry → outbound (+ inbound
- * when return is checked); bus/train → outbound + inbound.
+ * /transport/routes rules: YBS bus → neutral D0 + D1; loop → one loop variant;
+ * ferry keeps its existing one-way/return semantics; other modes receive their
+ * existing server-defined variant pair.
  */
-function variantPreview(mode: CreateRouteMode, isLoop: boolean, createReturn: boolean): string {
+function variantPreview(
+    mode: CreateRouteMode,
+    routeCode: string,
+    isLoop: boolean,
+    createReturn: boolean
+): string {
+    if (mode === "bus" && routeCode.startsWith("YBS-")) {
+        return "Will create D0 and D1 automatically. These labels do not imply geographic direction.";
+    }
     if (isLoop) {
         return "Will create one loop variant";
     }
@@ -28,7 +37,10 @@ function variantPreview(mode: CreateRouteMode, isLoop: boolean, createReturn: bo
             ? "Will create outbound and inbound variants"
             : "Will create outbound variant";
     }
-    return "Will create outbound and inbound variants";
+    if (mode === "bus") {
+        return "Will create direction 0 and direction 1 variants automatically.";
+    }
+    return "Will create the default pair of route variants";
 }
 
 /**
@@ -80,8 +92,8 @@ export default function NewTransportRouteDialog({
         trimmedCode.length > 0 && trimmedName.length > 0 && operatorIdValid && !submitting;
 
     const preview = useMemo(
-        () => variantPreview(mode, isLoop, createReturn),
-        [mode, isLoop, createReturn]
+        () => variantPreview(mode, trimmedCode, isLoop, createReturn),
+        [mode, trimmedCode, isLoop, createReturn]
     );
 
     const handleSubmit = useCallback(async () => {

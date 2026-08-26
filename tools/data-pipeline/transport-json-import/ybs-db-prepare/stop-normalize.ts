@@ -313,9 +313,24 @@ export function isExplicitSharedTerminal(
     return normalizedData.shared_terminal === true;
 }
 
+/** Maps source wording to the stable machine id without assigning geography to D0/D1. */
+export function ybsDirectionIdFromSourceDirection(directionKey: string): 0 | 1 {
+    const direction = directionKey.trim().toLowerCase();
+    if (direction === "outbound") {
+        return 0;
+    }
+    if (direction === "inbound") {
+        return 1;
+    }
+    throw new Error(`Unsupported YBS source direction: ${directionKey}`);
+}
+
+export function canonicalYbsDirectionName(directionKey: string): "D0" | "D1" {
+    return `D${ybsDirectionIdFromSourceDirection(directionKey)}`;
+}
+
 export function buildVariantCode(routeCode: string, directionKey: string): string {
-    const direction = directionKey.trim().toUpperCase();
-    return `${routeCode}-${direction}`;
+    return `${routeCode}-${canonicalYbsDirectionName(directionKey)}`;
 }
 
 export function isRiskyStopName(nameMy: string | null): boolean {

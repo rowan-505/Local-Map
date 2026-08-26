@@ -15,6 +15,7 @@ import {
 import type { CoreReviewEntitySlug } from "./core-review.types.js";
 import { coreReviewVerificationWriteFields } from "./core-review-verification-write.js";
 import { STREET_TRAVEL_DIRECTIONS } from "../streets/streets-direction.js";
+import { SETTLEMENT_TYPE_CODES } from "./entities/settlements.constants.js";
 
 export const EDIT_CORE_REVIEW_ROLES = new Set(["admin", "editor"]);
 
@@ -536,7 +537,7 @@ export const coreReviewPatchAdminAreaSchema = z
     })
     .refine((v) => Object.keys(v).length > 0, { message: "At least one field is required" });
 
-const settlementTypeCodeSchema = z.enum(["city", "town", "village", "local_area"]);
+const settlementTypeCodeSchema = z.enum(SETTLEMENT_TYPE_CODES);
 
 const optionalNullableInt = z.preprocess((value) => {
     if (value === undefined) return undefined;

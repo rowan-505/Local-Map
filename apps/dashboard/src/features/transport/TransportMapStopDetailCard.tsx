@@ -9,6 +9,7 @@ import {
     formatRouteUsageSummary,
     shortStopPublicId,
 } from "./routeUsageSummaryDisplay";
+import { canonicalYbsVariantCode, ybsDirectionLabel } from "./variantDirection";
 import { ReviewStatusBadge } from "./transportReviewUi";
 import type {
     TransportStopRouteUsageDetailItem,
@@ -67,16 +68,17 @@ function InfoRow({
 }
 
 function formatRouteItemLabel(item: TransportStopRouteUsageDetailItem): string {
-    const direction =
-        item.directionName?.trim() ||
-        (item.directionId === 0
-            ? "Outbound"
-            : item.directionId === 1
-              ? "Inbound"
-              : null);
+    const canonicalYbs = item.routeCode.startsWith("YBS-");
+    const direction = canonicalYbs
+        ? ybsDirectionLabel(item.directionId)
+        : item.directionName?.trim() ||
+          (item.directionId === null ? null : `Direction ${item.directionId}`);
+    const variantCode = canonicalYbs
+        ? (canonicalYbsVariantCode(item.routeCode, item.directionId) ?? item.variantCode)
+        : item.variantCode;
     return direction
-        ? `${item.routeCode} · ${item.variantCode} (${direction})`
-        : `${item.routeCode} · ${item.variantCode}`;
+        ? `${item.routeCode} · ${variantCode} (${direction})`
+        : `${item.routeCode} · ${variantCode}`;
 }
 
 function directionDisplay({
@@ -241,7 +243,7 @@ function OverlayCandidateCard(props: TransportMapStopDetailCardProps) {
                         valueTitle={routesSummary}
                     />
                     <InfoRow
-                        label="Direction usage"
+                        label="Route variant directions"
                         value={direction.text}
                         valueTitle={direction.title}
                     />
@@ -393,7 +395,7 @@ export default function TransportMapStopDetailCard(props: TransportMapStopDetail
                     }
                 />
                 <InfoRow
-                    label="Direction usage"
+                    label="Route variant directions"
                     value={
                         directionDisplay({
                             loading: usageLoading,

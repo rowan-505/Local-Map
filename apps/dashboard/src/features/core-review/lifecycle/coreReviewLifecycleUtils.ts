@@ -5,6 +5,7 @@ export type CoreReviewLifecycleStatusFilter = "active" | "deleted" | "all";
 export const CORE_REVIEW_ENTITY_LABELS: Record<CoreReviewEntitySlug, string> = {
     buildings: "building",
     places: "place",
+    settlements: "settlement",
     streets: "road",
     "bus-stops": "bus stop",
     "bus-routes": "bus route",

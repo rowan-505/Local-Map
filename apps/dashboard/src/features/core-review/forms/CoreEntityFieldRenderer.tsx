@@ -221,6 +221,7 @@ export default function CoreEntityFieldRenderer({
                             onChange={(e) => f.onChange(e.target.value)}
                             className={inputClass}
                         >
+                            <option value="">Select…</option>
                             {options.map((option) => (
                                 <option key={option.value} value={option.value}>
                                     {option.label}

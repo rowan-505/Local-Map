@@ -18,7 +18,7 @@ export type TransportModeKey = "bus" | "train" | "ferry";
 export type TransportVariantSeed = {
     readonly variant_code: string;
     readonly direction_name: string;
-    /** GTFS-style direction_id: 0 = outbound, 1 = inbound. */
+    /** Machine direction identity; display/geographic semantics are source-specific. */
     readonly direction_id: number;
 };
 
@@ -38,9 +38,8 @@ export type TransportModeConfig = {
 
 export type GetDefaultVariantsOptions = {
     /**
-     * Force-include the return (inbound) variant for modes that default to a
-     * single outbound variant (currently ferry). No effect on modes that already
-     * default to outbound + inbound (bus, train).
+     * Force-include direction_id 1 for modes that default to only direction_id 0
+     * (currently ferry). No effect on modes that already create the 0/1 pair.
      */
     readonly includeReturn?: boolean;
 };
@@ -70,7 +69,7 @@ const TRANSPORT_MODE_CONFIG: Record<TransportModeKey, TransportModeConfig> = {
     },
     ferry: {
         defaultRouteKind: "ferry",
-        // Ferries default to a single outbound variant; add the return variant
+        // Ferries default to direction_id 0; add the return variant
         // later via getDefaultVariantsForMode(mode, { includeReturn: true }).
         defaultVariants: [OUTBOUND_VARIANT],
         labels: { stop: "Pier / terminal", path: "Ferry path" },
@@ -100,8 +99,8 @@ export function getDefaultRouteKind(mode: string): string {
 
 /**
  * Default variant seeds for a new route of the given mode. Returns a fresh
- * mutable array so callers can adapt it. `includeReturn` adds the inbound
- * variant for one-way-by-default modes (ferry).
+ * mutable array so callers can adapt it. `includeReturn` adds direction_id 1
+ * for one-way-by-default modes (ferry).
  */
 export function getDefaultVariantsForMode(
     mode: string,

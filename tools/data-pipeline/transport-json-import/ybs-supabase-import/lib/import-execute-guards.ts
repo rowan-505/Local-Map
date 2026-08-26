@@ -244,31 +244,6 @@ export async function validateExecuteGuards(options: ExecuteGuardOptions): Promi
     }
 
     if (routeId) {
-        const variantActions = allActions.filter((action) => action.action === "insert_route_variant");
-        for (const action of variantActions) {
-            const variantCode = String(action.payload.variant_code ?? "");
-            const existingVariant = await client.query<{ id: string }>(
-                `
-                SELECT id::text
-                FROM transport.route_variants
-                WHERE route_id = $1 AND variant_code = $2 AND deleted_at IS NULL
-                LIMIT 1
-                `,
-                [routeId, variantCode],
-            );
-            if (existingVariant.rows[0] && action.external_id) {
-                const linkedId = await findLinkedEntityId(client, "route_variant", action.external_id);
-                if (
-                    linkedId !== null &&
-                    linkedId !== Number(existingVariant.rows[0].id)
-                ) {
-                    violations.push(
-                        `route_variant ${variantCode} source_link points to entity ${linkedId} but DB variant is ${existingVariant.rows[0].id}.`,
-                    );
-                }
-            }
-        }
-
         const variantRows = await client.query<{ id: string; variant_code: string }>(
             `SELECT id::text, variant_code FROM transport.route_variants WHERE route_id = $1 AND deleted_at IS NULL`,
             [routeId],
@@ -276,6 +251,26 @@ export async function validateExecuteGuards(options: ExecuteGuardOptions): Promi
         const variantIdByRef = new Map<string, number>();
         for (const action of allActions) {
             if (action.action === "insert_route_variant" && action.entity_ref) {
+                const linkedId = action.external_id
+                    ? await findLinkedEntityId(client, "route_variant", action.external_id)
+                    : null;
+                if (linkedId !== null) {
+                    const linkedVariant = variantRows.rows.find(
+                        (row) => Number(row.id) === linkedId,
+                    );
+                    if (!linkedVariant) {
+                        violations.push(
+                            `route_variant source_link ${action.external_id} points outside active route ${routeCode}.`,
+                        );
+                    } else {
+                        // Source identity takes precedence over the source wording. A prior
+                        // direction swap can legitimately link "inbound/outbound" provenance
+                        // to the opposite current D0/D1 machine id.
+                        variantIdByRef.set(action.entity_ref, linkedId);
+                    }
+                    continue;
+                }
+
                 const existing = variantRows.rows.find(
                     (row) => row.variant_code === String(action.payload.variant_code ?? ""),
                 );

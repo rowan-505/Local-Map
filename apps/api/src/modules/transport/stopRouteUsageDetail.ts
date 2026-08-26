@@ -3,6 +3,7 @@
  * repo mapper and unit tests.
  */
 export type StopRouteUsageDirectionInput = {
+    readonly routeMode?: string;
     readonly variantCode: string;
     readonly directionName: string | null;
     readonly directionId: number | null;
@@ -30,15 +31,21 @@ export function isClockwiseRouteUsage(input: StopRouteUsageDirectionInput): bool
 }
 
 export function isInboundRouteUsage(input: StopRouteUsageDirectionInput): boolean {
-    if (input.directionId === 1) {
-        return true;
+    if (input.directionId !== null) {
+        return input.directionId === 1;
+    }
+    if (input.routeMode === "bus" && input.variantCode.startsWith("YBS-")) {
+        return false;
     }
     return input.directionName?.trim().toLowerCase() === "inbound";
 }
 
 export function isOutboundRouteUsage(input: StopRouteUsageDirectionInput): boolean {
-    if (input.directionId === 0) {
-        return true;
+    if (input.directionId !== null) {
+        return input.directionId === 0;
+    }
+    if (input.routeMode === "bus" && input.variantCode.startsWith("YBS-")) {
+        return false;
     }
     return input.directionName?.trim().toLowerCase() === "outbound";
 }

@@ -2199,6 +2199,7 @@ const variantSummarySchema = {
         headsign: { type: "string", nullable: true },
         origin_name: { type: "string", nullable: true },
         destination_name: { type: "string", nullable: true },
+        first_stop_name: { type: "string", nullable: true },
         stop_count: { type: "integer", minimum: 0 },
         path_count: { type: "integer", minimum: 0 },
         path_status: { type: "string", enum: ["has_path", "none"] },
@@ -2263,7 +2264,8 @@ export const postTransportRouteSchema = {
         "Creates a route and its default variants in one transaction. route_kind is " +
         "derived from the mode config; review_status=needs_review, confidence_score=60, " +
         "is_active=true, and manual/admin source_refs are set by the server. Variants: " +
-        "loop -> ${code}-LOOP; bus/train -> ${code}-A outbound + ${code}-B inbound; " +
+        "YBS bus -> ${code}-D0 + ${code}-D1; loop -> ${code}-LOOP; " +
+        "other bus/train -> ${code}-A outbound + ${code}-B inbound; " +
         "ferry -> ${code}-A outbound (+ ${code}-B inbound when create_return_variant). " +
         "Returns the created route detail including variants. 409 on duplicate code.",
     security: [...bearerAuth],
@@ -2299,7 +2301,7 @@ export const patchTransportVariantSchema = {
     tags: [Tags.Transport],
     summary: "Update transport route variant metadata (admin)",
     description:
-        "Partial update of editable variant fields. Cannot edit source_refs or normalized_data. No hard delete.",
+        "Partial update of editable variant fields. For YBS bus routes, direction_id is the source of truth and variant_code/direction_name are derived as D0/D1. Cannot edit source_refs or normalized_data. No hard delete.",
     security: [...bearerAuth],
     params: publicIdParamSchema,
     body: updateVariantBodySchema,
@@ -2362,12 +2364,12 @@ const patchVariantBodySchema = {
 
 export const postSwapRouteDirectionSchema = {
     tags: [Tags.Transport],
-    summary: "Swap inbound/outbound direction metadata for a two-variant route (admin)",
+    summary: "Swap direction metadata for a two-variant route (admin)",
     description:
-        "Atomically swaps direction_id, direction_name, variant_code suffix (-A/-B), and " +
-        "normalized_data.direction (when present) between the route's two active variants. " +
-        "Requires exactly one outbound (direction_id 0) and one inbound (direction_id 1). " +
-        "Does not change route_stops, paths, or endpoint stop pointers.",
+        "Atomically swaps direction_id, direction_name, and variant_code between the route's " +
+        "two active variants. YBS uses neutral D0/D1 labels and preserves normalized_data " +
+        "provenance; non-YBS modes retain existing direction semantics. Requires exactly one " +
+        "direction_id 0 and one direction_id 1. Does not change route_stops, paths, or endpoint stop pointers.",
     security: [...bearerAuth],
     params: publicIdParamSchema,
     response: {
@@ -2390,8 +2392,9 @@ export const postRouteVariantSchema = {
     summary: "Create a route variant (admin)",
     description:
         "Creates a variant under an active route. variant_code is unique per route " +
-        "(route_id + variant_code); a collision returns 409. direction_id: 0 outbound, " +
-        "1 inbound, 2 loop/branch/special, null unknown. review_status defaults to " +
+        "(route_id + variant_code); a collision returns 409. For YBS bus routes, direction_id " +
+        "0/1 generates canonical D0/D1 identity without geographic meaning. Other modes retain " +
+        "existing semantics; 2 is loop/branch/special and null unknown. review_status defaults to " +
         "needs_review and confidence_score to 60 when omitted. Returns the created variant.",
     security: [...bearerAuth],
     params: routeVariantsParamSchema,

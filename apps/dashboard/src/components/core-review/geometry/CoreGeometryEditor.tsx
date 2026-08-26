@@ -22,6 +22,7 @@ import {
     MAP_EDITOR_VIEWPORT_BUILDING_CLASS,
     MAP_EDITOR_VIEWPORT_CLASS,
     mapEditorBtnDanger,
+    mapEditorBtnPrimary,
 } from "@/src/components/map/mapPreviewUi";
 import StreetEditorMap from "@/src/components/streets/StreetEditorMap";
 import type { StreetLineStringGeoJson, ImportReviewGeoJson } from "@/src/lib/api";
@@ -192,6 +193,7 @@ export default function CoreGeometryEditor({
     const fitLabel = coreReviewFitButtonLabel(previewKind);
 
     const [internalBasemapMode, setInternalBasemapMode] = useState<DataReviewBasemapMode>("map");
+    const [pointMode, setPointMode] = useState<"set" | "move">("set");
     const basemapMode = basemapModeProp ?? internalBasemapMode;
     const handleBasemapModeChange = onBasemapModeChange ?? setInternalBasemapMode;
 
@@ -289,6 +291,7 @@ export default function CoreGeometryEditor({
 
     const handleResetGeometry = useCallback(() => {
         onChange(null);
+        setPointMode("set");
         if (geometryType === "line") {
             setLineSeed(null);
             setMapEpoch((epoch) => epoch + 1);
@@ -402,14 +405,42 @@ export default function CoreGeometryEditor({
             }}
             toolbar={
                 <div className={MAP_EDITOR_TOOLBAR_CLASS}>
-                    <button
-                        type="button"
-                        onClick={handleResetGeometry}
-                        disabled={!value}
-                        className={mapEditorBtnDanger(Boolean(value))}
-                    >
-                        Reset geometry
-                    </button>
+                    {geometryType === "point" ? (
+                        <>
+                            <button
+                                type="button"
+                                onClick={() => setPointMode("set")}
+                                className={mapEditorBtnPrimary(pointMode === "set")}
+                            >
+                                Set point
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setPointMode("move")}
+                                disabled={!value}
+                                className={mapEditorBtnPrimary(pointMode === "move" && Boolean(value))}
+                            >
+                                Move/Edit point
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleResetGeometry}
+                                disabled={!value}
+                                className={mapEditorBtnDanger(Boolean(value))}
+                            >
+                                Clear
+                            </button>
+                        </>
+                    ) : (
+                        <button
+                            type="button"
+                            onClick={handleResetGeometry}
+                            disabled={!value}
+                            className={mapEditorBtnDanger(Boolean(value))}
+                        >
+                            Reset geometry
+                        </button>
+                    )}
                 </div>
             }
             footer={
@@ -425,6 +456,7 @@ export default function CoreGeometryEditor({
                     lat={pointCoords?.lat ?? null}
                     lng={pointCoords?.lng ?? null}
                     onChange={handlePointChange}
+                    interactionMode={pointMode}
                     basemapMode={basemapMode}
                     onMapReady={handleMapReady}
                     mapSurfaceRef={mapSurfaceRef ?? internalMapRef}

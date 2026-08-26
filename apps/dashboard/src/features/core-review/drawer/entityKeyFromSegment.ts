@@ -4,6 +4,7 @@ import type { CoreEntityKey } from "@/src/lib/core-review/entityConfigs";
 const SEGMENT_TO_ENTITY_KEY: Record<string, CoreEntityKey> = {
     buildings: "buildings",
     places: "places",
+    settlements: "settlements",
     roads: "streets",
     "land-areas": "land-areas",
     "water-lines": "water-lines",

@@ -294,6 +294,54 @@ describe("PublicMapService.search pagination (mocked repo)", () => {
         assert.equal(calls[0]?.after, undefined);
     });
 
+    it("records only the result count returned to the client", async () => {
+        let analyticsResultCount: number | null = null;
+        const repo = {
+            searchUnifiedDocuments: async () =>
+                Array.from({ length: 21 }, (_, index) =>
+                    makeRow({ entity_id: String(index + 1), score: 100 - index }),
+                ),
+            logFailedSearch: async () => {},
+            insertSearchRequestEvent: async (input: { resultCount: number }) => {
+                analyticsResultCount = input.resultCount;
+            },
+        };
+        const { PublicMapService } = await import("./public-map.service.js");
+        const service = new PublicMapService(repo as never);
+
+        const page = await service.search({ q: "yangon", limit: 20 });
+
+        assert.equal(page.items.length, 20);
+        assert.equal(analyticsResultCount, 20);
+    });
+
+    it("surfaces statement timeouts without recording a false failed search", async () => {
+        let failedSearchWrites = 0;
+        let analyticsWrites = 0;
+        const repo = {
+            searchUnifiedDocuments: async () => {
+                throw new Error("canceling statement due to statement timeout");
+            },
+            logFailedSearch: async () => {
+                failedSearchWrites += 1;
+            },
+            insertSearchRequestEvent: async () => {
+                analyticsWrites += 1;
+            },
+        };
+        const { PublicMapService, PublicSearchUnavailableError } = await import(
+            "./public-map.service.js"
+        );
+        const service = new PublicMapService(repo as never);
+
+        await assert.rejects(
+            () => service.search({ q: "သံလျင်", limit: 20 }),
+            PublicSearchUnavailableError,
+        );
+        assert.equal(failedSearchWrites, 0);
+        assert.equal(analyticsWrites, 0);
+    });
+
     it("passes decoded cursor position to the repo on continuation", async () => {
         const after = publicSearchCursorAfterFromRow(makeRow({ entity_id: "7", score: 42 }));
         const calls: Array<{ after?: { entityId: string } }> = [];

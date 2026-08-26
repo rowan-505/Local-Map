@@ -148,6 +148,7 @@ function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
             arrange: "newest",
             verificationStatusFilter: "all",
             adminAreaId: "",
+            settlementType: "",
             categoryId: "",
             buildingTypeId: "",
             roadClassId: "",
@@ -288,7 +289,9 @@ function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
                         onApply={handleApply}
                         onClear={handleClear}
                         onApplyVerificationFilter={list.applyVerificationFilter}
-                        adminAreaTownshipOnly={config.apiSlug === "streets"}
+                        adminAreaTownshipOnly={
+                            config.apiSlug === "streets" || config.apiSlug === "settlements"
+                        }
                         extraFilters={config.extensions?.renderExtraFilters?.({
                             draft: list.draft,
                             setDraft: list.setDraft,

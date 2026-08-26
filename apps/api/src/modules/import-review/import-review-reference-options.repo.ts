@@ -51,6 +51,8 @@ export class ImportReviewReferenceOptionsRepository {
             const rows = await this.prisma.$queryRaw<{ id: bigint; code: string; name: string }[]>`
                 SELECT id, code, name
                 FROM ref.ref_poi_categories
+                WHERE is_public = true
+                  AND is_searchable = true
                 ORDER BY sort_order ASC NULLS LAST, name ASC
             `;
             empty.ref_poi_categories = mapIdLabel(rows);

@@ -29,6 +29,10 @@ import {
 import { formatRouteUsageSummary } from "./routeUsageSummaryDisplay";
 import { isReviewMapPathEditMode, type ReviewMapMode } from "./reviewMapMode";
 import type { ReviewMapActionToastState } from "./reviewMapActionFeedback";
+import {
+    candidateRouteStopInsertDisabled,
+    type CandidateRouteStopInsertPosition,
+} from "./candidateRouteStopInsert";
 import { DELETE_BLOCKED_MESSAGE } from "./TransportStopUsageDialog";
 import type {
     GeoJsonGeometry,
@@ -47,6 +51,12 @@ import {
     routePathDisplayLabel,
     routePathLineStyle,
 } from "./routePathDisplay";
+import {
+    isCanonicalYbsRoute,
+    oppositeYbsVariant,
+    variantDirectionLabel,
+    ybsVariantOptionLabel,
+} from "./variantDirection";
 
 const SELECT_CLASS =
     "rounded-md border border-gray-300 bg-white px-2.5 py-1.5 text-sm text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900";
@@ -319,6 +329,10 @@ export type TransportRouteReviewMapShellProps = {
         options: { immediate: boolean },
     ) => void;
     readonly onCandidateCheckRoutes?: (candidate: TransportNearbyStopCandidate) => void;
+    readonly onCandidateInsert?: (
+        candidate: TransportNearbyStopCandidate,
+        position: CandidateRouteStopInsertPosition,
+    ) => void;
     readonly onCandidateKeepCurrent?: () => void;
     readonly onCandidateKeepCandidate?: (candidate: TransportNearbyStopCandidate) => void;
     readonly onCandidateCompareMerge?: (candidate: TransportNearbyStopCandidate) => void;
@@ -423,6 +437,7 @@ export default function TransportRouteReviewMapShell({
     onCandidateSelect,
     onCandidateSearchRequest,
     onCandidateCheckRoutes,
+    onCandidateInsert,
     onCandidateKeepCurrent,
     onCandidateKeepCandidate,
     onCandidateCompareMerge,
@@ -524,6 +539,11 @@ export default function TransportRouteReviewMapShell({
     const selectedVariant = useMemo(
         () => variants.find((variant) => variant.public_id === selectedVariantId) ?? null,
         [selectedVariantId, variants],
+    );
+    const canonicalYbs = isCanonicalYbsRoute(routeMode, routeCode);
+    const oppositeVariant = useMemo(
+        () => (canonicalYbs ? oppositeYbsVariant(variants, selectedVariantId) : null),
+        [canonicalYbs, selectedVariantId, variants],
     );
     const variantDepartureTimeText = selectedVariant?.departure_time_text ?? null;
     const variantDepartureAnchor = useMemo(
@@ -947,6 +967,39 @@ export default function TransportRouteReviewMapShell({
         };
     }, [activeCandidateDetail, onCandidateCheckRoutes]);
 
+    const candidateInsertActions = useMemo<TransportMapStopDetailCardAction[]>(() => {
+        if (!activeCandidateDetail || !selectedRouteStop || !onCandidateInsert || !canWrite) {
+            return [];
+        }
+        const disabled = candidateRouteStopInsertDisabled({
+            canWrite,
+            busy: insertDisabled,
+            selectedVariantId,
+            selectedRouteStopId,
+        });
+        const sequence = selectedRouteStop.stop_sequence;
+        return [
+            {
+                label: `Add before #${sequence}`,
+                onClick: () => onCandidateInsert(activeCandidateDetail, "before"),
+                disabled,
+            },
+            {
+                label: `Add after #${sequence}`,
+                onClick: () => onCandidateInsert(activeCandidateDetail, "after"),
+                disabled,
+            },
+        ];
+    }, [
+        activeCandidateDetail,
+        canWrite,
+        insertDisabled,
+        onCandidateInsert,
+        selectedRouteStop,
+        selectedRouteStopId,
+        selectedVariantId,
+    ]);
+
     const candidateKeepCurrentAction = useMemo<TransportMapStopDetailCardAction | null>(() => {
         if (!activeCandidateDetail || !onCandidateKeepCurrent) {
             return null;
@@ -1100,12 +1153,23 @@ export default function TransportRouteReviewMapShell({
                             >
                                 {variants.map((v) => (
                                     <option key={v.public_id} value={v.public_id}>
-                                        {v.variant_code}
-                                        {v.direction_name ? ` · ${v.direction_name}` : ""}
+                                        {canonicalYbs
+                                            ? ybsVariantOptionLabel(routeCode, v)
+                                            : `${v.variant_code}${v.direction_name ? ` · ${v.direction_name}` : ""}`}
                                     </option>
                                 ))}
                             </select>
                         </label>
+                    ) : null}
+                    {canonicalYbs && selectedVariant && oppositeVariant ? (
+                        <button
+                            type="button"
+                            onClick={() => onVariantChange(oppositeVariant.public_id)}
+                            className={NAV_BTN_CLASS}
+                            title="Select the opposite YBS route variant; its route, stops, path, and timing data load together"
+                        >
+                            Switch to {variantDirectionLabel(oppositeVariant, true)}
+                        </button>
                     ) : null}
                 </div>
 
@@ -1408,6 +1472,7 @@ export default function TransportRouteReviewMapShell({
                                     primaryActions={routeStopPrimaryActions}
                                     mainActions={routeStopMainActions}
                                     destructiveActions={routeStopDestructiveActions}
+                                    candidateInsertActions={candidateInsertActions}
                                     candidateCheckRoutesAction={candidateCheckRoutesAction}
                                     candidateKeepCurrentAction={candidateKeepCurrentAction}
                                     candidateKeepCandidateAction={candidateKeepCandidateAction}

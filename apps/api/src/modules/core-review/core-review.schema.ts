@@ -121,3 +121,28 @@ export const coreReviewListQuerySchema = z
     });
 
 export type CoreReviewListQueryParsed = z.infer<typeof coreReviewListQuerySchema>;
+
+export const settlementDuplicateWarningQuerySchema = z
+    .object({
+        canonicalName: optionalSearchSchema,
+        canonical_name: optionalSearchSchema,
+        nameMm: optionalSearchSchema,
+        name_mm: optionalSearchSchema,
+        nameEn: optionalSearchSchema,
+        name_en: optionalSearchSchema,
+        lat: z.coerce.number().finite().gte(-90).lte(90),
+        lng: z.coerce.number().finite().gte(-180).lte(180),
+        townshipId: optionalBigintIdSchema,
+        township_id: optionalBigintIdSchema,
+        excludePublicId: optionalSearchSchema,
+        exclude_public_id: optionalSearchSchema,
+    })
+    .transform((query) => ({
+        canonicalName: query.canonicalName ?? query.canonical_name,
+        nameMm: query.nameMm ?? query.name_mm,
+        nameEn: query.nameEn ?? query.name_en,
+        lat: query.lat,
+        lng: query.lng,
+        townshipId: query.townshipId ?? query.township_id,
+        excludePublicId: query.excludePublicId ?? query.exclude_public_id,
+    }));

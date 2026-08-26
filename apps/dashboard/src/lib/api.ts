@@ -4697,6 +4697,7 @@ export function patchPlaceBuildingLink(
 export type CoreReviewEntitySlug =
     | "buildings"
     | "places"
+    | "settlements"
     | "streets"
     | "bus-stops"
     | "bus-routes"
@@ -4741,6 +4742,7 @@ export type CoreReviewListParams = {
     /** @deprecated Legacy camelCase alias — use verification_status */
     verificationStatus?: Exclude<CoreReviewVerificationStatusFilter, "all">;
     adminAreaId?: string;
+    settlementType?: string;
     categoryId?: string;
     buildingTypeId?: string;
     roadClassId?: string;
@@ -4804,6 +4806,38 @@ export function getCoreReviewDetail<T = Record<string, unknown>>(
     return apiFetch<CoreReviewDetailResponse<T>>(
         `/core-review/${entity}/${encodeURIComponent(id)}`,
         { method: "GET", ...fetchInit }
+    );
+}
+
+export type CoreReviewSettlementDuplicateWarning = {
+    publicId: string;
+    canonicalName: string;
+    nameMm: string | null;
+    nameEn: string | null;
+    settlementTypeCode: string;
+    townshipId: string | null;
+    townshipName: string | null;
+    distanceM: number | null;
+    nameSimilarity: number | null;
+    sameTownship: boolean;
+};
+
+export function getCoreReviewSettlementDuplicateWarnings(
+    params: {
+        canonicalName?: string;
+        nameMm?: string;
+        nameEn?: string;
+        lat: number;
+        lng: number;
+        townshipId?: string;
+        excludePublicId?: string;
+    },
+    fetchInit?: Pick<RequestInit, "signal">,
+) {
+    return apiFetch<{ data: CoreReviewSettlementDuplicateWarning[]; meta?: { warningOnly?: boolean } }>(
+        "/core-review/settlements/duplicate-warnings",
+        { method: "GET", ...fetchInit },
+        params as Record<string, QueryValue>,
     );
 }
 

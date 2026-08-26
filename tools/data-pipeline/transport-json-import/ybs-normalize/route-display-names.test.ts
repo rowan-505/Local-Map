@@ -142,7 +142,7 @@ describe("actionBelongsToRoute scoping", () => {
     });
 
     it("builds variant codes with hyphenated route codes", () => {
-        assert.equal(buildVariantCode("YBS-7-A", "inbound"), "YBS-7-A-INBOUND");
-        assert.equal(buildVariantCode("YBS-7-A", "outbound"), "YBS-7-A-OUTBOUND");
+        assert.equal(buildVariantCode("YBS-7-A", "inbound"), "YBS-7-A-D1");
+        assert.equal(buildVariantCode("YBS-7-A", "outbound"), "YBS-7-A-D0");
     });
 });

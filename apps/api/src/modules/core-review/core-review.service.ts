@@ -27,6 +27,13 @@ import {
 import { CoreReviewAddressesRepository } from "./entities/addresses.repo.js";
 import { CoreReviewAddressesWriteService } from "./entities/addresses-write.service.js";
 import {
+    getCoreReviewSettlementDetail,
+    listCoreReviewSettlements,
+    listSettlementDuplicateWarnings,
+} from "./entities/settlements.handler.js";
+import { CoreReviewSettlementsRepository } from "./entities/settlements.repo.js";
+import type { SettlementDuplicateWarningParams } from "./entities/settlements.repo.js";
+import {
     CoreReviewEntitiesRepository,
     type CoreReviewEntityListParams,
 } from "./core-review-entities.repo.js";
@@ -83,6 +90,7 @@ function filterEcho(query: CoreReviewListQueryParsed): Record<string, unknown> {
         landAreaClassId: query.landAreaClassId,
         detailLevel: query.detailLevel,
         cropCode: query.cropCode,
+        settlementType: query.settlementType,
         boundaryStatus: query.boundaryStatus,
         addressUsage: query.addressUsage,
         isOfficialBoundary: query.isOfficialBoundary,
@@ -125,6 +133,7 @@ export class CoreReviewService {
     private readonly landAreasRepo: CoreReviewLandAreasRepository;
     private readonly addressesRepo: CoreReviewAddressesRepository;
     private readonly addressesWriteService: CoreReviewAddressesWriteService;
+    private readonly settlementsRepo: CoreReviewSettlementsRepository;
 
     constructor(prisma: PrismaClient) {
         const entityAdminAreaRepo = new EntityAdminAreaRepository(prisma);
@@ -145,6 +154,7 @@ export class CoreReviewService {
         this.landAreasRepo = new CoreReviewLandAreasRepository(prisma);
         this.addressesRepo = new CoreReviewAddressesRepository(prisma);
         this.addressesWriteService = new CoreReviewAddressesWriteService(prisma);
+        this.settlementsRepo = new CoreReviewSettlementsRepository(prisma);
     }
 
     softDelete(entityPath: string, id: string, user?: JwtUser) {
@@ -191,6 +201,8 @@ export class CoreReviewService {
                 return listCoreReviewBuildings(this.buildingsRepo, def, query);
             case "places":
                 return listCoreReviewPlaces(this.placesRepo, def, query);
+            case "settlements":
+                return listCoreReviewSettlements(this.settlementsRepo, def, query);
             case "streets":
                 return listCoreReviewStreets(this.streetsRepo, def, query);
             case "land-areas":
@@ -252,6 +264,8 @@ export class CoreReviewService {
                 return getCoreReviewBuildingDetail(this.buildingsRepo, id);
             case "places":
                 return getCoreReviewPlaceDetail(this.placesRepo, id);
+            case "settlements":
+                return getCoreReviewSettlementDetail(this.settlementsRepo, id);
             case "streets":
                 return getCoreReviewStreetDetail(this.streetsRepo, id);
             case "land-areas":
@@ -273,6 +287,14 @@ export class CoreReviewService {
             default:
                 return null;
         }
+    }
+
+    duplicateWarnings(entityPath: string, params: SettlementDuplicateWarningParams) {
+        const def = getCoreReviewEntityByPath(entityPath);
+        if (!def || def.slug !== "settlements") {
+            return Promise.resolve(null);
+        }
+        return listSettlementDuplicateWarnings(this.settlementsRepo, params);
     }
 
     async create(

@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { buildRouteReviewChecklist } from "./TransportRouteDetailCards.js";
+import {
+    buildRouteReviewChecklist,
+    transportVariantFirstStopLabel,
+} from "./TransportRouteDetailCards.js";
 import type { TransportRouteDetail, TransportVariantSummary } from "./types.js";
 
 function makeRoute(overrides: Partial<TransportRouteDetail> = {}): TransportRouteDetail {
@@ -84,6 +87,7 @@ const variant: TransportVariantSummary = {
     headsign: "Mandalay",
     origin_name: "Yangon",
     destination_name: "Mandalay",
+    first_stop_name: "Yangon Central",
     stop_count: 38,
     path_count: 0,
     path_status: "none",
@@ -93,6 +97,20 @@ const variant: TransportVariantSummary = {
     confidence_score: 80,
     is_active: true,
 };
+
+describe("transportVariantFirstStopLabel", () => {
+    it("shows the physical variant's first ordered stop instead of stale endpoint metadata", () => {
+        assert.equal(
+            transportVariantFirstStopLabel({
+                ...variant,
+                headsign: "Old headsign",
+                destination_name: "Old destination",
+                first_stop_name: "Actual first stop",
+            }),
+            "Actual first stop",
+        );
+    });
+});
 
 describe("buildRouteReviewChecklist", () => {
     it("returns six compact checklist items in the requested order", () => {

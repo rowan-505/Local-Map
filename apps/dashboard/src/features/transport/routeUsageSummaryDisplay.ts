@@ -1,4 +1,5 @@
 import type { TransportStopRouteUsageDetailItem, TransportStopRouteUsageSummary } from "./types";
+import { canonicalYbsVariantCode, ybsDirectionLabel } from "./variantDirection";
 
 export const ROUTE_USAGE_LOAD_ERROR = "Could not load route usage.";
 
@@ -13,10 +14,10 @@ export function formatRouteUsageDirectionBreakdown(
 ): string | null {
     const parts: string[] = [];
     if (summary.inboundCount > 0) {
-        parts.push(`${summary.inboundCount} inbound`);
+        parts.push(`${summary.inboundCount} direction ID 1`);
     }
     if (summary.outboundCount > 0) {
-        parts.push(`${summary.outboundCount} outbound`);
+        parts.push(`${summary.outboundCount} direction ID 0`);
     }
     if (summary.clockwiseCount > 0) {
         parts.push(`${summary.clockwiseCount} clockwise`);
@@ -27,11 +28,14 @@ export function formatRouteUsageDirectionBreakdown(
     return parts.length > 0 ? parts.join(" · ") : null;
 }
 
-/** Compact inbound/outbound line for candidate detail cards. */
+/** Compact machine-direction line for candidate detail cards. */
 export function formatCompactDirectionUsageSummary(
     summary: TransportStopRouteUsageSummary,
 ): string {
-    const parts = [`Inbound ${summary.inboundCount}`, `Outbound ${summary.outboundCount}`];
+    const parts = [
+        `Direction ID 1 ${summary.inboundCount}`,
+        `Direction ID 0 ${summary.outboundCount}`,
+    ];
     if (summary.clockwiseCount > 0 || summary.anticlockwiseCount > 0) {
         parts.push(`Clockwise ${summary.clockwiseCount}`, `Anticlockwise ${summary.anticlockwiseCount}`);
     }
@@ -46,16 +50,17 @@ export function formatCompactRouteUsageList(
         return null;
     }
     const parts = items.slice(0, maxItems).map((item) => {
-        const direction =
-            item.directionName?.trim() ||
-            (item.directionId === 0
-                ? "Outbound"
-                : item.directionId === 1
-                  ? "Inbound"
-                  : null);
+        const canonicalYbs = item.routeCode.startsWith("YBS-");
+        const direction = canonicalYbs
+            ? ybsDirectionLabel(item.directionId)
+            : item.directionName?.trim() ||
+              (item.directionId === null ? null : `Direction ${item.directionId}`);
+        const variantCode = canonicalYbs
+            ? (canonicalYbsVariantCode(item.routeCode, item.directionId) ?? item.variantCode)
+            : item.variantCode;
         return direction
-            ? `${item.routeCode} · ${item.variantCode} (${direction})`
-            : `${item.routeCode} · ${item.variantCode}`;
+            ? `${item.routeCode} · ${variantCode} (${direction})`
+            : `${item.routeCode} · ${variantCode}`;
     });
     if (items.length > maxItems) {
         parts.push(`+${items.length - maxItems} more`);

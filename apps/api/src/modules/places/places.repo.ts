@@ -489,6 +489,8 @@ export class PlacesRepository {
         const category = await this.prisma.refPoiCategory.findFirst({
             where: {
                 id: categoryId,
+                isPublic: true,
+                isSearchable: true,
             },
             select: {
                 id: true,

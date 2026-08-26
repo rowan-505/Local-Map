@@ -299,22 +299,8 @@ function hasLanguage(names: RouteNameRow[], languageCode: string): boolean {
 }
 
 function variantDirectionKey(variant: VariantRow): "outbound" | "inbound" | null {
-    const code = variant.variant_code.toLowerCase();
-    if (code.includes("outbound") || code.endsWith("-a")) {
-        return "outbound";
-    }
-    if (code.includes("inbound") || code.endsWith("-b")) {
-        return "inbound";
-    }
-
-    const direction = (variant.direction_name ?? "").trim().toLowerCase();
-    if (direction === "outbound" || direction === "out") {
-        return "outbound";
-    }
-    if (direction === "inbound" || direction === "in") {
-        return "inbound";
-    }
-
+    // These return values match source artifact keys. Database identity comes
+    // only from direction_id; abnormal rows remain unknown and fail validation.
     if (variant.direction_id === 0) {
         return "outbound";
     }
@@ -362,19 +348,34 @@ export function loadExtractionRouteStopExpectations(
     }
 
     const geometry = JSON.parse(fs.readFileSync(geometryPath, "utf8")) as {
+        prepared_variants?: Array<{
+            variant_code: string;
+            direction_key: string;
+        }>;
         route_stops: Array<{
             route_code: string;
             variant_code: string;
             sequence: number;
         }>;
     };
+    const directionByVariantCode = new Map(
+        (geometry.prepared_variants ?? []).map((variant) => [
+            variant.variant_code,
+            variant.direction_key,
+        ]),
+    );
 
     const byVariant = new Map<string, ExtractionRouteStopExpectation>();
     for (const row of geometry.route_stops) {
         if (row.route_code !== routeCode) {
             continue;
         }
-        const directionKey = row.variant_code.endsWith("-INBOUND") ? "inbound" : "outbound";
+        const directionKey = directionByVariantCode.get(row.variant_code);
+        if (directionKey !== "inbound" && directionKey !== "outbound") {
+            throw new Error(
+                `Geometry artifact is missing source direction metadata for ${row.variant_code}.`,
+            );
+        }
         const bucket =
             byVariant.get(row.variant_code) ??
             ({
@@ -710,6 +711,7 @@ async function loadRouteStopDisplayMetrics(
             select
                 rs.id,
                 rv.variant_code,
+                rv.direction_id,
                 (rs.review_geom is not null and not st_isempty(rs.review_geom)) as has_review_geom,
                 rs.review_geom,
                 coalesce(rs.review_geom, s.geom) as display_geom,
@@ -725,8 +727,8 @@ async function loadRouteStopDisplayMetrics(
         )
         select
             count(*)::text as route_stop_count,
-            count(*) filter (where variant_code ilike '%inbound%')::text as inbound_route_stop_count,
-            count(*) filter (where variant_code ilike '%outbound%')::text as outbound_route_stop_count,
+            count(*) filter (where direction_id = 1)::text as inbound_route_stop_count,
+            count(*) filter (where direction_id = 0)::text as outbound_route_stop_count,
             count(*) filter (where has_review_geom)::text as with_review_geom_count,
             count(*) filter (where display_geom is not null and not st_isempty(display_geom))::text as with_display_geom_count,
             count(*) filter (where display_geom is null or st_isempty(display_geom))::text as missing_display_geom_count,
@@ -2291,7 +2293,15 @@ async function loadCrossRouteStopUsage(
         SELECT
             rs.stop_id::text,
             r.route_code,
-            lower(split_part(rv.variant_code, '-', array_length(string_to_array(rv.variant_code, '-'), 1))) AS direction_key,
+            CASE rv.direction_id
+                WHEN 0 THEN 'd0'
+                WHEN 1 THEN 'd1'
+                ELSE lower(split_part(
+                    rv.variant_code,
+                    '-',
+                    array_length(string_to_array(rv.variant_code, '-'), 1)
+                ))
+            END AS direction_key,
             rs.stop_sequence,
             s.name_mm,
             s.name_en,

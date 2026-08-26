@@ -20,6 +20,7 @@ import {
     getTransportVariantStops,
     getTransportVariantStopQuality,
     generateTransportVariantPathFromStops,
+    insertExistingRouteStop,
     putTransportVariantPath,
     removeTransportRouteStop,
     replaceTransportRouteStop,
@@ -37,7 +38,10 @@ import InsertRouteStopDialog, {
 } from "./InsertRouteStopDialog";
 import RemoveRouteStopDialog from "./RemoveRouteStopDialog";
 import SwapRouteDirectionDialog from "./SwapRouteDirectionDialog";
-import { getRouteDirectionSwapPair } from "./routeDirectionSwap";
+import {
+    getRouteDirectionSwapPair,
+    resolveVariantIdAfterDirectionSwap,
+} from "./routeDirectionSwap";
 import ReviewMapCandidateCompareDialog from "./ReviewMapCandidateCompareDialog";
 import { candidateDisplayName } from "./reviewMapCandidateDisplay";
 import { useReviewMapNearbyCandidates } from "./useReviewMapNearbyCandidates";
@@ -49,6 +53,11 @@ import {
     buildInsertAfterContext,
     buildInsertAtStartContext,
 } from "./routeStopInsertContext";
+import {
+    buildCandidateRouteStopInsertBody,
+    findInsertedCandidateRouteStopId,
+    type CandidateRouteStopInsertPosition,
+} from "./candidateRouteStopInsert";
 import {
     buildRouteStopMutationUpdate,
     isValidOrderedStopsMutationResponse,
@@ -100,6 +109,12 @@ import {
 import { isReviewMapPathEditMode, type ReviewMapMode } from "./reviewMapMode";
 import { hasSavedRoutePathGeometry } from "./routePathDisplay";
 import { TransportRouteEditForm, TransportVariantForm } from "./transportEditForms";
+import {
+    canonicalYbsVariantCode,
+    isCanonicalYbsRoute,
+    variantDirectionLabel,
+    variantHumanRoute,
+} from "./variantDirection";
 import { DuplicateBadge, GeometryBadge } from "./transportReviewUi";
 import type {
     DuplicateStatus,
@@ -1018,6 +1033,15 @@ export default function TransportRouteDetailContent({
     );
 
     const selectedVariant = variants.find((v) => v.public_id === selectedVariantId) ?? null;
+    const canonicalYbs = isCanonicalYbsRoute(route?.mode, route?.route_code);
+    const selectedVariantDisplayCode = selectedVariant
+        ? canonicalYbs
+            ? (canonicalYbsVariantCode(
+                  route?.route_code ?? "",
+                  selectedVariant.direction_id,
+              ) ?? selectedVariant.variant_code)
+            : selectedVariant.variant_code
+        : "";
     const directionSwapPair = useMemo(() => getRouteDirectionSwapPair(variants), [variants]);
     const pathIsVerified = path?.review_status === "verified";
     const pathIsReviewPlaceholder = Boolean(
@@ -1512,19 +1536,19 @@ export default function TransportRouteDetailContent({
             setSwapDirectionBusy(true);
             setSwapDirectionError("");
             try {
+                const selectedDirectionId = variants.find(
+                    (variant) => variant.public_id === selectedVariantId,
+                )?.direction_id;
                 const result = await swapTransportRouteDirection(publicId);
                 setVariants(result.variants);
                 setSwapDirectionOpen(false);
                 setEditingVariant(false);
                 setVariantActionError("");
-                const keepId =
-                    selectedVariantId &&
-                    result.variants.some((variant) => variant.public_id === selectedVariantId)
-                        ? selectedVariantId
-                        : (result.variants[0]?.public_id ?? null);
-                if (keepId) {
-                    setSelectedVariantId(keepId);
-                }
+                const nextSelectedVariantId = resolveVariantIdAfterDirectionSwap(
+                    result.variants,
+                    selectedDirectionId,
+                );
+                setSelectedVariantId(nextSelectedVariantId);
                 afterSave?.();
             } catch (err) {
                 if (isAbortError(err)) return;
@@ -1535,7 +1559,7 @@ export default function TransportRouteDetailContent({
                 setSwapDirectionBusy(false);
             }
         })();
-    }, [publicId, selectedVariantId, afterSave]);
+    }, [publicId, variants, selectedVariantId, afterSave]);
 
     // --- Route path drawing handlers. ----------------------------------------
     const startCreatePath = useCallback(() => {
@@ -1911,6 +1935,62 @@ export default function TransportRouteDetailContent({
         [],
     );
 
+    const handleReviewMapCandidateInsert = useCallback(
+        (
+            candidate: TransportNearbyStopCandidate,
+            position: CandidateRouteStopInsertPosition,
+        ) => {
+            if (!canWrite || !selectedVariantId || !selectedRouteStop || stopMutating) {
+                return;
+            }
+            const previousStops = stops;
+            const body = buildCandidateRouteStopInsertBody(
+                candidate.publicId,
+                selectedRouteStop.id,
+                position,
+            );
+            void (async () => {
+                setStopMutating(true);
+                setStopActionError("");
+                try {
+                    const result = await insertExistingRouteStop(selectedVariantId, body);
+                    const insertedRouteStopId = findInsertedCandidateRouteStopId(
+                        result,
+                        previousStops,
+                        candidate.publicId,
+                    );
+                    applyMutationResult(result, {
+                        selectRouteStopId: insertedRouteStopId,
+                    });
+                    setSelectedNearbyCandidateId(null);
+                    showReviewMapToast(
+                        "success",
+                        `Stop added ${position} #${selectedRouteStop.stop_sequence}`,
+                    );
+                } catch (err) {
+                    if (isAbortError(err)) {
+                        return;
+                    }
+                    const message = formatReviewMapStopActionError(err);
+                    setStopActionError(message);
+                    showReviewMapToast("error", message);
+                } finally {
+                    setStopMutating(false);
+                }
+            })();
+        },
+        [
+            applyMutationResult,
+            canWrite,
+            selectedRouteStop,
+            selectedVariantId,
+            setSelectedNearbyCandidateId,
+            showReviewMapToast,
+            stopMutating,
+            stops,
+        ],
+    );
+
     const refreshReviewMapAfterGlobalMerge = useCallback(
         (survivingStopPublicId: string) => {
             // Background only — overlay/dialog already settled after API commit.
@@ -2150,6 +2230,8 @@ export default function TransportRouteDetailContent({
                     />
                     <RouteVariantsCard
                         variants={variants}
+                        routeCode={route?.route_code ?? ""}
+                        routeMode={route?.mode ?? ""}
                         routeLoading={routeLoading}
                         addingVariant={addingVariant}
                         onOpenReviewMap={openReviewMapForVariant}
@@ -2166,6 +2248,8 @@ export default function TransportRouteDetailContent({
                         addVariantSlot={
                             <TransportVariantForm
                                 routePublicId={publicId}
+                                routeCode={route?.route_code}
+                                routeMode={route?.mode}
                                 onCancel={() => setAddingVariant(false)}
                                 onSaved={handleVariantCreated}
                             />
@@ -2282,7 +2366,7 @@ export default function TransportRouteDetailContent({
                         {selectedVariant ? (
                             <AdvancedToolSection
                                 accent="amber"
-                                title={`Variant maintenance · ${selectedVariant.variant_code}`}
+                                title={`Variant maintenance · ${selectedVariantDisplayCode}`}
                             >
                                 {!editingVariant ? (
                                     <div className="mb-3 flex flex-wrap justify-end gap-2">
@@ -2320,7 +2404,7 @@ export default function TransportRouteDetailContent({
                                         <p className="text-sm text-red-800">
                                             Soft-delete variant{" "}
                                             <span className="font-medium">
-                                                {selectedVariant.variant_code}
+                                                {selectedVariantDisplayCode}
                                             </span>
                                             ? It is hidden and marked inactive; ordered stops and
                                             paths are kept.
@@ -2346,6 +2430,8 @@ export default function TransportRouteDetailContent({
                                     <TransportVariantForm
                                         key={selectedVariant.public_id}
                                         variant={selectedVariant}
+                                        routeCode={route?.route_code}
+                                        routeMode={route?.mode}
                                         lockDirection={directionSwapPair !== null}
                                         onCancel={() => setEditingVariant(false)}
                                         onSaved={handleVariantSaved}
@@ -2354,11 +2440,35 @@ export default function TransportRouteDetailContent({
                                     <div className="divide-y divide-gray-100 text-sm">
                                         <InfoRow
                                             label="Direction"
-                                            value={selectedVariant.direction_name ?? "—"}
+                                            value={variantDirectionLabel(selectedVariant, canonicalYbs)}
+                                        />
+                                        {canonicalYbs ? (
+                                            <InfoRow
+                                                label="Route"
+                                                value={variantHumanRoute(selectedVariant)}
+                                            />
+                                        ) : null}
+                                        <InfoRow
+                                            label="Variant code"
+                                            value={
+                                                selectedVariantDisplayCode || "—"
+                                            }
                                         />
                                         <InfoRow
                                             label="Headsign"
                                             value={selectedVariant.headsign ?? "—"}
+                                        />
+                                        <InfoRow
+                                            label="Distance"
+                                            value={formatDistance(selectedVariant.distance_m)}
+                                        />
+                                        <InfoRow
+                                            label="Estimated duration"
+                                            value={
+                                                selectedVariant.estimated_duration_min === null
+                                                    ? "—"
+                                                    : `${selectedVariant.estimated_duration_min} min`
+                                            }
                                         />
                                         <InfoRow
                                             label="Confidence"
@@ -2415,6 +2525,7 @@ export default function TransportRouteDetailContent({
                         : undefined
                 }
                 onCandidateCheckRoutes={handleReviewMapCandidateCheckRoutes}
+                onCandidateInsert={handleReviewMapCandidateInsert}
                 onCandidateKeepCurrent={handleReviewMapCandidateKeepCurrent}
                 onCandidateKeepCandidate={handleReviewMapCandidateKeepCandidate}
                 onCandidateCompareMerge={handleReviewMapCandidateCompareMerge}
@@ -2529,6 +2640,7 @@ export default function TransportRouteDetailContent({
                 open={swapDirectionOpen}
                 pair={directionSwapPair}
                 routeCode={route?.route_code ?? ""}
+                routeMode={route?.mode ?? ""}
                 isBusy={swapDirectionBusy}
                 error={swapDirectionError}
                 onConfirm={confirmSwapRouteDirection}

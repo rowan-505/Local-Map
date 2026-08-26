@@ -270,14 +270,13 @@ export function TransportRouteEditForm({
 // ─── Variant create / edit form ──────────────────────────────────────────────
 
 /**
- * Generic variant direction. direction_id is the GTFS-style code (0 outbound,
- * 1 inbound, 2 loop/branch, null unknown); direction_name carries the human
- * label so loop vs branch (both id 2) stay distinguishable. Labels are mode-
- * neutral so the same form works for bus / train / ferry.
+ * Generic variant direction. direction_id is the machine identity;
+ * direction_name carries the display label. YBS uses neutral D0/D1 labels while
+ * other modes retain their existing semantics.
  */
 const VARIANT_DIRECTION_OPTIONS = [
-    { value: "outbound", label: "Outbound", directionId: 0, directionName: "outbound" },
-    { value: "inbound", label: "Inbound", directionId: 1, directionName: "inbound" },
+    { value: "direction0", label: "Outbound", directionId: 0, directionName: "outbound" },
+    { value: "direction1", label: "Inbound", directionId: 1, directionName: "inbound" },
     { value: "loop", label: "Loop", directionId: 2, directionName: "loop" },
     { value: "branch", label: "Branch", directionId: 2, directionName: "branch" },
     { value: "unknown", label: "Unknown", directionId: null, directionName: null },
@@ -287,8 +286,8 @@ type DirectionKey = (typeof VARIANT_DIRECTION_OPTIONS)[number]["value"];
 
 /** Derive the select value from a variant's stored direction_id / direction_name. */
 function directionKeyOf(variant: TransportVariantSummary): DirectionKey {
-    if (variant.direction_id === 0) return "outbound";
-    if (variant.direction_id === 1) return "inbound";
+    if (variant.direction_id === 0) return "direction0";
+    if (variant.direction_id === 1) return "direction1";
     if (variant.direction_id === 2) {
         return (variant.direction_name ?? "").toLowerCase().includes("branch")
             ? "branch"
@@ -318,6 +317,8 @@ function nullableTrim(value: string): string | null {
  */
 export function TransportVariantForm({
     routePublicId,
+    routeCode,
+    routeMode,
     variant,
     lockDirection = false,
     onCancel,
@@ -325,18 +326,22 @@ export function TransportVariantForm({
 }: {
     /** Required for create; ignored for edit. */
     readonly routePublicId?: string;
+    readonly routeCode?: string;
+    readonly routeMode?: string;
     /** Provided for edit; omitted for create. */
     readonly variant?: TransportVariantSummary;
-    /** When true, direction cannot be edited (use route Change direction action). */
+    /** When true, direction cannot be edited (use the route swap action). */
     readonly lockDirection?: boolean;
     readonly onCancel: () => void;
     readonly onSaved: (variant: TransportVariantSummary) => void;
 }) {
     const isEdit = variant !== undefined;
+    const neutralBusDirections = routeMode === "bus";
+    const canonicalYbs = routeMode === "bus" && routeCode?.startsWith("YBS-") === true;
 
     const [variantCode, setVariantCode] = useState(variant?.variant_code ?? "");
     const [direction, setDirection] = useState<DirectionKey>(
-        variant ? directionKeyOf(variant) : "outbound"
+        variant ? directionKeyOf(variant) : "direction0"
     );
     const [headsign, setHeadsign] = useState(variant?.headsign ?? "");
     const [originName, setOriginName] = useState(variant?.origin_name ?? "");
@@ -356,7 +361,13 @@ export function TransportVariantForm({
         e.preventDefault();
         setError("");
 
-        if (!variantCode.trim()) {
+        const selectedDirection = DIRECTION_BY_KEY[direction];
+        const directionId = selectedDirection.directionId;
+        const canonicalVariantCode =
+            canonicalYbs && (directionId === 0 || directionId === 1)
+                ? `${routeCode}-D${directionId}`
+                : variantCode.trim();
+        if (!canonicalVariantCode) {
             setError("Variant code is required.");
             return;
         }
@@ -369,15 +380,21 @@ export function TransportVariantForm({
             setError("Confidence score must be between 0 and 100.");
             return;
         }
-        const dir = DIRECTION_BY_KEY[direction];
+        const dir = canonicalYbs
+            ? {
+                  ...selectedDirection,
+                  label: directionId === 0 ? "D0" : "D1",
+                  directionName: directionId === 0 ? "D0" : "D1",
+              }
+            : selectedDirection;
 
         setSaving(true);
         try {
             if (isEdit && variant) {
                 // Edit: send only changed fields.
                 const body: UpdateTransportVariantBody = {};
-                if (variantCode.trim() !== variant.variant_code)
-                    body.variant_code = variantCode.trim();
+                if (canonicalVariantCode !== variant.variant_code)
+                    body.variant_code = canonicalVariantCode;
                 if (!lockDirection) {
                     if (dir.directionId !== variant.direction_id)
                         body.direction_id = dir.directionId;
@@ -410,7 +427,7 @@ export function TransportVariantForm({
                     return;
                 }
                 const body: CreateTransportVariantBody = {
-                    variant_code: variantCode.trim(),
+                    variant_code: canonicalVariantCode,
                     direction_id: dir.directionId,
                     direction_name: dir.directionName,
                     headsign: nullableTrim(headsign),
@@ -440,14 +457,24 @@ export function TransportVariantForm({
                 <Field label="Variant code">
                     <input
                         className={INPUT_CLASS}
-                        value={variantCode}
+                        value={
+                            canonicalYbs && (DIRECTION_BY_KEY[direction].directionId === 0 ||
+                                DIRECTION_BY_KEY[direction].directionId === 1)
+                                ? `${routeCode}-D${DIRECTION_BY_KEY[direction].directionId}`
+                                : variantCode
+                        }
                         onChange={(e) => setVariantCode(e.target.value)}
+                        readOnly={canonicalYbs}
                     />
                 </Field>
                 <Field label="Direction">
                     {lockDirection && isEdit ? (
                         <p className="rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1.5 text-sm text-gray-700">
-                            {DIRECTION_BY_KEY[direction].label} — use Change direction on the route
+                            {canonicalYbs
+                                ? `D${DIRECTION_BY_KEY[direction].directionId} — fixed for this variant`
+                                : neutralBusDirections
+                                  ? `Direction ${DIRECTION_BY_KEY[direction].directionId} — fixed for this variant`
+                                  : `${DIRECTION_BY_KEY[direction].label} — use the route direction assignment action`}
                         </p>
                     ) : (
                         <select
@@ -455,9 +482,18 @@ export function TransportVariantForm({
                             value={direction}
                             onChange={(e) => setDirection(e.target.value as DirectionKey)}
                         >
-                            {VARIANT_DIRECTION_OPTIONS.map((o) => (
+                            {VARIANT_DIRECTION_OPTIONS.filter(
+                                (option) =>
+                                    !canonicalYbs ||
+                                    option.directionId === 0 ||
+                                    option.directionId === 1
+                            ).map((o) => (
                                 <option key={o.value} value={o.value}>
-                                    {o.label}
+                                    {canonicalYbs
+                                        ? `D${o.directionId}`
+                                        : neutralBusDirections && o.directionId !== null
+                                          ? `Direction ${o.directionId}`
+                                          : o.label}
                                 </option>
                             ))}
                         </select>
