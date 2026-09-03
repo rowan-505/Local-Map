@@ -12,7 +12,7 @@ npm run dev
 
 Default listen address: `http://0.0.0.0:3001` (override with `PORT`).
 
-Environment files load in order: repo root `.env`, then `apps/api/.env` (api wins on duplicate keys). See [`env.example`](./env.example) for documented variables.
+Environment files load in order: repo root `.env`, then `apps/api/.env` (api wins on duplicate keys). See [`.env.example`](./.env.example) for the local variable list.
 
 ### Routing / Valhalla (local)
 

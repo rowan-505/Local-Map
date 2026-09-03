@@ -6,6 +6,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 LOCAL_OSM="${REPO_ROOT}/tools/data-pipeline/local-osm"
+PIPELINE_ENV="${REPO_ROOT}/tools/data-pipeline/prod-mirror/00_env.sh"
+ROOT_ENV="${REPO_ROOT}/.env"
 
 SNAPSHOT_VERSION="${SNAPSHOT_VERSION:-osm_myanmar_2026_08_11_national_land_coastline_dry_run_v1}"
 REGION_CODE="${REGION_CODE:-mm-core-land-areas-v1}"
@@ -13,7 +15,26 @@ STAGING_SCHEMA="${STAGING_SCHEMA:-staging}"
 ART_ROOT="${SCRIPT_DIR}/artifacts/land_coastline_national_2026_08_13"
 PKG="${ART_ROOT}/prepare_package"
 
-LOCAL_DATABASE_URL="${LOCAL_DATABASE_URL:-postgresql://postgres:GeoCore6505@localhost:5433/geo_core}"
+load_env_file() {
+  local file="$1"
+  [[ -r "${file}" ]] || return 1
+  set -a
+  # shellcheck disable=SC1090
+  source "${file}"
+  set +a
+}
+
+if [[ -z "${LOCAL_DATABASE_URL:-}" ]]; then
+  load_env_file "${PIPELINE_ENV}" || true
+fi
+if [[ -z "${LOCAL_DATABASE_URL:-}" ]]; then
+  load_env_file "${ROOT_ENV}" || true
+fi
+if [[ -z "${LOCAL_DATABASE_URL:-}" ]]; then
+  echo "error: LOCAL_DATABASE_URL is required." >&2
+  echo "Set it in tools/data-pipeline/prod-mirror/00_env.sh (copy 00_env.example.sh) or in the repo-root .env." >&2
+  exit 1
+fi
 
 mkdir -p "${PKG}"
 

@@ -9,9 +9,9 @@
 ## Env
 
 1. Copy root `.env.example` → `.env` (never commit secrets).
-2. Copy `apps/api/env.example` → `apps/api/.env`.
-3. Web: `VITE_API_BASE_URL=http://localhost:3001`.
-4. Dashboard: `NEXT_PUBLIC_API_BASE_URL=http://localhost:3001`.
+2. Copy `apps/api/.env.example` → `apps/api/.env`.
+3. Copy `apps/web/.env.example` → `apps/web/.env.local`.
+4. Copy `apps/dashboard/.env.example` → `apps/dashboard/.env.local`.
 
 ## Run (3 terminals)
 

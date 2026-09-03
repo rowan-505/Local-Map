@@ -21,7 +21,7 @@ Web-first Myanmar map platform. PostGIS is the source of truth. The Fastify API 
 
 See [docs/getting-started.md](docs/getting-started.md).
 
-Short version: copy [`.env.example`](.env.example) to `.env`, copy `apps/api/env.example` to `apps/api/.env`, then run API (`3001`), web (`5173`), and dashboard (`3000`).
+Short version: copy [`.env.example`](.env.example) to `.env`, copy `apps/api/.env.example` to `apps/api/.env`, copy `apps/web/.env.example` to `apps/web/.env.local`, copy `apps/dashboard/.env.example` to `apps/dashboard/.env.local`, then run API (`3001`), web (`5173`), and dashboard (`3000`).
 
 ## Docs
 
