@@ -16,14 +16,14 @@ import {
 
 test("dashboard role capabilities keep viewer read-only", () => {
     assert.equal(hasDashboardAccess(["user"]), false);
+    assert.equal(hasDashboardAccess(["surveyor"]), false);
     assert.equal(hasDashboardAccess(["viewer"]), true);
-    assert.equal(hasDashboardAccess(["editor"]), true);
     assert.equal(hasDashboardAccess(["admin"]), true);
     assert.equal(hasDashboardAccess(["super_admin"]), true);
 
     assert.equal(canDashboardWrite(["user"]), false);
+    assert.equal(canDashboardWrite(["surveyor"]), false);
     assert.equal(canDashboardWrite(["viewer"]), false);
-    assert.equal(canDashboardWrite(["editor"]), true);
     assert.equal(canDashboardWrite(["admin"]), true);
     assert.equal(canDashboardWrite(["super_admin"]), true);
 });
@@ -64,6 +64,24 @@ test("normal user gets FORBIDDEN for dashboard reads", async () => {
     assert.deepEqual(captured.body, {
         code: "FORBIDDEN",
         message: "Dashboard access requires a dashboard role.",
+    });
+});
+
+test("surveyor cannot read or write dashboard or canonical transport APIs", async () => {
+    const read = captureReply();
+    await requireDashboardAccess(requestWithRoles(["surveyor"]), read.reply);
+    assert.equal(read.captured.statusCode, 403);
+    assert.deepEqual(read.captured.body, {
+        code: "FORBIDDEN",
+        message: "Dashboard access requires a dashboard role.",
+    });
+
+    const write = captureReply();
+    await requireDashboardWrite(requestWithRoles(["surveyor"]), write.reply);
+    assert.equal(write.captured.statusCode, 403);
+    assert.deepEqual(write.captured.body, {
+        code: "FORBIDDEN",
+        message: "Dashboard write access requires an administrator role.",
     });
 });
 

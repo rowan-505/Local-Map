@@ -21,6 +21,27 @@ const envBoolean = (defaultValue: boolean) =>
         })
     ).transform((value) => value === "true");
 
+const optionalTrimmedString = z.preprocess((value) => {
+    if (value === undefined || value === null) {
+        return undefined;
+    }
+    if (typeof value !== "string") {
+        return value;
+    }
+    const trimmed = value.trim();
+    return trimmed.length === 0 ? undefined : trimmed;
+}, z.string().min(1).optional());
+
+const R2_REQUIRED_KEYS = [
+    "R2_ACCOUNT_ID",
+    "R2_ACCESS_KEY_ID",
+    "R2_SECRET_ACCESS_KEY",
+    "R2_ENDPOINT",
+    "R2_MEDIA_PRIVATE_BUCKET",
+    "R2_MEDIA_PUBLIC_BUCKET",
+    "R2_MEDIA_PUBLIC_BASE_URL",
+] as const;
+
 function parseCsvList(raw: string): string[] {
     return raw
         .split(",")
@@ -51,6 +72,30 @@ const apiEnvSchema = z
         // routes use fixed sensible multiples of these (see authRateLimit below).
         AUTH_RATE_LIMIT_MAX: z.coerce.number().int().min(1).max(10_000).default(10),
         AUTH_RATE_LIMIT_WINDOW: z.coerce.number().int().min(1_000).max(3_600_000).default(60_000),
+        // R2 media. Optional as a group so unit tests and apps without media still start.
+        // If any R2_* value is set, the full set is required. Secrets stay in backend env only.
+        R2_ACCOUNT_ID: optionalTrimmedString,
+        R2_ACCESS_KEY_ID: optionalTrimmedString,
+        R2_SECRET_ACCESS_KEY: optionalTrimmedString,
+        R2_ENDPOINT: optionalTrimmedString,
+        R2_REGION: optionalTrimmedString,
+        R2_MEDIA_PRIVATE_BUCKET: optionalTrimmedString,
+        R2_MEDIA_PUBLIC_BUCKET: optionalTrimmedString,
+        R2_MEDIA_PUBLIC_BASE_URL: optionalTrimmedString,
+    })
+    .superRefine((raw, ctx) => {
+        const present = R2_REQUIRED_KEYS.filter((key) => Boolean(raw[key]));
+        if (present.length === 0) {
+            return;
+        }
+        const missing = R2_REQUIRED_KEYS.filter((key) => !raw[key]);
+        if (missing.length > 0) {
+            ctx.addIssue({
+                code: "custom",
+                message: `Incomplete R2 media configuration. Set all of ${R2_REQUIRED_KEYS.join(", ")}. Missing: ${missing.join(", ")}.`,
+                path: ["R2_ACCOUNT_ID"],
+            });
+        }
     })
     .transform((raw) => {
         const publicProfiles = parseCsvList(raw.ROUTING_PUBLIC_PROFILES);
@@ -108,6 +153,7 @@ const apiEnvSchema = z
                 sendOtp: 3,
                 refresh: 30,
             },
+            r2: parseR2MediaEnv(raw),
         };
     })
     .superRefine((config, ctx) => {
@@ -137,6 +183,58 @@ export type ApiEnv = z.infer<typeof apiEnvSchema>;
 export type RoutingEnvConfig = ApiEnv["routing"];
 export type EmailEnvConfig = ApiEnv["email"];
 export type AuthRateLimitConfig = ApiEnv["authRateLimit"];
+export type R2MediaEnvConfig = {
+    accountId: string;
+    accessKeyId: string;
+    secretAccessKey: string;
+    endpoint: string;
+    region: string;
+    privateBucket: string;
+    publicBucket: string;
+    publicBaseUrl: string;
+};
+
+type R2RawEnv = {
+    R2_ACCOUNT_ID?: string;
+    R2_ACCESS_KEY_ID?: string;
+    R2_SECRET_ACCESS_KEY?: string;
+    R2_ENDPOINT?: string;
+    R2_REGION?: string;
+    R2_MEDIA_PRIVATE_BUCKET?: string;
+    R2_MEDIA_PUBLIC_BUCKET?: string;
+    R2_MEDIA_PUBLIC_BASE_URL?: string;
+};
+
+function parseR2MediaEnv(raw: R2RawEnv): R2MediaEnvConfig | null {
+    const present = R2_REQUIRED_KEYS.filter((key) => Boolean(raw[key]));
+    if (present.length === 0) {
+        return null;
+    }
+    const missing = R2_REQUIRED_KEYS.filter((key) => !raw[key]);
+    if (missing.length > 0) {
+        return null;
+    }
+
+    const endpoint = raw.R2_ENDPOINT!.replace(/\/+$/, "");
+    const publicBaseUrl = raw.R2_MEDIA_PUBLIC_BASE_URL!.replace(/\/+$/, "");
+    try {
+        new URL(endpoint);
+        new URL(publicBaseUrl);
+    } catch {
+        throw new Error("R2_ENDPOINT and R2_MEDIA_PUBLIC_BASE_URL must be valid URLs.");
+    }
+
+    return {
+        accountId: raw.R2_ACCOUNT_ID!,
+        accessKeyId: raw.R2_ACCESS_KEY_ID!,
+        secretAccessKey: raw.R2_SECRET_ACCESS_KEY!,
+        endpoint,
+        region: raw.R2_REGION && raw.R2_REGION.length > 0 ? raw.R2_REGION : "auto",
+        privateBucket: raw.R2_MEDIA_PRIVATE_BUCKET!,
+        publicBucket: raw.R2_MEDIA_PUBLIC_BUCKET!,
+        publicBaseUrl,
+    };
+}
 
 let cachedEnv: ApiEnv | null = null;
 
@@ -190,6 +288,29 @@ export function getEmailEnv(): EmailEnvConfig {
 
 export function getAuthRateLimitEnv(): AuthRateLimitConfig {
     return getApiEnv().authRateLimit;
+}
+
+/** R2 media config, or null when the API is running without media storage. */
+export function getOptionalR2MediaEnv(): R2MediaEnvConfig | null {
+    return getApiEnv().r2;
+}
+
+/** R2 media config. Throws when media routes run without the full R2 group. */
+export function getR2MediaEnv(): R2MediaEnvConfig {
+    const r2 = getOptionalR2MediaEnv();
+    if (!r2) {
+        throw new MediaStorageNotConfiguredError();
+    }
+    return r2;
+}
+
+export class MediaStorageNotConfiguredError extends Error {
+    readonly statusCode = 503;
+
+    constructor() {
+        super("Media storage is not configured.");
+        this.name = "MediaStorageNotConfiguredError";
+    }
 }
 
 /**

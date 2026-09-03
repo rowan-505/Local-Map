@@ -2,11 +2,14 @@
 
 import { useEffect, useId, useRef } from "react";
 
+import { generatePathFromStopsCopy } from "./reviewMapPathGeneration";
+
 /**
- * Confirmation before generating a road-following path from ordered stops.
+ * Confirmation before generating or regenerating a road-following path from ordered stops.
  */
 export default function GeneratePathFromStopsDialog({
     open,
+    hasSavedPath = false,
     isBusy,
     error,
     warnings,
@@ -14,6 +17,7 @@ export default function GeneratePathFromStopsDialog({
     onCancel,
 }: {
     readonly open: boolean;
+    readonly hasSavedPath?: boolean;
     readonly isBusy?: boolean;
     readonly error?: string;
     readonly warnings?: readonly string[];
@@ -22,6 +26,7 @@ export default function GeneratePathFromStopsDialog({
 }) {
     const titleId = useId();
     const cancelRef = useRef<HTMLButtonElement>(null);
+    const copy = generatePathFromStopsCopy(hasSavedPath);
 
     useEffect(() => {
         if (!open) {
@@ -59,12 +64,9 @@ export default function GeneratePathFromStopsDialog({
                 onClick={(e) => e.stopPropagation()}
             >
                 <h2 id={titleId} className="text-base font-semibold text-gray-900">
-                    Generate path from stops
+                    {copy.dialogTitle}
                 </h2>
-                <p className="mt-3 text-sm text-gray-600">
-                    This will generate a road-following path from the current stop order and
-                    replace the current path for this variant.
-                </p>
+                <p className="mt-3 text-sm text-gray-600">{copy.dialogBody}</p>
 
                 {error ? (
                     <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
@@ -99,7 +101,7 @@ export default function GeneratePathFromStopsDialog({
                         disabled={isBusy}
                         className="rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
                     >
-                        {isBusy ? "Generating…" : "Generate path"}
+                        {isBusy ? copy.busyLabel : copy.confirmLabel}
                     </button>
                 </div>
             </div>

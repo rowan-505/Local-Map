@@ -2,7 +2,6 @@ import type { AccountStatus, PointReasonCode } from "./types";
 
 export const ROLE_OPTIONS = [
     { value: "user", label: "User" },
-    { value: "editor", label: "Editor" },
     { value: "viewer", label: "Viewer" },
     { value: "admin", label: "Admin" },
     { value: "super_admin", label: "Super admin" },

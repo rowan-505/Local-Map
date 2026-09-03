@@ -24,6 +24,9 @@ type SearchResultType =
   | 'bus_stop'
   | 'coordinate';
 
+/** Keep the main sidebar concise without changing API pagination or ranking. */
+const SEARCH_PANEL_VISIBLE_RESULT_LIMIT = 10;
+
 type SearchPanelProps = {
   readonly categories: readonly PoiCategory[];
   readonly selectedCategoryCode: PoiCategoryCode | null;
@@ -509,14 +512,17 @@ function SearchResults({
   const languageMode = useMapUiStore((s) => s.languageMode);
   const t = useMapUiText();
   const hasResults = results.length > 0;
+  const visibleResults = results.slice(0, SEARCH_PANEL_VISIBLE_RESULT_LIMIT);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const initialLoading = searchLoading && !hasResults;
-  const canLoadMore = shouldAutoLoadMorePublicSearch({
-    hasMoreSearch,
-    searchReachedCap,
-    searchLoadingMore,
-    searchFetchMoreError,
-  });
+  const canLoadMore =
+    results.length < SEARCH_PANEL_VISIBLE_RESULT_LIMIT &&
+    shouldAutoLoadMorePublicSearch({
+      hasMoreSearch,
+      searchReachedCap,
+      searchLoadingMore,
+      searchFetchMoreError,
+    });
 
   useEffect(() => {
     const sentinel = sentinelRef.current;
@@ -585,7 +591,7 @@ function SearchResults({
           role="listbox"
           aria-label={t('ရှာဖွေမှုရလဒ်များ', 'Search results')}
         >
-          {results.map((result) => {
+          {visibleResults.map((result) => {
             const selected = result.id === selectedSearchResultId;
             const entityType = (result.entityType ?? result.type) as SearchResultType;
             const title = getLocalizedName(result, languageMode);
@@ -698,7 +704,7 @@ function searchResultSubtitle(
   reference: readonly [number, number] | null,
   languageMode: PlaceLanguageMode,
 ): string {
-  const typeLabel = searchResultTypeLabel(entityType, languageMode);
+  const typeLabel = searchResultTypeLabel(result, entityType, languageMode);
   const area =
     trimmedOrNull(result.adminAreaNameEn) ??
     trimmedOrNull(result.adminAreaNameMy) ??
@@ -831,7 +837,41 @@ function SearchResultBadge({ type }: { readonly type: SearchResultType }) {
   );
 }
 
-function searchResultTypeLabel(type: SearchResultType, languageMode: PlaceLanguageMode): string {
+function searchResultTypeLabel(
+  result: PublicSearchResult,
+  type: SearchResultType,
+  languageMode: PlaceLanguageMode,
+): string {
+  const mode = result.mode?.trim().toLowerCase();
+  const isBus = mode === 'bus' || type === 'bus_route' || type === 'bus_stop';
+
+  if (
+    type === 'transport_route' ||
+    type === 'transport_route_variant' ||
+    type === 'bus_route' ||
+    type === 'bus_route_variant'
+  ) {
+    return isBus
+      ? mapUiText(languageMode, 'ဘတ်စ် လမ်းကြောင်း', 'Bus route')
+      : mapUiText(languageMode, 'အများသုံးယာဉ် လမ်းကြောင်း', 'Transport route');
+  }
+
+  if (type === 'transport_stop' || type === 'bus_stop') {
+    return isBus
+      ? mapUiText(languageMode, 'ဘတ်စ်မှတ်တိုင်', 'Bus stop')
+      : mapUiText(languageMode, 'အများသုံးယာဉ် မှတ်တိုင်', 'Transport stop');
+  }
+
+  if (type === 'transport_terminal') {
+    return mode === 'bus'
+      ? mapUiText(languageMode, 'ဘတ်စ်ဂိတ်', 'Bus terminal')
+      : mapUiText(languageMode, 'အများသုံးယာဉ်ဂိတ်', 'Transport terminal');
+  }
+
+  if (type === 'admin_area' || type === 'settlement') {
+    return mapUiText(languageMode, 'မြို့နယ် / ဧရိယာ', 'Township / Area');
+  }
+
   const meta = searchResultTypeMeta(type);
   return mapUiText(languageMode, meta.labelMy, meta.label);
 }
@@ -868,6 +908,7 @@ function searchResultTypeMeta(type: SearchResultType): {
     case 'water_polygon':
       return { badge: 'W', label: 'Water', labelMy: 'ရေ', className: 'bg-sky-50 text-sky-700' };
     case 'land_area':
+    case 'landuse':
       return { badge: 'L', label: 'Land use', labelMy: 'မြေအသုံးပြုမှု', className: 'bg-lime-50 text-lime-700' };
     case 'plus_code':
       return { badge: '+', label: 'Plus Code', labelMy: 'Plus Code', className: 'bg-indigo-50 text-indigo-700' };

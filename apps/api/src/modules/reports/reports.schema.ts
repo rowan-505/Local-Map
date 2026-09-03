@@ -20,7 +20,25 @@ export const REPORT_STATUS_CODES = [
     "accepted",
     "rejected",
     "duplicate",
+    "resolved",
 ] as const;
+
+export const REPORT_SOURCE_CODES = ["public", "field_survey"] as const;
+
+export const ADMIN_REPORT_TARGET_ENTITY_TYPES = [
+    "place",
+    "street",
+    "building",
+    "bus_stop",
+    "bus_route",
+    "map_point",
+    "stop",
+    "route",
+    "variant",
+    "path",
+] as const;
+
+export const FIELD_VARIANT_FILTER_CODES = ["D0", "D1"] as const;
 
 /**
  * Reason codes accepted by the report reward endpoint. Must be a subset of the
@@ -139,7 +157,10 @@ export const adminReportsQuerySchema = z.object({
     status: z.enum(REPORT_STATUS_CODES).optional(),
     type: z.enum(REPORT_TYPE_CODES).optional(),
     adminAreaId: z.coerce.number().int().positive().optional(),
-    targetEntityType: z.enum(REPORT_TARGET_ENTITY_TYPES).optional(),
+    targetEntityType: z.enum(ADMIN_REPORT_TARGET_ENTITY_TYPES).optional(),
+    source: z.enum(REPORT_SOURCE_CODES).optional(),
+    routeCode: z.string().trim().min(1).max(40).optional(),
+    variantCode: z.enum(FIELD_VARIANT_FILTER_CODES).optional(),
     // "true"/"false" query param → boolean (avoids z.coerce.boolean's "false" pitfall).
     anonymous: z
         .enum(["true", "false"])

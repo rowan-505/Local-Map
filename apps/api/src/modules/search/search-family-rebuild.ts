@@ -100,6 +100,8 @@ async function executeSearchFamilyRebuild(
 /**
  * Rebuild one or more unified search source families in a single
  * `search.rebuild_search_documents` call.
+ * Uses a 90-minute Prisma transaction timeout so large families (places)
+ * can finish; the SQL function already sets statement_timeout = 0.
  */
 export async function rebuildSearchFamilies(
     prisma: SearchFamilyRebuildDbClient,
@@ -118,7 +120,7 @@ export async function rebuildSearchFamilies(
         const rows = isPrismaRootClient(prisma)
             ? await prisma.$transaction(
                   async (tx) => executeSearchFamilyRebuild(tx, safeViews),
-                  { timeout: 30 * 60 * 1000, maxWait: 60 * 1000 },
+                  { timeout: 90 * 60 * 1000, maxWait: 60 * 1000 },
               )
             : await executeSearchFamilyRebuild(prisma, safeViews);
 

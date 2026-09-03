@@ -149,6 +149,15 @@ export type PublicTransportTerminalDetail = {
     plus_code?: string | null;
 };
 
+export type PublicStopPhoto = {
+    cardUrl: string;
+    detailUrl: string;
+    width: number | null;
+    height: number | null;
+    isPrimary: boolean;
+    note: string | null;
+};
+
 /** Public web map stop detail — mirrors public place detail field naming where practical. */
 export type PublicTransportStopDetail = {
     id: string;
@@ -181,6 +190,7 @@ export type PublicTransportStopDetail = {
     next_stops_preview: PublicTransportStopNextPreviewGroup[];
     address_line?: string;
     plus_code?: string | null;
+    photos?: PublicStopPhoto[];
 };
 
 export type PublicTransportRouteSearchStop = {

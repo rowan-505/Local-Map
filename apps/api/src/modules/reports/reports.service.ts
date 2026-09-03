@@ -1,3 +1,4 @@
+import type { MediaRepository, ReportMediaEvidenceRow } from "../media/media.repo.js";
 import {
     ReportsRepository,
     type AuditContext,
@@ -9,6 +10,7 @@ import {
     type ReportRow,
     type StatusEventRow,
 } from "./reports.repo.js";
+import { isAllowedAdminStatusTransition, isFieldSurveySource } from "./report-admin-status.js";
 import type { AdminReportsQuery, ReportCreateBody } from "./reports.schema.js";
 
 export type ReportRegionCountResponse = {
@@ -58,22 +60,22 @@ function resolveRateLimit(tier: { isAnonymous: boolean; emailVerified: boolean }
  * intentionally NOT here because they have dedicated channels:
  *   * → needs_more_info  is done via POST /request-info (it attaches a question).
  *   * needs_more_info → submitted  happens only via a user follow-up reply.
- * accepted / rejected / duplicate are terminal.
+ * accepted / rejected / duplicate / resolved are terminal.
+ * Field survey uses resolved instead of accepted (see report-admin-status.ts).
  */
-const ADMIN_STATUS_TRANSITIONS: Record<string, readonly string[]> = {
-    submitted: ["in_review", "duplicate"],
-    in_review: ["accepted", "rejected", "duplicate"],
-};
 
 /** Statuses from which an admin may request more info (→ needs_more_info). */
 const REQUEST_INFO_ALLOWED_FROM = ["submitted", "in_review"] as const;
 
-function assertAdminStatusTransition(from: string, to: string): void {
+function assertAdminStatusTransition(
+    from: string,
+    to: string,
+    sourceCode: string | null | undefined
+): void {
     if (from === to) {
         throw new ReportsError(`Report is already '${to}'`, 409);
     }
-    const allowed = ADMIN_STATUS_TRANSITIONS[from] ?? [];
-    if (!allowed.includes(to)) {
+    if (!isAllowedAdminStatusTransition(from, to, sourceCode)) {
         throw new ReportsError(`Cannot change report status from '${from}' to '${to}'`, 409);
     }
 }
@@ -102,9 +104,44 @@ export type ReportResponse = {
     updated_at: string;
 };
 
+export type FieldReportAdminContext = {
+    route_code: string | null;
+    route_public_id: string | null;
+    variant_code: string | null;
+    variant_public_id: string | null;
+    stop_public_id: string | null;
+    stop_name: string | null;
+    stop_sequence: number | null;
+    snapshot_revision: string | null;
+    canonical_snapshot: unknown | null;
+};
+
+export type CanonicalTargetPoint = {
+    latitude: number;
+    longitude: number;
+};
+
 export type AdminReportResponse = ReportResponse & {
     author: { public_id: string; display_name: string | null; email: string } | null;
     anonymous_id: string | null;
+    source_code: string;
+    observed_at: string | null;
+    location_accuracy_m: number | null;
+    field: FieldReportAdminContext | null;
+    canonical_target: CanonicalTargetPoint | null;
+    distance_m: number | null;
+    media_count: number;
+};
+
+export type ReportMediaEvidenceResponse = {
+    publicId: string;
+    mimeType: string;
+    byteSize: number;
+    width: number | null;
+    height: number | null;
+    note: string | null;
+    sortOrder: number;
+    published: boolean;
 };
 
 export type StatusEventResponse = {
@@ -152,7 +189,10 @@ export type CreateReportResult = {
 };
 
 export class ReportsService {
-    constructor(private readonly reportsRepo: ReportsRepository) {}
+    constructor(
+        private readonly reportsRepo: ReportsRepository,
+        private readonly mediaRepo: MediaRepository
+    ) {}
 
     async create(
         viewer: ReportViewer,
@@ -321,6 +361,9 @@ export class ReportsService {
             reportTypeCode: query.type,
             adminAreaId: query.adminAreaId !== undefined ? BigInt(query.adminAreaId) : undefined,
             targetEntityType: query.targetEntityType,
+            sourceCode: query.source,
+            routeCode: query.routeCode,
+            variantCode: query.variantCode,
             isAnonymous: query.anonymous,
             createdFrom: query.createdFrom,
             createdTo: query.createdTo,
@@ -328,7 +371,7 @@ export class ReportsService {
             pageSize: query.pageSize,
         });
         return {
-            items: items.map(toAdminReportResponse),
+            items: items.map((row) => toAdminReportResponse(row)),
             total,
             page: query.page,
             pageSize: query.pageSize,
@@ -364,16 +407,25 @@ export class ReportsService {
 
     async adminGet(
         publicId: string
-    ): Promise<AdminReportResponse & { followups: FollowupResponse[]; status_events: StatusEventResponse[] }> {
+    ): Promise<
+        AdminReportResponse & {
+            followups: FollowupResponse[];
+            status_events: StatusEventResponse[];
+            media: ReportMediaEvidenceResponse[];
+        }
+    > {
         const report = await this.requireReport(publicId);
-        const [events, followups] = await Promise.all([
+        const [events, followups, canonical, media] = await Promise.all([
             this.reportsRepo.listStatusEvents(report.id),
             this.reportsRepo.listFollowups(report.id),
+            this.loadCanonicalTarget(report),
+            this.mediaRepo.listReadyPrivateForReport(report.id),
         ]);
         return {
-            ...toAdminReportResponse(report),
+            ...toAdminReportResponse(report, canonical),
             status_events: events.map(toStatusEventResponse),
             followups: followups.map(toFollowupResponse),
+            media: media.map(toMediaEvidenceResponse),
         };
     }
 
@@ -383,8 +435,9 @@ export class ReportsService {
         note: string | undefined,
         audit: AuditContext
     ): Promise<AdminReportResponse> {
+        // Status changes never publish media. Public stop photos require an explicit admin publish.
         const report = await this.requireReport(publicId);
-        assertAdminStatusTransition(report.status_code, statusCode);
+        assertAdminStatusTransition(report.status_code, statusCode, report.source_code);
         const updated = await this.reportsRepo.changeStatus({
             reportId: report.id,
             fromStatusCode: report.status_code,
@@ -401,6 +454,12 @@ export class ReportsService {
         audit: AuditContext
     ): Promise<AdminReportResponse & { followups: FollowupResponse[] }> {
         const report = await this.requireReport(publicId);
+        if (isFieldSurveySource(report.source_code)) {
+            throw new ReportsError(
+                "Field survey reports do not use request-info. Review in the transport editor, then resolve or reject.",
+                409
+            );
+        }
         if (report.is_anonymous || report.created_by === null) {
             throw new ReportsError("Anonymous reports do not support follow-ups", 400);
         }
@@ -443,6 +502,9 @@ export class ReportsService {
 
         // Eligibility — points are never granted automatically; admin must act and
         // all of these must hold (see endpoint contract).
+        if (isFieldSurveySource(report.source_code)) {
+            throw new ReportsError("Field survey reports cannot receive points", 409);
+        }
         if (report.is_anonymous || report.created_by === null) {
             throw new ReportsError("Anonymous reports cannot receive points", 400);
         }
@@ -498,6 +560,29 @@ export class ReportsService {
         }
         return userId;
     }
+
+    private async loadCanonicalTarget(
+        report: ReportRow
+    ): Promise<{ canonical_target: CanonicalTargetPoint | null; distance_m: number | null }> {
+        const stopPublicId = fieldStopPublicId(report);
+        if (!stopPublicId || !isFieldSurveySource(report.source_code)) {
+            return { canonical_target: null, distance_m: null };
+        }
+        const lat = report.latitude !== null ? Number(report.latitude) : null;
+        const lng = report.longitude !== null ? Number(report.longitude) : null;
+        const point = await this.reportsRepo.findCanonicalStopPoint({
+            stopPublicId,
+            reportLatitude: lat,
+            reportLongitude: lng,
+        });
+        if (!point) {
+            return { canonical_target: null, distance_m: null };
+        }
+        return {
+            canonical_target: { latitude: point.latitude, longitude: point.longitude },
+            distance_m: point.distance_m,
+        };
+    }
 }
 
 function toReportResponse(row: ReportRow): ReportResponse {
@@ -526,7 +611,10 @@ function toReportResponse(row: ReportRow): ReportResponse {
     };
 }
 
-function toAdminReportResponse(row: ReportRow): AdminReportResponse {
+function toAdminReportResponse(
+    row: ReportRow,
+    canonical?: { canonical_target: CanonicalTargetPoint | null; distance_m: number | null }
+): AdminReportResponse {
     return {
         ...toReportResponse(row),
         anonymous_id: row.anonymous_id,
@@ -538,6 +626,92 @@ function toAdminReportResponse(row: ReportRow): AdminReportResponse {
                       email: row.author_email,
                   }
                 : null,
+        source_code: row.source_code ?? "public",
+        observed_at: row.observed_at ? row.observed_at.toISOString() : null,
+        location_accuracy_m:
+            row.location_accuracy_m === null || row.location_accuracy_m === undefined
+                ? null
+                : Number(row.location_accuracy_m),
+        field: toFieldContext(row),
+        canonical_target: canonical?.canonical_target ?? null,
+        distance_m: canonical?.distance_m ?? null,
+        media_count: Number(row.media_count ?? 0),
+    };
+}
+
+function toMediaEvidenceResponse(row: ReportMediaEvidenceRow): ReportMediaEvidenceResponse {
+    return {
+        publicId: row.public_id,
+        mimeType: row.mime_type,
+        byteSize: Number(row.byte_size),
+        width: row.width,
+        height: row.height,
+        note: row.note,
+        sortOrder: row.sort_order,
+        published: row.published === true,
+    };
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+        return value as Record<string, unknown>;
+    }
+    return {};
+}
+
+function optionalString(value: unknown): string | null {
+    return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function optionalInt(value: unknown): number | null {
+    if (typeof value === "number" && Number.isInteger(value)) {
+        return value;
+    }
+    if (typeof value === "string" && /^-?\d+$/.test(value)) {
+        return Number(value);
+    }
+    return null;
+}
+
+function fieldStopPublicId(row: ReportRow): string | null {
+    const data = asRecord(row.report_data);
+    const fromContext = optionalString(data.stopPublicId);
+    if (fromContext) {
+        return fromContext;
+    }
+    if (row.target_entity_type === "stop") {
+        return row.target_public_id;
+    }
+    return null;
+}
+
+function fieldRoutePublicId(row: ReportRow): string | null {
+    const data = asRecord(row.report_data);
+    const fromContext = optionalString(data.routePublicId);
+    if (fromContext) {
+        return fromContext;
+    }
+    if (row.target_entity_type === "route") {
+        return row.target_public_id;
+    }
+    return null;
+}
+
+function toFieldContext(row: ReportRow): FieldReportAdminContext | null {
+    if (!isFieldSurveySource(row.source_code)) {
+        return null;
+    }
+    const data = asRecord(row.report_data);
+    return {
+        route_code: row.field_route_code ?? null,
+        route_public_id: fieldRoutePublicId(row),
+        variant_code: optionalString(data.variantCode),
+        variant_public_id: optionalString(data.variantPublicId),
+        stop_public_id: fieldStopPublicId(row),
+        stop_name: row.field_stop_name ?? null,
+        stop_sequence: optionalInt(data.stopSequence),
+        snapshot_revision: optionalString(data.snapshotRevision),
+        canonical_snapshot: data.canonicalSnapshot === undefined ? null : data.canonicalSnapshot,
     };
 }
 

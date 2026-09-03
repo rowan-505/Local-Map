@@ -488,7 +488,7 @@ export const getStreetsNearestPointSchema = {
 export const postStreetsValidateGeometrySchema = {
     tags: [Tags.Streets],
     summary: "Validate street geometry",
-    description: "Topology checks against `core.core_streets`. Requires admin or editor.",
+    description: "Topology checks against `core.core_streets`. Requires dashboard write access (admin or super_admin).",
     security: [...bearerAuth],
     body: validateGeometryBodySchema,
     response: {

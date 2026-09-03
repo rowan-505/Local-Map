@@ -3,7 +3,7 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 /** Stable namespace for search index family rebuild advisory locks. */
 export const SEARCH_INDEX_REBUILD_LOCK_NAMESPACE = 742_019;
 
-const REBUILD_LOCK_TRANSACTION_TIMEOUT_MS = 30 * 60 * 1000;
+const REBUILD_LOCK_TRANSACTION_TIMEOUT_MS = 90 * 60 * 1000;
 const REBUILD_LOCK_TRANSACTION_MAX_WAIT_MS = 60 * 1000;
 
 export type SearchIndexRebuildLockClient = PrismaClient | Prisma.TransactionClient;

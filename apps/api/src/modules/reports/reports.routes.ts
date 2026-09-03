@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 
 import { DEV_AUTH_BYPASS_USER, isAuthBypassActive, type JwtUser } from "../../plugins/auth.js";
+import { MediaRepository } from "../media/media.repo.js";
 import { ReportsRepository, type AuditContext } from "./reports.repo.js";
 import { ReportsError, ReportsService, type ReportViewer } from "./reports.service.js";
 import {
@@ -71,7 +72,7 @@ async function optionalJwtUser(request: FastifyRequest): Promise<JwtUser | null>
 }
 
 const reportsRoutes: FastifyPluginAsync = async (app) => {
-    const reportsService = new ReportsService(new ReportsRepository(app.prisma));
+    const reportsService = new ReportsService(new ReportsRepository(app.prisma), new MediaRepository(app.prisma));
     const requireAdmin = app.requireRole("admin", "super_admin");
     const adminGuard = { preHandler: [app.authenticate, requireAdmin] };
 

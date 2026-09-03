@@ -63,6 +63,16 @@ export const swaggerCorePlugin = fp(
                     { name: "Dashboard", description: "Internal admin surfaces." },
                     { name: "Stats", description: "Aggregated counts for the admin dashboard." },
                     { name: "Transit", description: "Bus stops and routes (GeoJSON)." },
+                    {
+                        name: "Field",
+                        description:
+                            "Authenticated field-surveyor snapshot reads. JWT role `surveyor` only. No dashboard or canonical transport writes.",
+                    },
+                    {
+                        name: "Media",
+                        description:
+                            "Authenticated private media uploads (presigned R2 PUT). JPEG only in this release. Secrets stay on the API; clients never receive R2 keys.",
+                    },
                     { name: "Search", description: "Public text search for the map client." },
                     {
                         name: "Reports",

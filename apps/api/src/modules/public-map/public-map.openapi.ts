@@ -181,6 +181,7 @@ const publicTransportStopDetailSchema = {
         "route_count",
         "routes_serving_this_stop",
         "next_stops_preview",
+        "photos",
     ],
     properties: {
         id: { type: "string" },
@@ -220,6 +221,22 @@ const publicTransportStopDetailSchema = {
         next_stops_preview: {
             type: "array",
             items: publicTransportStopNextPreviewGroupSchema,
+        },
+        photos: {
+            type: "array",
+            items: {
+                type: "object",
+                required: ["cardUrl", "detailUrl", "width", "height", "isPrimary", "note"],
+                properties: {
+                    cardUrl: { type: "string" },
+                    detailUrl: { type: "string" },
+                    width: { type: "integer", nullable: true },
+                    height: { type: "integer", nullable: true },
+                    isPrimary: { type: "boolean" },
+                    note: { type: "string", nullable: true },
+                },
+                additionalProperties: false,
+            },
         },
         address_line: { type: "string" },
         plus_code: { type: "string", nullable: true },
@@ -854,6 +871,11 @@ export const getPublicSearchGeometrySchema = {
                     "water_line",
                     "water_polygon",
                     "land_area",
+                    "landuse",
+                    "transport_stop",
+                    "transport_terminal",
+                    "transport_route",
+                    "transport_route_variant",
                 ],
             },
             entityId: { type: "string", description: "Internal numeric id or uuid public_id" },

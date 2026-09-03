@@ -90,6 +90,7 @@ export type SearchEntityType =
   | 'water_line'
   | 'water_polygon'
   | 'land_area'
+  | 'landuse'
   | 'plus_code'
   | 'coordinate';
 
@@ -112,6 +113,7 @@ const GEOMETRY_SEARCH_ENTITY_TYPES: ReadonlySet<SearchEntityType> = new Set([
   'water_line',
   'water_polygon',
   'land_area',
+  'landuse',
 ]);
 
 const KNOWN_SEARCH_ENTITY_TYPES: ReadonlySet<SearchEntityType> = new Set([
@@ -640,7 +642,9 @@ export async function fetchSearchResultGeometry(
 
 const TRANSPORT_ROUTE_MAP_PREVIEW_ENTITY_TYPES: ReadonlySet<SearchEntityType> = new Set([
   'transport_route',
+  'transport_route_variant',
   'bus_route',
+  'bus_route_variant',
 ]);
 
 export function usesTransportRouteMapPreview(entityType: SearchEntityType): boolean {

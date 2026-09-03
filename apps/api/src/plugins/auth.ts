@@ -9,8 +9,29 @@ export type JwtUser = {
     roles: string[];
 };
 
-export const DASHBOARD_ACCESS_ROLES = new Set(["viewer", "editor", "admin", "super_admin"]);
-export const DASHBOARD_WRITE_ROLES = new Set(["editor", "admin", "super_admin"]);
+/** Dashboard login/read. `user` and `surveyor` authenticate but are not dashboard roles. */
+export const DASHBOARD_ACCESS_ROLES = new Set(["viewer", "admin", "super_admin"]);
+/** Canonical dashboard/transport writes. `surveyor` must never be added here. */
+export const DASHBOARD_WRITE_ROLES = new Set(["admin", "super_admin"]);
+
+/** JWT role for the field survey app. Least privilege: no dashboard or transport writes. */
+export const FIELD_SURVEYOR_ROLE = "surveyor";
+
+export function hasFieldSurveyorAccess(roles: readonly string[] | null | undefined): boolean {
+    return (roles ?? []).includes(FIELD_SURVEYOR_ROLE);
+}
+
+export async function requireFieldSurveyor(
+    request: FastifyRequest,
+    reply: FastifyReply
+): Promise<void | FastifyReply> {
+    if (!hasFieldSurveyorAccess(request.user?.roles)) {
+        return reply.code(403).send({
+            code: "FORBIDDEN",
+            message: "Field survey access requires the surveyor role.",
+        });
+    }
+}
 
 export function hasDashboardAccess(roles: readonly string[] | null | undefined): boolean {
     return (roles ?? []).some((role) => DASHBOARD_ACCESS_ROLES.has(role));
@@ -42,7 +63,7 @@ export async function requireDashboardWrite(
             code: readOnly ? "READ_ONLY" : "FORBIDDEN",
             message: readOnly
                 ? "Read-only dashboard access cannot modify data."
-                : "Dashboard write access requires an editor or administrator role.",
+                : "Dashboard write access requires an administrator role.",
         });
     }
 }
@@ -93,6 +114,7 @@ declare module "fastify" {
         authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
         requireDashboardAccess: typeof requireDashboardAccess;
         requireDashboardWrite: typeof requireDashboardWrite;
+        requireFieldSurveyor: typeof requireFieldSurveyor;
         requireRole: (
             ...allowedRoles: string[]
         ) => (request: FastifyRequest, reply: FastifyReply) => Promise<void | FastifyReply>;
@@ -123,6 +145,7 @@ export default fp(async function authPlugin(app) {
 
     app.decorate("requireDashboardAccess", requireDashboardAccess);
     app.decorate("requireDashboardWrite", requireDashboardWrite);
+    app.decorate("requireFieldSurveyor", requireFieldSurveyor);
 
     /**
      * Role gate factory. Use as a preHandler AFTER `app.authenticate`, e.g.

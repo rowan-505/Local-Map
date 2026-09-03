@@ -60,6 +60,13 @@ export type ReportRow = {
     author_public_id: string | null;
     author_display_name: string | null;
     author_email: string | null;
+    source_code: string;
+    observed_at: Date | null;
+    location_accuracy_m: number | null;
+    report_data: unknown;
+    field_route_code: string | null;
+    field_stop_name: string | null;
+    media_count: number;
 };
 
 export type StatusEventRow = {
@@ -124,11 +131,20 @@ export type AdminReportFilters = {
     reportTypeCode?: string;
     adminAreaId?: bigint;
     targetEntityType?: string;
+    sourceCode?: string;
+    routeCode?: string;
+    variantCode?: string;
     isAnonymous?: boolean;
     createdFrom?: Date;
     createdTo?: Date;
     page: number;
     pageSize: number;
+};
+
+export type CanonicalStopPoint = {
+    latitude: number;
+    longitude: number;
+    distance_m: number | null;
 };
 
 export type AuditContext = {
@@ -170,15 +186,114 @@ const reportSelect = Prisma.sql`
         r.updated_at,
         u.public_id::text AS author_public_id,
         u.display_name AS author_display_name,
-        u.email AS author_email
+        u.email AS author_email,
+        COALESCE(r.source_code, 'public') AS source_code,
+        r.observed_at,
+        r.location_accuracy_m::float8 AS location_accuracy_m,
+        r.report_data,
+        field_route.route_code AS field_route_code,
+        field_stop.field_stop_name,
+        (
+            SELECT COUNT(*)::int
+            FROM feedback.report_media rm
+            INNER JOIN media.assets ma ON ma.id = rm.asset_id
+            WHERE rm.report_id = r.id
+              AND ma.status = 'ready'
+              AND ma.storage_scope = 'private'
+        ) AS media_count
     FROM feedback.user_reports r
     JOIN ref.ref_report_types rt ON rt.code = r.report_type_code
     JOIN ref.ref_report_statuses rs ON rs.code = r.status_code
     LEFT JOIN app_auth.auth_users u ON u.id = r.created_by
+    LEFT JOIN transport.routes field_route
+      ON r.source_code = 'field_survey'
+     AND field_route.public_id = COALESCE(
+            CASE
+                WHEN (r.report_data->>'routePublicId') ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+                THEN (r.report_data->>'routePublicId')::uuid
+                ELSE NULL
+            END,
+            CASE
+                WHEN r.target_entity_type = 'route' THEN r.target_public_id
+                ELSE NULL
+            END
+        )
+    LEFT JOIN LATERAL (
+        SELECT COALESCE(sn_en.name, sn_mm.name) AS field_stop_name
+        FROM transport.stops s
+        LEFT JOIN LATERAL (
+            SELECT n.name
+            FROM transport.stop_names AS n
+            WHERE n.stop_id = s.id
+              AND lower(btrim(coalesce(n.language_code, ''))) = 'en'
+            ORDER BY n.is_primary DESC, n.search_weight DESC, n.id ASC
+            LIMIT 1
+        ) AS sn_en ON true
+        LEFT JOIN LATERAL (
+            SELECT n.name
+            FROM transport.stop_names AS n
+            WHERE n.stop_id = s.id
+              AND lower(btrim(coalesce(n.language_code, ''))) = 'my'
+            ORDER BY n.is_primary DESC, n.search_weight DESC, n.id ASC
+            LIMIT 1
+        ) AS sn_mm ON true
+        WHERE r.source_code = 'field_survey'
+          AND s.deleted_at IS NULL
+          AND s.public_id = CASE
+            WHEN (r.report_data->>'stopPublicId') ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+              THEN (r.report_data->>'stopPublicId')::uuid
+            WHEN r.target_entity_type = 'stop' THEN r.target_public_id
+            ELSE NULL
+          END
+        LIMIT 1
+    ) field_stop ON true
 `;
 
 export class ReportsRepository {
     constructor(private readonly prisma: PrismaClient) {}
+
+    /**
+     * Current canonical stop point and geodesic distance from the report geometry.
+     * Read-only; does not write transport data.
+     */
+    async findCanonicalStopPoint(input: {
+        stopPublicId: string;
+        reportLatitude: number | null;
+        reportLongitude: number | null;
+    }): Promise<CanonicalStopPoint | null> {
+        const rows = await this.prisma.$queryRaw<
+            { latitude: number; longitude: number; distance_m: number | null }[]
+        >(Prisma.sql`
+            SELECT
+                ST_Y(s.geom)::float8 AS latitude,
+                ST_X(s.geom)::float8 AS longitude,
+                CASE
+                    WHEN ${input.reportLatitude}::float8 IS NULL
+                      OR ${input.reportLongitude}::float8 IS NULL
+                    THEN NULL
+                    ELSE ST_Distance(
+                        ST_SetSRID(
+                            ST_MakePoint(${input.reportLongitude}::float8, ${input.reportLatitude}::float8),
+                            4326
+                        )::geography,
+                        s.geom::geography
+                    )::float8
+                END AS distance_m
+            FROM transport.stops s
+            WHERE s.public_id = ${input.stopPublicId}::uuid
+              AND s.deleted_at IS NULL
+            LIMIT 1
+        `);
+        const row = rows[0];
+        if (!row) {
+            return null;
+        }
+        return {
+            latitude: Number(row.latitude),
+            longitude: Number(row.longitude),
+            distance_m: row.distance_m === null ? null : Number(row.distance_m),
+        };
+    }
 
     /** Resolves the internal user id from a JWT subject (public_id uuid); null when missing. */
     async findActiveUserIdByPublicId(publicId: string): Promise<bigint | null> {
@@ -384,6 +499,26 @@ export class ReportsRepository {
         }
         if (filters.targetEntityType) {
             conditions.push(Prisma.sql`r.target_entity_type = ${filters.targetEntityType}`);
+        }
+        if (filters.sourceCode) {
+            conditions.push(Prisma.sql`COALESCE(r.source_code, 'public') = ${filters.sourceCode}`);
+        }
+        if (filters.routeCode) {
+            conditions.push(Prisma.sql`
+                r.source_code = 'field_survey'
+                AND EXISTS (
+                    SELECT 1
+                    FROM transport.routes tr
+                    WHERE tr.public_id::text = r.report_data->>'routePublicId'
+                      AND lower(tr.route_code) = lower(${filters.routeCode})
+                )
+            `);
+        }
+        if (filters.variantCode) {
+            conditions.push(Prisma.sql`
+                r.source_code = 'field_survey'
+                AND r.report_data->>'variantCode' = ${filters.variantCode}
+            `);
         }
         if (filters.isAnonymous !== undefined) {
             conditions.push(Prisma.sql`r.is_anonymous = ${filters.isAnonymous}`);

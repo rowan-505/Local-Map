@@ -11,6 +11,7 @@ import {
     readImportReviewAuthDebugState,
 } from "@/src/lib/importReviewDevAccess";
 import { hasDashboardAccess, rolesFromJwtAccessToken } from "@/src/lib/jwtRoles";
+import { accountPath } from "@/src/lib/dashboardPaths";
 
 type LoginResponse = {
     accessToken: string;
@@ -67,7 +68,7 @@ function getApiErrorMessage(payload: unknown): string | null {
 }
 
 function resolvePostLoginPath(nextParam: string | null): string {
-    const fallback = "/dashboard";
+    const fallback = accountPath();
     if (!nextParam?.trim()) {
         return fallback;
     }

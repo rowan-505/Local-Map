@@ -26,6 +26,9 @@
       ],
       "@local-map/transport-timetable": [
         "../../packages/transport-timetable/timetable.ts"
+      ],
+      "@local-map/transport-timetable/transport-time": [
+        "../../packages/transport-timetable/transport-time.ts"
       ]
     }
   },

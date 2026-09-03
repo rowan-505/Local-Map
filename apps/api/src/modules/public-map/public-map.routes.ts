@@ -3,6 +3,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { ReverseSearchRepository } from "../addresses/reverse-search.repo.js";
 import { ReverseSearchService } from "../addresses/reverse-search.service.js";
 import { AdminAreasRepository } from "../admin-areas/admin-areas.repo.js";
+import { MediaRepository } from "../media/media.repo.js";
 import { TransportPublicService } from "../transport/transport-public.service.js";
 import { PublicMapRepository } from "./public-map.repo.js";
 import {
@@ -78,6 +79,7 @@ const publicMapRoutes: FastifyPluginAsync = async (app) => {
         reverseSearchService,
         adminAreasRepo,
         transportPublicService,
+        new MediaRepository(app.prisma),
     );
 
     app.get("/public/places", { schema: getPublicPlacesSchema }, async (request, reply) => {

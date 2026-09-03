@@ -39,6 +39,9 @@ import coreReviewRoutes from "./modules/core-review/core-review.routes.js";
 import routingRoutes from "./modules/routing/routing.routes.js";
 import routingAdminRoutes from "./modules/routing/routing-admin.routes.js";
 import transportRoutes from "./modules/transport/transport.routes.js";
+import fieldRoutes from "./modules/field/field.routes.js";
+import mediaRoutes from "./modules/media/media.routes.js";
+import mediaAdminRoutes from "./modules/media/media.admin.routes.js";
 import refRoutes from "./modules/ref/ref.routes.js";
 import addressesRoutes from "./modules/addresses/addresses.routes.js";
 import { IMPORT_REVIEW_ADMIN_TOKEN_HEADER } from "./modules/import-review/import-review-admin.guard.js";
@@ -192,6 +195,9 @@ export async function buildApp() {
     await app.register(routingRoutes, { prefix: "/api/routing" });
     await app.register(routingAdminRoutes, { prefix: "/admin/routing" });
     await app.register(transportRoutes, { prefix: "/transport" });
+    await app.register(fieldRoutes, { prefix: "/field" });
+    await app.register(mediaRoutes, { prefix: "/media" });
+    await app.register(mediaAdminRoutes, { prefix: "/admin/media" });
     await app.register(refRoutes, { prefix: "/admin/ref" });
     await app.register(coreReviewRoutes, { prefix: "/core-review" });
 

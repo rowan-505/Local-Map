@@ -12,6 +12,7 @@ export const REPORT_STATUS_OPTIONS: { value: ReportStatusCode; label: string }[]
     { value: "accepted", label: "Accepted" },
     { value: "rejected", label: "Rejected" },
     { value: "duplicate", label: "Duplicate" },
+    { value: "resolved", label: "Resolved" },
 ];
 
 export const REPORT_TYPE_OPTIONS: { value: ReportTypeCode; label: string }[] = [
@@ -32,6 +33,20 @@ export const TARGET_ENTITY_TYPE_OPTIONS: { value: ReportTargetEntityType; label:
     { value: "bus_stop", label: "Bus stop" },
     { value: "bus_route", label: "Bus route" },
     { value: "map_point", label: "Map point" },
+    { value: "stop", label: "Stop" },
+    { value: "route", label: "Route" },
+    { value: "variant", label: "Variant" },
+    { value: "path", label: "Path" },
+];
+
+export const REPORT_SOURCE_OPTIONS: { value: "public" | "field_survey"; label: string }[] = [
+    { value: "public", label: "Public" },
+    { value: "field_survey", label: "Field survey" },
+];
+
+export const FIELD_VARIANT_OPTIONS: { value: "D0" | "D1"; label: string }[] = [
+    { value: "D0", label: "D0" },
+    { value: "D1", label: "D1" },
 ];
 
 /** Reward reason codes; the first two are the recommended choices for an accepted report. */
@@ -52,6 +67,7 @@ const STATUS_BADGE_CLASS: Record<string, string> = {
     accepted: "bg-emerald-50 text-emerald-800 ring-emerald-100",
     rejected: "bg-red-50 text-red-800 ring-red-100",
     duplicate: "bg-gray-100 text-gray-700 ring-gray-200",
+    resolved: "bg-emerald-50 text-emerald-800 ring-emerald-100",
 };
 
 export function statusBadgeClass(code: string): string {

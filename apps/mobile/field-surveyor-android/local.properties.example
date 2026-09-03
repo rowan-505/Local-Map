@@ -1,0 +1,5 @@
+## Copy the sdk.dir line from Android Studio into local.properties (gitignored).
+## For a physical phone on the same Wi-Fi as your Mac, add the LAN origin (no secrets):
+## fieldApiBaseUrl=http://192.168.x.x:3001
+## Then rebuild debug. Do not commit local.properties or a real LAN IP.
+sdk.dir=/ABS/PATH/TO/Android/sdk

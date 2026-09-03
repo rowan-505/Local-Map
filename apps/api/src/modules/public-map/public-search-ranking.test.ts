@@ -42,6 +42,77 @@ describe("resolveFuzzySimilarityThreshold", () => {
 });
 
 describe("explainUnifiedSearchScore", () => {
+    it("gives codeExact for hyphen and space YBS queries", () => {
+        const hyphen = score("ybs-37", "full", {
+            code: "YBS-37",
+            displayName: "YBS 37",
+            entityType: "transport_route",
+            reviewStatus: "imported_unreviewed",
+        });
+        const spaced = score("ybs 37", "full", {
+            code: "YBS-37",
+            displayName: "YBS 37",
+            entityType: "transport_route",
+            reviewStatus: "imported_unreviewed",
+        });
+
+        assert.equal(hyphen.codeMatch, W.codeExact);
+        assert.equal(spaced.codeMatch, W.codeExact);
+        assert.notEqual(
+            score("37", "full", {
+                code: "YBS-37",
+                displayName: "YBS 37",
+                entityType: "transport_route",
+            }).codeMatch,
+            W.codeExact,
+        );
+    });
+
+    it("gives only the exact numeric route number the transport priority", () => {
+        const route13 = score("13", "full", {
+            code: "YBS-13",
+            displayName: "YBS 13",
+            entityType: "transport_route",
+        });
+        const route113 = score("13", "full", {
+            code: "YBS-113",
+            displayName: "YBS 113",
+            entityType: "transport_route",
+            ftsMatches: true,
+        });
+        const stop13 = score("13", "full", {
+            displayName: "13 Mile Stop",
+            entityType: "transport_stop",
+            ftsMatches: true,
+            importanceScore: 100,
+            isVerified: true,
+        });
+
+        assert.equal(route13.numericRouteExactMatch, W.numericRouteExact);
+        assert.equal(route113.numericRouteExactMatch, 0);
+        assert.equal(stop13.numericRouteExactMatch, 0);
+        assert.ok(route13.finalScore > route113.finalScore);
+        assert.ok(route13.finalScore > stop13.finalScore);
+    });
+
+    it("applies numeric route priority to the queried number, not shorter substrings", () => {
+        const route113 = score("113", "full", {
+            code: "YBS-113",
+            displayName: "YBS 113",
+            entityType: "transport_route",
+        });
+        const route13 = score("113", "full", {
+            code: "YBS-13",
+            displayName: "YBS 13",
+            entityType: "transport_route",
+            ftsMatches: true,
+        });
+
+        assert.equal(route113.numericRouteExactMatch, W.numericRouteExact);
+        assert.equal(route13.numericRouteExactMatch, 0);
+        assert.ok(route113.finalScore > route13.finalScore);
+    });
+
     it("explains an exact name match", () => {
         const explanation = score("yangon", "full", {
             displayName: "Yangon",
@@ -212,7 +283,8 @@ describe("explainUnifiedSearchScore", () => {
 
         assert.equal(
             explanation.finalScore,
-            explanation.codeMatch +
+            explanation.numericRouteExactMatch +
+                explanation.codeMatch +
                 explanation.exactMatch +
                 explanation.aliasExactMatch +
                 explanation.prefixMatch +

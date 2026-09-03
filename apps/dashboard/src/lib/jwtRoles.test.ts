@@ -7,9 +7,8 @@ test("dashboard UX capabilities mirror API role policy", () => {
     assert.equal(hasDashboardAccess(["user"]), false);
     assert.equal(hasDashboardAccess(["viewer"]), true);
     assert.equal(canDashboardWrite(["viewer"]), false);
-    assert.equal(canDashboardWrite(["editor"]), true);
     assert.equal(canDashboardWrite(["admin"]), true);
     assert.equal(canDashboardWrite(["super_admin"]), true);
     assert.equal(isViewer(["viewer"]), true);
-    assert.equal(isViewer(["viewer", "editor"]), false);
+    assert.equal(isViewer(["viewer", "admin"]), false);
 });

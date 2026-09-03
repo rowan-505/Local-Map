@@ -51,6 +51,7 @@ import {
     routePathDisplayLabel,
     routePathLineStyle,
 } from "./routePathDisplay";
+import { generatePathFromStopsCopy } from "./reviewMapPathGeneration";
 import {
     isCanonicalYbsRoute,
     oppositeYbsVariant,
@@ -247,6 +248,7 @@ function ReviewMapPathControls({
     onGeneratePathFromStops,
     generatePathDisabled,
     generatePathTitle,
+    generatePathButtonLabel,
     onEnterEditPath,
     editPathDisabled,
     editPathTitle,
@@ -256,6 +258,7 @@ function ReviewMapPathControls({
     readonly onGeneratePathFromStops?: () => void;
     readonly generatePathDisabled: boolean;
     readonly generatePathTitle: string;
+    readonly generatePathButtonLabel: string;
     readonly onEnterEditPath?: () => void;
     readonly editPathDisabled: boolean;
     readonly editPathTitle: string;
@@ -273,7 +276,7 @@ function ReviewMapPathControls({
                     title={generatePathTitle}
                     className={`${TOOLBAR_BTN_CLASS} ${stacked ? "w-full text-left" : ""}`}
                 >
-                    Generate path from stops
+                    {generatePathButtonLabel}
                 </button>
             ) : null}
             {onEnterEditPath && !pathEditActive ? (
@@ -362,6 +365,9 @@ export type TransportRouteReviewMapShellProps = {
     readonly onExitEditPath?: () => void;
     readonly onPathVertexSelect?: (vertexIndex: number) => void;
     readonly onPathEditDraftChange?: (coords: Array<[number, number]>) => void;
+    readonly onAddPathVertex?: () => void;
+    readonly onUndoPathEdit?: () => void;
+    readonly canUndoPathEdit?: boolean;
     readonly onDeleteSelectedPathVertex?: () => void;
     readonly pathEditLoading?: boolean;
     readonly pathEditError?: string;
@@ -466,6 +472,9 @@ export default function TransportRouteReviewMapShell({
     onExitEditPath,
     onPathVertexSelect,
     onPathEditDraftChange,
+    onAddPathVertex,
+    onUndoPathEdit,
+    canUndoPathEdit = false,
     onDeleteSelectedPathVertex,
     pathEditLoading = false,
     pathEditError = "",
@@ -568,12 +577,13 @@ export default function TransportRouteReviewMapShell({
     const visibleRoutePathGeometry =
         showRoutePath && hasSavedRoutePath ? (routePathInfo?.geometry ?? null) : null;
 
+    const generatePathCopy = generatePathFromStopsCopy(hasSavedRoutePath);
     const generatePathDisabled =
         !canWrite || !canGeneratePathFromStops || pathDrawing || pathEditActive;
     const generatePathTitle = !canWrite
         ? "Read-only viewers cannot generate route paths"
         : canGeneratePathFromStops
-          ? "Generate a road-following path from ordered stops"
+          ? generatePathCopy.enabledTitle
           : generatePathFromStopsDisabledReason || "Cannot generate path yet";
 
     const editPathDisabled = !canWrite || !canEditPath || pathDrawing || pathEditActive;
@@ -680,6 +690,8 @@ export default function TransportRouteReviewMapShell({
     const stopListUnitHeight = showStopSequenceActions
         ? stopListRowHeight + VIRTUAL_STOP_INSERT_GAP_HEIGHT
         : stopListRowHeight;
+    const insertAtStartGapHeight =
+        showStopSequenceActions && onInsertAtStart ? VIRTUAL_STOP_INSERT_GAP_HEIGHT : 0;
 
     const virtualizeStopList = stops.length > VIRTUAL_STOP_LIST_THRESHOLD;
     const virtualStopWindow = useMemo(() => {
@@ -688,7 +700,8 @@ export default function TransportRouteReviewMapShell({
         }
         const start = Math.max(
             0,
-            Math.floor(stopListScrollTop / stopListUnitHeight) - VIRTUAL_STOP_OVERSCAN,
+            Math.floor(Math.max(0, stopListScrollTop - insertAtStartGapHeight) / stopListUnitHeight) -
+                VIRTUAL_STOP_OVERSCAN,
         );
         const visibleCount =
             Math.ceil(stopListViewportHeight / stopListUnitHeight) + VIRTUAL_STOP_OVERSCAN * 2;
@@ -696,10 +709,11 @@ export default function TransportRouteReviewMapShell({
         return {
             start,
             end,
-            offsetY: start * stopListUnitHeight,
-            totalHeight: stops.length * stopListUnitHeight,
+            offsetY: start * stopListUnitHeight + (start > 0 ? insertAtStartGapHeight : 0),
+            totalHeight: stops.length * stopListUnitHeight + insertAtStartGapHeight,
         };
     }, [
+        insertAtStartGapHeight,
         stopListUnitHeight,
         stopListScrollTop,
         stopListViewportHeight,
@@ -737,7 +751,7 @@ export default function TransportRouteReviewMapShell({
             if (idx < 0) {
                 return;
             }
-            const rowTop = idx * stopListUnitHeight;
+            const rowTop = insertAtStartGapHeight + idx * stopListUnitHeight;
             const rowBottom = rowTop + stopListRowHeight;
             const viewport = stopListScrollRef.current;
             const viewTop = viewport.scrollTop;
@@ -751,7 +765,15 @@ export default function TransportRouteReviewMapShell({
         document
             .getElementById(`review-map-stop-${selectedRouteStopId}`)
             ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-    }, [open, selectedRouteStopId, stopListRowHeight, stopListUnitHeight, stops, virtualizeStopList]);
+    }, [
+        insertAtStartGapHeight,
+        open,
+        selectedRouteStopId,
+        stopListRowHeight,
+        stopListUnitHeight,
+        stops,
+        virtualizeStopList,
+    ]);
 
     useEffect(() => {
         if (!open) {
@@ -1096,6 +1118,11 @@ export default function TransportRouteReviewMapShell({
         />
     );
 
+    const renderInsertAtStartGap = () =>
+        onInsertAtStart && showStopSequenceActions
+            ? renderStopInsertGap("Insert stop at start", onInsertAtStart)
+            : null;
+
     const renderStopWithGap = (stop: TransportRouteStopItem, stopIndex: number) => (
         <Fragment key={stop.id}>
             {renderStopRow(stop, stopIndex)}
@@ -1209,6 +1236,7 @@ export default function TransportRouteReviewMapShell({
                         onGeneratePathFromStops={onGeneratePathFromStops}
                         generatePathDisabled={generatePathDisabled}
                         generatePathTitle={generatePathTitle}
+                        generatePathButtonLabel={generatePathCopy.buttonLabel}
                         onEnterEditPath={onEnterEditPath}
                         editPathDisabled={editPathDisabled}
                         editPathTitle={editPathTitle}
@@ -1258,6 +1286,7 @@ export default function TransportRouteReviewMapShell({
                                     onGeneratePathFromStops={onGeneratePathFromStops}
                                     generatePathDisabled={generatePathDisabled}
                                     generatePathTitle={generatePathTitle}
+                                    generatePathButtonLabel={generatePathCopy.buttonLabel}
                                     onEnterEditPath={onEnterEditPath}
                                     editPathDisabled={editPathDisabled}
                                     editPathTitle={editPathTitle}
@@ -1293,6 +1322,37 @@ export default function TransportRouteReviewMapShell({
                         <span className="text-xs text-pink-800">No vertex selected</span>
                     )}
                     <div className="ml-auto flex flex-wrap items-center gap-2">
+                        {onAddPathVertex ? (
+                            <button
+                                type="button"
+                                onClick={onAddPathVertex}
+                                disabled={
+                                    !canWrite ||
+                                    pathEditLoading ||
+                                    selectedPathVertexIndex === null ||
+                                    (pathEditDraftCoords?.length ?? 0) < 2
+                                }
+                                title={
+                                    selectedPathVertexIndex === null
+                                        ? "Select a vertex first"
+                                        : "Insert a vertex at the midpoint of the next segment"
+                                }
+                                className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                                Add vertex
+                            </button>
+                        ) : null}
+                        {onUndoPathEdit ? (
+                            <button
+                                type="button"
+                                onClick={onUndoPathEdit}
+                                disabled={!canWrite || pathEditLoading || !canUndoPathEdit}
+                                title="Undo the last path edit"
+                                className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                                Undo
+                            </button>
+                        ) : null}
                         {onDeleteSelectedPathVertex ? (
                             <button
                                 type="button"
@@ -1616,6 +1676,9 @@ export default function TransportRouteReviewMapShell({
                                             transform: `translateY(${virtualStopWindow.offsetY}px)`,
                                         }}
                                     >
+                                        {virtualStopWindow.start === 0
+                                            ? renderInsertAtStartGap()
+                                            : null}
                                         {stops
                                             .slice(virtualStopWindow.start, virtualStopWindow.end)
                                             .map((stop, sliceIndex) => {
@@ -1626,7 +1689,12 @@ export default function TransportRouteReviewMapShell({
                                     </div>
                                 </div>
                             ) : (
-                                stops.map((stop, stopIndex) => renderStopWithGap(stop, stopIndex))
+                                <>
+                                    {renderInsertAtStartGap()}
+                                    {stops.map((stop, stopIndex) =>
+                                        renderStopWithGap(stop, stopIndex),
+                                    )}
+                                </>
                             )}
                         </div>
                     )}
