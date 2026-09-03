@@ -1,12 +1,21 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 
 import { expandSearchEntityTypeFilters } from "../search/transport-search-entity.js";
+import {
+    searchOverlayActiveCondition,
+    sqlSearchOverlayVisible,
+} from "../transport/transport-search-overlay-visibility.js";
 import type { PublicSearchCursorAfter } from "./public-search-cursor.js";
 import {
     buildPublicSearchFilterSql,
     type ResolvedPublicSearchFilters,
 } from "./public-search-filters.js";
-import { buildUnifiedSearchScoreSql, resolveFuzzySimilarityThreshold } from "./public-search-ranking.js";
+import {
+    buildNumericTransportRouteExactSql,
+    buildUnifiedSearchScoreSql,
+    resolveFuzzySimilarityThreshold,
+} from "./public-search-ranking.js";
+import { isNumericTransportQuery } from "./fold-search-code.js";
 import {
     buildPublicSearchMatchedNameLanguageOrderSql,
     normalizePublicSearchLang,
@@ -150,6 +159,15 @@ export type UnifiedSearchParams = {
  */
 export function splitSearchTokens(qNorm: string): string[] {
     return qNorm.trim().split(/\s+/).filter((t) => t.length > 0);
+}
+
+/**
+ * Route variants are implementation/detail rows for normal public searches.
+ * Only expose them when the user explicitly asks for a canonical D0/D1
+ * direction token, including compact codes such as `YBS-13-D1`.
+ */
+export function allowsTransportRouteVariantResults(query: string): boolean {
+    return /(?:^|[^a-z0-9])d[01](?:$|[^a-z0-9])/i.test(query.trim());
 }
 
 /** Escape LIKE/ILIKE metacharacters so query tokens can't inject wildcards. */
@@ -841,6 +859,9 @@ export class PublicMapRepository {
         const qNorm = params.q.trim().toLowerCase();
         const prefix = `${qNorm}%`;
         const isPrefixMode = params.mode === "prefix";
+        const routeVariantVisibilityFilter = allowsTransportRouteVariantResults(qNorm)
+            ? Prisma.empty
+            : Prisma.sql`AND d.entity_type NOT IN ('transport_route_variant', 'bus_route_variant')`;
         const hasRef =
             params.lat !== undefined &&
             params.lng !== undefined &&
@@ -890,6 +911,7 @@ export class PublicMapRepository {
             : null;
 
         const fuzzyThreshold = resolveFuzzySimilarityThreshold(qNorm, isPrefixMode ? "prefix" : "full");
+        const numericTransportIntent = isNumericTransportQuery(qNorm);
 
         const scoreSql = buildUnifiedSearchScoreSql({
             qNorm,
@@ -920,6 +942,7 @@ export class PublicMapRepository {
             ${sqlFilters.entityTypeFilter}
             ${sqlFilters.transportModeFilter}
             ${sqlFilters.transportStopTypeFilter}
+            ${routeVariantVisibilityFilter}
         `;
 
         const aliasCandidateMatch = isPrefixMode
@@ -932,6 +955,20 @@ export class PublicMapRepository {
                   OR n.normalized_name LIKE ${prefix}
                   OR n.normalized_name % ${qNorm}
               )`;
+
+        const numericTransportCandidateBranch = numericTransportIntent
+            ? Prisma.sql`
+                  (
+                      SELECT d.id
+                      FROM search.search_documents d
+                      WHERE ${candidateFilters}
+                        AND ${buildNumericTransportRouteExactSql(qNorm)}
+                      ORDER BY COALESCE(d.importance_score, 0) DESC, d.id ASC
+                      LIMIT 50
+                  )
+                  UNION ALL
+              `
+            : Prisma.empty;
 
         // Keep candidate generation as separate index-backed branches. A single
         // large OR (especially `similarity(...) >= threshold`) made Postgres
@@ -946,6 +983,7 @@ export class PublicMapRepository {
                   LIMIT ${PUBLIC_SEARCH_FUZZY_CANDIDATE_LIMIT}
               `
             : Prisma.sql`
+                  ${numericTransportCandidateBranch}
                   (
                       SELECT d.id
                       FROM search.search_documents d
@@ -1415,16 +1453,12 @@ export class PublicMapRepository {
                 AND EXISTS (
                     SELECT 1 FROM transport.routes r
                     WHERE r.id = ${BigInt(entityId)}
-                      AND r.is_active = true
-                      AND r.deleted_at IS NULL
-                      AND r.review_status IN ('reviewed', 'verified')
+                      AND ${sqlSearchOverlayVisible("r")}
                 )`
             : Prisma.sql`v.route_id = (
                   SELECT r.id FROM transport.routes r
                   WHERE r.public_id = ${entityId}::uuid
-                    AND r.is_active = true
-                    AND r.deleted_at IS NULL
-                    AND r.review_status IN ('reviewed', 'verified')
+                    AND ${sqlSearchOverlayVisible("r")}
               )`;
         const tolerance = simplifyToleranceDeg;
 
@@ -1434,13 +1468,9 @@ export class PublicMapRepository {
                 FROM transport.route_variants v
                 JOIN transport.route_paths rp
                   ON rp.route_variant_id = v.id
-                 AND rp.is_active = true
-                 AND rp.deleted_at IS NULL
-                 AND rp.review_status IN ('reviewed', 'verified')
+                 AND ${sqlSearchOverlayVisible("rp")}
                 WHERE ${routeMatch}
-                  AND v.is_active = true
-                  AND v.deleted_at IS NULL
-                  AND v.review_status IN ('reviewed', 'verified')
+                  AND ${sqlSearchOverlayVisible("v")}
                   AND rp.geom IS NOT NULL
                   AND NOT ST_IsEmpty(rp.geom)
             ),
@@ -1504,12 +1534,8 @@ export class PublicMapRepository {
                         ? Prisma.sql`v.id = ${BigInt(entityId)}`
                         : Prisma.sql`v.public_id = ${entityId}::uuid`
                 }
-                  AND v.is_active = true
-                  AND v.deleted_at IS NULL
-                  AND v.review_status IN ('reviewed', 'verified')
-                  AND r.is_active = true
-                  AND r.deleted_at IS NULL
-                  AND r.review_status IN ('reviewed', 'verified')
+                  AND ${sqlSearchOverlayVisible("v")}
+                  AND ${sqlSearchOverlayVisible("r")}
                 LIMIT 1
             `
             : Prisma.sql`
@@ -1522,9 +1548,7 @@ export class PublicMapRepository {
                         ? Prisma.sql`r.id = ${BigInt(entityId)}`
                         : Prisma.sql`r.public_id = ${entityId}::uuid`
                 }
-                  AND r.is_active = true
-                  AND r.deleted_at IS NULL
-                  AND r.review_status IN ('reviewed', 'verified')
+                  AND ${sqlSearchOverlayVisible("r")}
                 LIMIT 1
             `;
 
@@ -1546,9 +1570,7 @@ export class PublicMapRepository {
                                 SELECT v2.id
                                 FROM transport.route_variants v2
                                 WHERE v2.route_id = ctx.route_id
-                                  AND v2.is_active = true
-                                  AND v2.deleted_at IS NULL
-                                  AND v2.review_status IN ('reviewed', 'verified')
+                                  AND ${sqlSearchOverlayVisible("v2")}
                                 ORDER BY v2.variant_code, v2.id
                                 LIMIT 1
                             )
@@ -1557,9 +1579,7 @@ export class PublicMapRepository {
                 FROM transport.route_variants v
                 CROSS JOIN ctx
                 WHERE v.route_id = ctx.route_id
-                  AND v.is_active = true
-                  AND v.deleted_at IS NULL
-                  AND v.review_status IN ('reviewed', 'verified')
+                  AND ${sqlSearchOverlayVisible("v")}
             ),
             focus_variant AS (
                 SELECT *
@@ -1572,9 +1592,7 @@ export class PublicMapRepository {
                 FROM focus_variant fv
                 JOIN transport.route_paths rp
                   ON rp.route_variant_id = fv.id
-                 AND rp.is_active = true
-                 AND rp.deleted_at IS NULL
-                 AND rp.review_status IN ('reviewed', 'verified')
+                 AND ${sqlSearchOverlayVisible("rp")}
                  AND rp.geom IS NOT NULL
                  AND NOT ST_IsEmpty(rp.geom)
                 ORDER BY CASE WHEN rp.path_kind = 'primary' THEN 0 ELSE 1 END, rp.id
@@ -1603,9 +1621,7 @@ export class PublicMapRepository {
                   ON rs.route_variant_id = fv.id
                 JOIN transport.stops s
                   ON s.id = rs.stop_id
-                 AND s.is_active = true
-                 AND s.deleted_at IS NULL
-                 AND s.review_status IN ('reviewed', 'verified')
+                 AND ${sqlSearchOverlayVisible("s")}
                  AND s.geom IS NOT NULL
             )
             SELECT
@@ -1690,7 +1706,8 @@ export type GeometryEntityType =
     | "building"
     | "water_line"
     | "water_polygon"
-    | "land_area";
+    | "land_area"
+    | "landuse";
 
 /**
  * Geometry of an entity assembled by collecting many underlying rows (a grouped
@@ -1765,8 +1782,7 @@ const GEOMETRY_SOURCES: Record<
     bus_stop: {
         from: "transport.stops s",
         geomExpr: "s.geom",
-        activeCondition:
-            "s.is_active = true AND s.deleted_at IS NULL AND s.review_status IN ('reviewed', 'verified')",
+        activeCondition: searchOverlayActiveCondition("s"),
         idColumn: "s.id",
         publicIdColumn: "s.public_id",
         pointLike: true,
@@ -1774,8 +1790,7 @@ const GEOMETRY_SOURCES: Record<
     transport_stop: {
         from: "transport.stops s",
         geomExpr: "s.geom",
-        activeCondition:
-            "s.is_active = true AND s.deleted_at IS NULL AND s.review_status IN ('reviewed', 'verified')",
+        activeCondition: searchOverlayActiveCondition("s"),
         idColumn: "s.id",
         publicIdColumn: "s.public_id",
         pointLike: true,
@@ -1783,8 +1798,7 @@ const GEOMETRY_SOURCES: Record<
     transport_terminal: {
         from: "transport.terminals t",
         geomExpr: "t.geom",
-        activeCondition:
-            "t.is_active = true AND t.deleted_at IS NULL AND t.review_status IN ('reviewed', 'verified')",
+        activeCondition: searchOverlayActiveCondition("t"),
         idColumn: "t.id",
         publicIdColumn: "t.public_id",
         pointLike: true,
@@ -1814,11 +1828,10 @@ const GEOMETRY_SOURCES: Record<
         from: "transport.route_variants v",
         geomExpr:
             "(SELECT rp.geom FROM transport.route_paths rp " +
-            "WHERE rp.route_variant_id = v.id AND rp.is_active = true AND rp.deleted_at IS NULL " +
-            "AND rp.review_status IN ('reviewed', 'verified') " +
-            "ORDER BY CASE WHEN rp.path_kind = 'primary' THEN 0 ELSE 1 END, rp.id ASC LIMIT 1)",
-        activeCondition:
-            "v.is_active = true AND v.deleted_at IS NULL AND v.review_status IN ('reviewed', 'verified')",
+            "WHERE rp.route_variant_id = v.id AND " +
+            searchOverlayActiveCondition("rp") +
+            " ORDER BY CASE WHEN rp.path_kind = 'primary' THEN 0 ELSE 1 END, rp.id ASC LIMIT 1)",
+        activeCondition: searchOverlayActiveCondition("v"),
         idColumn: "v.id",
         publicIdColumn: "v.public_id",
         pointLike: false,
@@ -1827,11 +1840,10 @@ const GEOMETRY_SOURCES: Record<
         from: "transport.route_variants v",
         geomExpr:
             "(SELECT rp.geom FROM transport.route_paths rp " +
-            "WHERE rp.route_variant_id = v.id AND rp.is_active = true AND rp.deleted_at IS NULL " +
-            "AND rp.review_status IN ('reviewed', 'verified') " +
-            "ORDER BY CASE WHEN rp.path_kind = 'primary' THEN 0 ELSE 1 END, rp.id ASC LIMIT 1)",
-        activeCondition:
-            "v.is_active = true AND v.deleted_at IS NULL AND v.review_status IN ('reviewed', 'verified')",
+            "WHERE rp.route_variant_id = v.id AND " +
+            searchOverlayActiveCondition("rp") +
+            " ORDER BY CASE WHEN rp.path_kind = 'primary' THEN 0 ELSE 1 END, rp.id ASC LIMIT 1)",
+        activeCondition: searchOverlayActiveCondition("v"),
         idColumn: "v.id",
         publicIdColumn: "v.public_id",
         pointLike: false,
@@ -1861,6 +1873,14 @@ const GEOMETRY_SOURCES: Record<
         pointLike: false,
     },
     land_area: {
+        from: "core.core_land_areas lu",
+        geomExpr: "lu.geom",
+        activeCondition: "lu.is_active = true AND lu.deleted_at IS NULL",
+        idColumn: "lu.id",
+        publicIdColumn: "lu.public_id",
+        pointLike: false,
+    },
+    landuse: {
         from: "core.core_land_areas lu",
         geomExpr: "lu.geom",
         activeCondition: "lu.is_active = true AND lu.deleted_at IS NULL",

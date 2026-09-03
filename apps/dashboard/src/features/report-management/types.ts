@@ -4,7 +4,10 @@ export type ReportStatusCode =
     | "needs_more_info"
     | "accepted"
     | "rejected"
-    | "duplicate";
+    | "duplicate"
+    | "resolved";
+
+export type ReportSourceCode = "public" | "field_survey";
 
 export type ReportTypeCode =
     | "wrong_info"
@@ -22,7 +25,11 @@ export type ReportTargetEntityType =
     | "building"
     | "bus_stop"
     | "bus_route"
-    | "map_point";
+    | "map_point"
+    | "stop"
+    | "route"
+    | "variant"
+    | "path";
 
 export type RewardReasonCode =
     | "valid_report"
@@ -59,6 +66,45 @@ export type AdminReport = {
     updated_at: string;
     anonymous_id: string | null;
     author: { public_id: string; display_name: string | null; email: string } | null;
+    source_code: ReportSourceCode;
+    observed_at: string | null;
+    location_accuracy_m: number | null;
+    field: FieldReportContext | null;
+    canonical_target: { latitude: number; longitude: number } | null;
+    distance_m: number | null;
+    media_count: number;
+};
+
+export type ReportMediaEvidence = {
+    publicId: string;
+    mimeType: string;
+    byteSize: number;
+    width: number | null;
+    height: number | null;
+    note: string | null;
+    sortOrder: number;
+    published: boolean;
+};
+
+export type MediaAccess = {
+    publicId: string;
+    mimeType: string;
+    byteSize: number;
+    method: "GET";
+    url: string;
+    expiresAt: string;
+};
+
+export type FieldReportContext = {
+    route_code: string | null;
+    route_public_id: string | null;
+    variant_code: string | null;
+    variant_public_id: string | null;
+    stop_public_id: string | null;
+    stop_name: string | null;
+    stop_sequence: number | null;
+    snapshot_revision: string | null;
+    canonical_snapshot: unknown | null;
 };
 
 export type ReportStatusEvent = {
@@ -79,6 +125,7 @@ export type ReportFollowup = {
 export type AdminReportDetail = AdminReport & {
     status_events: ReportStatusEvent[];
     followups: ReportFollowup[];
+    media: ReportMediaEvidence[];
 };
 
 export type AdminReportList = {
@@ -127,6 +174,9 @@ export type ReportsListFilters = {
     type?: ReportTypeCode;
     adminAreaId?: number;
     targetEntityType?: ReportTargetEntityType;
+    source?: ReportSourceCode;
+    routeCode?: string;
+    variantCode?: "D0" | "D1";
     anonymous?: boolean;
     createdFrom?: string;
     createdTo?: string;

@@ -332,7 +332,7 @@ export const getPlaceByIdSchema = {
 export const postPlacesSchema = {
     tags: [Tags.Places],
     summary: "Create place",
-    description: "Requires admin or editor role. At least one of `myanmarName` or `englishName` must be provided.",
+    description: "Requires dashboard write access (admin or super_admin). At least one of `myanmarName` or `englishName` must be provided.",
     security: [...bearerAuth],
     body: createPlaceBodySchema,
     response: {

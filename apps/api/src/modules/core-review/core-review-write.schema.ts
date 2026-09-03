@@ -17,8 +17,6 @@ import { coreReviewVerificationWriteFields } from "./core-review-verification-wr
 import { STREET_TRAVEL_DIRECTIONS } from "../streets/streets-direction.js";
 import { SETTLEMENT_TYPE_CODES } from "./entities/settlements.constants.js";
 
-export const EDIT_CORE_REVIEW_ROLES = new Set(["admin", "editor"]);
-
 const optionalTrimmedString = z.preprocess((value) => {
     if (value === undefined || value === null || value === "") return undefined;
     if (typeof value === "string") {

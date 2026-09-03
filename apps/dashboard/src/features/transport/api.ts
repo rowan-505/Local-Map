@@ -941,7 +941,7 @@ export function deleteTransportVariantPath(
 
 /**
  * Generate a road-following route path from the variant's ordered stop locations.
- * Backend replaces the active path for this variant. Returns 501 until implemented.
+ * Backend replaces the active path for this variant.
  */
 export function generateTransportVariantPathFromStops(
     variantPublicId: string,

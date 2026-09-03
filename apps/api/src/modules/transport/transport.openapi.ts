@@ -2547,13 +2547,14 @@ export const postGeneratePathFromStopsSchema = {
         "(all route_stop occurrences, including circular loop closure), replaces the active " +
         "route_paths row for this variant, and returns the new geometry.",
     security: [...bearerAuth],
-    params: routeVariantsParamSchema,
+    params: publicIdParamSchema,
     response: {
         200: generatePathFromStopsResultSchema,
+        400: badRequestSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
         404: notFoundSchema,
-        501: { type: "object", properties: { message: { type: "string" } } },
+        503: { type: "object", properties: { message: { type: "string" } } },
     },
 } satisfies FastifySchema;
 

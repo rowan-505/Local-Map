@@ -15,14 +15,11 @@ import { buildPublicSearchPage } from "./public-map.service.js";
 import type { UnifiedSearchRow } from "./public-map.repo.js";
 
 describe("resolvePublicSearchFilters", () => {
-    it("all category preserves the full default entity surface", () => {
+    it("all category expands land_area to include legacy landuse index rows", () => {
         const filters = resolvePublicSearchFilters({ category: "all" });
-        assert.ok(filters.entityTypes.includes("place"));
-        assert.ok(filters.entityTypes.includes("settlement"));
-        assert.ok(filters.entityTypes.includes("transport_stop"));
-        assert.ok(filters.entityTypes.includes("building"));
-        assert.equal(filters.transportModeFilter, null);
-        assert.equal(filters.transportStopTypes, null);
+        assert.ok(filters.entityTypes.includes("land_area"));
+        assert.ok(filters.expandedEntityTypes.includes("land_area"));
+        assert.ok(filters.expandedEntityTypes.includes("landuse"));
     });
 
     it("places category includes POIs and canonical settlements", () => {

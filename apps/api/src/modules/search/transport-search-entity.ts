@@ -119,10 +119,16 @@ export function expandTransportSearchEntityTypeFilter(value: string): string[] {
 export function expandSearchEntityTypeFilters(types: readonly string[]): string[] {
     const expanded = new Set<string>();
     for (const type of types) {
+        const normalized = type.trim().toLowerCase();
+        if (normalized === "land_area" || normalized === "landuse") {
+            expanded.add("land_area");
+            expanded.add("landuse");
+            continue;
+        }
         for (const value of expandTransportSearchEntityTypeFilter(type)) {
             expanded.add(value);
         }
-        expanded.add(type.trim().toLowerCase());
+        expanded.add(normalized);
     }
     return [...expanded];
 }

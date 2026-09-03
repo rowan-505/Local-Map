@@ -3,6 +3,7 @@ import type {
     AdminReport,
     AdminReportDetail,
     AdminReportList,
+    MediaAccess,
     ReportAnalyticsSummary,
     ReportAnonymousCount,
     ReportCodeCount,
@@ -21,6 +22,9 @@ export function listReports(filters: ReportsListFilters = {}, init?: Signal) {
     if (filters.type) sp.set("type", filters.type);
     if (filters.adminAreaId !== undefined) sp.set("adminAreaId", String(filters.adminAreaId));
     if (filters.targetEntityType) sp.set("targetEntityType", filters.targetEntityType);
+    if (filters.source) sp.set("source", filters.source);
+    if (filters.routeCode) sp.set("routeCode", filters.routeCode);
+    if (filters.variantCode) sp.set("variantCode", filters.variantCode);
     if (filters.anonymous !== undefined) sp.set("anonymous", String(filters.anonymous));
     if (filters.createdFrom) sp.set("createdFrom", filters.createdFrom);
     if (filters.createdTo) sp.set("createdTo", filters.createdTo);
@@ -38,6 +42,29 @@ export function getReport(id: string, init?: Signal) {
     return apiFetch<AdminReportDetail>(`/admin/reports/${encodeURIComponent(id)}`, {
         method: "GET",
         ...init,
+    });
+}
+
+export function getPrivateMediaAccess(assetPublicId: string, init?: Signal) {
+    return apiFetch<MediaAccess>(`/admin/media/${encodeURIComponent(assetPublicId)}/access`, {
+        method: "GET",
+        ...init,
+    });
+}
+
+export type PublishStopPhotoBody = {
+    rotateDegrees?: 0 | 90 | 180 | 270;
+    crop?: { x: number; y: number; width: number; height: number } | null;
+    blurRects?: { x: number; y: number; width: number; height: number }[];
+    note?: string | null;
+    isPrimary?: boolean;
+};
+
+export function publishStopPhoto(assetPublicId: string, body: PublishStopPhotoBody) {
+    return apiFetch(`/admin/media/${encodeURIComponent(assetPublicId)}/publish-stop`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
     });
 }
 

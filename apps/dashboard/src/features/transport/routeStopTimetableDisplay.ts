@@ -1,13 +1,15 @@
 import {
-    TRANSPORT_TIME_EMPTY_DISPLAY,
     calculateVariantTimetableSchedule,
+    type TimetableStopInput,
+    type VariantTimetableStopSchedule,
+} from "@local-map/transport-timetable";
+import {
+    TRANSPORT_TIME_EMPTY_DISPLAY,
     formatCanonicalTimeForDisplay,
     hasExplicitVariantDepartureTime,
     resolveVariantDepartureAnchor,
     validateCanonicalTime,
-    type TimetableStopInput,
-    type VariantTimetableStopSchedule,
-} from "@local-map/transport-timetable";
+} from "@local-map/transport-timetable/transport-time";
 import {
     ROUTE_STOP_TRAVEL_PLACEHOLDER,
     formatTravelFromPrevious,
@@ -36,9 +38,12 @@ export type RouteStopRowTimingDisplay = {
 export type { VariantTimetableStopSchedule, TimetableStopInput };
 
 export {
+    calculateVariantTimetableSchedule,
+    variantTimetableScheduleToOffsets,
+} from "@local-map/transport-timetable";
+export {
     TRANSPORT_TIME_EMPTY_DISPLAY,
     addSecondsToCanonicalTime,
-    calculateVariantTimetableSchedule,
     formatCanonicalTimeForDisplay,
     hasExplicitVariantDepartureTime,
     isValidTransportTimeInput,
@@ -46,9 +51,8 @@ export {
     parseTimeInputToCanonical,
     resolveVariantDepartureAnchor,
     validateCanonicalTime,
-    variantTimetableScheduleToOffsets,
     type CanonicalTimeCalculation,
-} from "@local-map/transport-timetable";
+} from "@local-map/transport-timetable/transport-time";
 
 function clockTimeOrPlaceholder(clockTime: string | null): string {
     return clockTime ?? TRANSPORT_TIME_EMPTY_DISPLAY;

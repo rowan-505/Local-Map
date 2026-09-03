@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import type { PrismaClient } from "@prisma/client";
+
 import {
+    allowsTransportRouteVariantResults,
     escapeLikeToken,
+    PublicMapRepository,
     splitSearchTokens,
     type UnifiedSearchRow,
 } from "./public-map.repo.js";
@@ -10,6 +14,7 @@ import {
     clampUnifiedSearchLimit,
     coordinatePinResult,
     parseCoordinate,
+    planPublicSearch,
     serializePublicSearchHit,
     serializeUnifiedSearchResult,
 } from "./public-map.service.js";
@@ -47,6 +52,105 @@ function makeRow(overrides: Partial<UnifiedSearchRow> = {}): UnifiedSearchRow {
         ...overrides,
     };
 }
+
+async function captureUnifiedSearchSql(query: string): Promise<string> {
+    const capturedQueries: Array<{ strings: readonly string[] }> = [];
+    const tx = {
+        $executeRawUnsafe: async () => 0,
+        $queryRaw: async <T>(sql: { strings: readonly string[] }): Promise<T> => {
+            capturedQueries.push(sql);
+            return [] as T;
+        },
+    };
+    const prisma = {
+        $transaction: async <T>(callback: (client: typeof tx) => Promise<T>): Promise<T> =>
+            callback(tx),
+    } as unknown as PrismaClient;
+
+    const repo = new PublicMapRepository(prisma);
+    const plan = planPublicSearch(query);
+    assert.equal(plan.allowed, true);
+    if (!plan.allowed) throw new Error("expected an allowed public search query");
+    await repo.searchUnifiedDocuments({ q: query, mode: plan.mode, limit: 20 });
+
+    const capturedSql = capturedQueries.at(-1);
+    assert.ok(capturedSql, "expected the unified search SQL to be executed");
+    return capturedSql.strings.join("?");
+}
+
+describe("numeric transport query planning", () => {
+    it("keeps one-character queries blocked and ordinary two-character text in prefix mode", () => {
+        assert.deepEqual(planPublicSearch("1"), { allowed: false });
+        assert.deepEqual(planPublicSearch("ab"), { allowed: true, mode: "prefix" });
+    });
+
+    it("runs digit-only queries of length two or more in full mode", () => {
+        for (const query of ["13", "37", "100", "113"]) {
+            assert.deepEqual(planPublicSearch(query), { allowed: true, mode: "full" });
+        }
+    });
+
+    it("keeps route-code and explicit variant queries in normal full mode", () => {
+        for (const query of ["ybs-13", "YBS 13", "YBS 13 D0"]) {
+            assert.deepEqual(planPublicSearch(query), { allowed: true, mode: "full" });
+        }
+    });
+
+    it("adds the exact-number candidate branch only for numeric transport intent", async () => {
+        for (const query of ["13", "37", "100", "113"]) {
+            const numericSql = await captureUnifiedSearchSql(query);
+            assert.match(numericSql, /d\.entity_type IN \('transport_route', 'bus_route'\)/);
+            assert.match(
+                numericSql,
+                /right\(lower\(btrim\(d\.code\)\), length\(\?\) \+ 1\)/,
+            );
+        }
+
+        const normalSql = await captureUnifiedSearchSql("ybs-13");
+        assert.doesNotMatch(
+            normalSql,
+            /right\(lower\(btrim\(d\.code\)\), length\(\?\) \+ 1\)/,
+        );
+    });
+});
+
+describe("canonical transport route result shaping", () => {
+    it("suppresses route variants for normal route queries", async () => {
+        for (const query of ["13", "ybs-13", "YBS 13"]) {
+            assert.equal(allowsTransportRouteVariantResults(query), false);
+            const sql = await captureUnifiedSearchSql(query);
+            assert.match(
+                sql,
+                /d\.entity_type NOT IN \('transport_route_variant', 'bus_route_variant'\)/,
+            );
+        }
+    });
+
+    it("allows route variants for explicit D0/D1 queries", async () => {
+        for (const query of ["YBS 13 D0", "YBS-13-D1", "d0", "D1"]) {
+            assert.equal(allowsTransportRouteVariantResults(query), true);
+            const sql = await captureUnifiedSearchSql(query);
+            assert.doesNotMatch(
+                sql,
+                /d\.entity_type NOT IN \('transport_route_variant', 'bus_route_variant'\)/,
+            );
+        }
+    });
+
+    it("does not treat embedded D0/D1-like text as an explicit variant query", () => {
+        assert.equal(allowsTransportRouteVariantResults("D01"), false);
+        assert.equal(allowsTransportRouteVariantResults("ROAD0"), false);
+        assert.equal(allowsTransportRouteVariantResults("YBS 13 D10"), false);
+    });
+
+    it("keeps other entity types and alias candidate deduplication unchanged", async () => {
+        const sql = await captureUnifiedSearchSql("yangon");
+        assert.match(sql, /FROM search\.search_document_names n/);
+        assert.match(sql, /candidate_ids AS MATERIALIZED/);
+        assert.match(sql, /GROUP BY id/);
+        assert.doesNotMatch(sql, /lower\(btrim\(scored\.display_name\)\)/);
+    });
+});
 
 describe("clampUnifiedSearchLimit", () => {
     it("defaults to 20 when undefined or non-finite", () => {

@@ -1,6 +1,7 @@
 import {
     BarChart3,
     Bus,
+    CircleUser,
     ClipboardList,
     Coins,
     Flag,
@@ -16,6 +17,7 @@ import {
 import { listImportReviewNavEntityConfigs } from "@/src/features/import-review/config";
 
 import {
+    accountPath,
     coreReviewPath,
     importReviewPath,
     pointManagementPath,
@@ -30,6 +32,7 @@ import {
 } from "@/src/lib/dashboardPaths";
 
 export {
+    ACCOUNT_PATH,
     CORE_REVIEW_PATH,
     DASHBOARD_PATH,
     IMPORT_REVIEW_PATH,
@@ -41,6 +44,7 @@ export {
     TRANSPORT_PATH,
     USERS_PATH,
     USER_ANALYTICS_PATH,
+    accountPath,
     coreReviewPath,
     importReviewPath,
     pointManagementPath,
@@ -64,7 +68,8 @@ export type DashboardSidebarModuleKey =
     | "reports"
     | "users"
     | "user-analytics"
-    | "point-management";
+    | "point-management"
+    | "account";
 
 export type FamilyNavTab = {
     label: string;
@@ -88,6 +93,7 @@ export const viewerDashboardModules: ReadonlySet<DashboardSidebarModuleKey> = ne
     "stats",
     "transport",
     "search",
+    "account",
 ]);
 
 export function sidebarModuleFromPathname(pathname: string): DashboardSidebarModuleKey | null {
@@ -107,7 +113,8 @@ export function sidebarModuleFromPathname(pathname: string): DashboardSidebarMod
         key === "reports" ||
         key === "users" ||
         key === "user-analytics" ||
-        key === "point-management"
+        key === "point-management" ||
+        key === "account"
     ) {
         return key;
     }
@@ -186,6 +193,14 @@ export const userManagementSidebarItems: readonly DashboardSidebarItem[] = [
         Icon: Coins,
     },
 ];
+
+/** Signed-in profile and logout. Shown to every dashboard role, including viewers. */
+export const accountSidebarItem: DashboardSidebarItem = {
+    moduleKey: "account",
+    href: accountPath(),
+    label: "Account",
+    Icon: CircleUser,
+};
 
 /** Core review top nav. */
 export const coreReviewTabs: readonly FamilyNavTab[] = [

@@ -63,6 +63,34 @@ export function insertPathVertex(
     return { coords: next, newVertexIndex: segmentIndex + 1 };
 }
 
+/**
+ * Insert a midpoint vertex on the segment after the selected vertex.
+ * If the last vertex is selected, insert on the previous segment.
+ */
+export function insertMidpointVertexAfterSelection(
+    coords: readonly PathCoord[],
+    selectedIndex: number | null,
+): { coords: PathCoord[]; newVertexIndex: number } | null {
+    if (selectedIndex === null || coords.length < 2) {
+        return null;
+    }
+    if (selectedIndex < 0 || selectedIndex >= coords.length) {
+        return null;
+    }
+    const segmentIndex = selectedIndex >= coords.length - 1 ? coords.length - 2 : selectedIndex;
+    const from = coords[segmentIndex];
+    const to = coords[segmentIndex + 1];
+    if (!from || !to) {
+        return null;
+    }
+    return insertPathVertex(
+        coords,
+        segmentIndex,
+        (from[0] + to[0]) / 2,
+        (from[1] + to[1]) / 2,
+    );
+}
+
 function distSq(ax: number, ay: number, bx: number, by: number): number {
     const dx = ax - bx;
     const dy = ay - by;

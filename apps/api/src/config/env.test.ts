@@ -11,6 +11,14 @@ const ENV_KEYS = [
     "ROUTING_PUBLIC_PROFILES",
     "NODE_ENV",
     "PUBLIC_APP_URL",
+    "R2_ACCOUNT_ID",
+    "R2_ACCESS_KEY_ID",
+    "R2_SECRET_ACCESS_KEY",
+    "R2_ENDPOINT",
+    "R2_REGION",
+    "R2_MEDIA_PRIVATE_BUCKET",
+    "R2_MEDIA_PUBLIC_BUCKET",
+    "R2_MEDIA_PUBLIC_BASE_URL",
 ] as const;
 
 function snapshotEnv(): Record<string, string | undefined> {
@@ -28,6 +36,14 @@ function restoreEnv(snap: Record<string, string | undefined>) {
             delete process.env[key];
         } else {
             process.env[key] = value;
+        }
+    }
+}
+
+function clearR2Env() {
+    for (const key of ENV_KEYS) {
+        if (key.startsWith("R2_")) {
+            delete process.env[key];
         }
     }
 }
@@ -51,6 +67,7 @@ describe("loadApiEnv routing", () => {
         assert.equal(env.routing.valhallaBaseUrl, "http://localhost:8002");
         assert.equal(env.routing.requestTimeoutMs, 8000);
         assert.deepEqual(env.routing.publicProfiles, ["walk", "car", "motorcycle"]);
+        assert.equal(env.r2, null);
     });
 
     it("rejects unknown public profile", () => {
@@ -92,5 +109,47 @@ describe("loadApiEnv public app url", () => {
         delete process.env.PUBLIC_APP_URL;
 
         assert.throws(() => loadApiEnv(), /PUBLIC_APP_URL is required in production/);
+    });
+});
+
+describe("loadApiEnv R2 media", () => {
+    const previous = snapshotEnv();
+
+    afterEach(() => {
+        restoreEnv(previous);
+        resetApiEnvCacheForTests();
+    });
+
+    it("allows startup when R2 is unset", () => {
+        resetApiEnvCacheForTests();
+        clearR2Env();
+        const env = loadApiEnv();
+        assert.equal(env.r2, null);
+    });
+
+    it("rejects a partial R2 group", () => {
+        resetApiEnvCacheForTests();
+        clearR2Env();
+        process.env.R2_ACCOUNT_ID = "example-account";
+        assert.throws(() => loadApiEnv(), /Incomplete R2 media configuration/);
+    });
+
+    it("parses a complete R2 group without exposing extra fields", () => {
+        resetApiEnvCacheForTests();
+        clearR2Env();
+        process.env.R2_ACCOUNT_ID = "example-account";
+        process.env.R2_ACCESS_KEY_ID = "example-access";
+        process.env.R2_SECRET_ACCESS_KEY = "example-secret";
+        process.env.R2_ENDPOINT = "https://example.r2.cloudflarestorage.com/";
+        process.env.R2_REGION = "auto";
+        process.env.R2_MEDIA_PRIVATE_BUCKET = "coremap-media-private";
+        process.env.R2_MEDIA_PUBLIC_BUCKET = "coremap-media-public";
+        process.env.R2_MEDIA_PUBLIC_BASE_URL = "https://media.example.com/";
+
+        const env = loadApiEnv();
+        assert.equal(env.r2?.privateBucket, "coremap-media-private");
+        assert.equal(env.r2?.endpoint, "https://example.r2.cloudflarestorage.com");
+        assert.equal(env.r2?.publicBaseUrl, "https://media.example.com");
+        assert.equal(env.r2?.region, "auto");
     });
 });

@@ -1,5 +1,11 @@
 import { Prisma } from "@prisma/client";
 
+import {
+    foldSearchCode,
+    isExactNumericTransportRouteCode,
+    isNumericTransportQuery,
+} from "./fold-search-code.js";
+
 /** Match strategy from `planPublicSearch` — mirrored here to avoid a repo import cycle. */
 export type UnifiedSearchRankingMode = "prefix" | "full";
 
@@ -8,6 +14,8 @@ export type UnifiedSearchRankingMode = "prefix" | "full";
  * SQL score expressions are generated from these values — do not duplicate elsewhere.
  */
 export const UNIFIED_SEARCH_RANKING_WEIGHTS = {
+    /** Exact route-number intent must outrank generic entities containing the same digits. */
+    numericRouteExact: 300,
     codeExact: 100,
     nameExact: 80,
     /** Strong exact alias match (search_document_names), below primary name exact. */
@@ -52,6 +60,7 @@ export const UNIFIED_SEARCH_ENTITY_TYPE_WEIGHTS = {
     bus_stop: 2,
     building: 0,
     land_area: -2,
+    landuse: -2,
     water_line: -2,
     water_polygon: -2,
 } as const;
@@ -68,6 +77,7 @@ export const UNIFIED_SEARCH_REVIEW_QUALITY_WEIGHTS = {
 
 /** Per-component score breakdown for tests and admin diagnostics (not returned publicly). */
 export type UnifiedSearchScoreExplanation = {
+    numericRouteExactMatch: number;
     codeMatch: number;
     exactMatch: number;
     aliasExactMatch: number;
@@ -139,7 +149,12 @@ export function resolveFuzzySimilarityThreshold(
 }
 
 function hasExactCodeMatch(qNorm: string, doc: UnifiedSearchRankingDocument): boolean {
-    return normalizeOptionalText(doc.code) === qNorm;
+    const foldedQuery = foldSearchCode(qNorm);
+    const foldedCode = foldSearchCode(doc.code);
+    if (!foldedQuery || !foldedCode) {
+        return false;
+    }
+    return foldedCode === foldedQuery;
 }
 
 function hasExactNameMatch(qNorm: string, doc: UnifiedSearchRankingDocument): boolean {
@@ -169,6 +184,9 @@ export function hasStrongUnifiedSearchTextMatch(
     mode: UnifiedSearchRankingMode,
     doc: UnifiedSearchRankingDocument,
 ): boolean {
+    if (isExactNumericTransportRouteCode(qNorm, doc.entityType, doc.code)) {
+        return true;
+    }
     if (hasExactCodeMatch(qNorm, doc) || hasExactNameMatch(qNorm, doc)) {
         return true;
     }
@@ -215,6 +233,9 @@ export function isUnifiedSearchCandidateEligible(
         );
     }
     if (doc.allTokensMatch === true) {
+        return true;
+    }
+    if (isExactNumericTransportRouteCode(qNorm, doc.entityType, doc.code)) {
         return true;
     }
     if (hasExactCodeMatch(qNorm, doc) || hasExactNameMatch(qNorm, doc)) {
@@ -302,6 +323,7 @@ export function sumUnifiedSearchScoreExplanation(
     explanation: Omit<UnifiedSearchScoreExplanation, "finalScore">,
 ): number {
     return (
+        explanation.numericRouteExactMatch +
         explanation.codeMatch +
         explanation.exactMatch +
         explanation.aliasExactMatch +
@@ -333,6 +355,13 @@ export function explainUnifiedSearchScore(
     const fuzzyThreshold = resolveFuzzySimilarityThreshold(normalizedQuery, mode);
     const strongTextMatch = hasStrongUnifiedSearchTextMatch(normalizedQuery, mode, doc);
 
+    const numericRouteExactMatch = isExactNumericTransportRouteCode(
+        normalizedQuery,
+        doc.entityType,
+        doc.code,
+    )
+        ? weights.numericRouteExact
+        : 0;
     const codeMatch = hasExactCodeMatch(normalizedQuery, doc) ? weights.codeExact : 0;
     const exactMatch = hasExactNameMatch(normalizedQuery, doc) ? weights.nameExact : 0;
     const aliasExactMatch = hasAliasExactMatch(normalizedQuery, doc) ? weights.aliasExact : 0;
@@ -361,6 +390,7 @@ export function explainUnifiedSearchScore(
     );
 
     const partial = {
+        numericRouteExactMatch,
         codeMatch,
         exactMatch,
         aliasExactMatch,
@@ -380,6 +410,43 @@ export function explainUnifiedSearchScore(
         ...partial,
         finalScore: sumUnifiedSearchScoreExplanation(partial),
     };
+}
+
+/**
+ * SQL equivalent of `isExactNumericTransportRouteCode`. The delimiter boundary
+ * keeps 13 distinct from 113 while restricting the suffix checks to route rows.
+ */
+export function buildNumericTransportRouteExactSql(qNorm: string): Prisma.Sql {
+    if (!isNumericTransportQuery(qNorm)) {
+        return Prisma.sql`false`;
+    }
+
+    return Prisma.sql`(
+        d.entity_type IN ('transport_route', 'bus_route')
+        AND btrim(coalesce(d.code, '')) <> ''
+        AND (
+            lower(btrim(d.code)) = ${qNorm}
+            OR right(lower(btrim(d.code)), length(${qNorm}) + 1) IN (
+                ${`-${qNorm}`},
+                ${`_${qNorm}`},
+                ${` ${qNorm}`}
+            )
+        )
+    )`;
+}
+
+function buildCodeExactSql(qNorm: string): Prisma.Sql {
+    const folded = foldSearchCode(qNorm);
+    if (!folded) {
+        return Prisma.sql`false`;
+    }
+    return Prisma.sql`(
+        lower(coalesce(d.code, '')) = ${qNorm}
+        OR (
+            btrim(coalesce(d.code, '')) <> ''
+            AND regexp_replace(lower(btrim(d.code)), '[-_[:space:]]+', '', 'g') = ${folded}
+        )
+    )`;
 }
 
 function buildNameExactSql(qNorm: string): Prisma.Sql {
@@ -415,7 +482,7 @@ function buildStrongTextSql(
 ): Prisma.Sql {
     if (isPrefixMode) {
         return Prisma.sql`(
-            lower(d.code) = ${qNorm}
+            ${buildCodeExactSql(qNorm)}
             OR ${buildNameExactSql(qNorm)}
             OR ${buildPrefixSql(prefix)}
         )`;
@@ -426,7 +493,7 @@ function buildStrongTextSql(
         : Prisma.empty;
 
     return Prisma.sql`(
-        lower(d.code) = ${qNorm}
+        ${buildCodeExactSql(qNorm)}
         OR ${buildNameExactSql(qNorm)}
         OR ${buildAliasExactSql(qNorm)}
         OR ${buildPrefixSql(prefix)}
@@ -498,6 +565,7 @@ export function buildUnifiedSearchScoreSql(params: BuildUnifiedSearchScoreSqlPar
             WHEN 'bus_route_variant' THEN ${UNIFIED_SEARCH_ENTITY_TYPE_WEIGHTS.bus_route_variant}
             WHEN 'building' THEN ${UNIFIED_SEARCH_ENTITY_TYPE_WEIGHTS.building}
             WHEN 'land_area' THEN ${UNIFIED_SEARCH_ENTITY_TYPE_WEIGHTS.land_area}
+            WHEN 'landuse' THEN ${UNIFIED_SEARCH_ENTITY_TYPE_WEIGHTS.landuse}
             WHEN 'water_line' THEN ${UNIFIED_SEARCH_ENTITY_TYPE_WEIGHTS.water_line}
             WHEN 'water_polygon' THEN ${UNIFIED_SEARCH_ENTITY_TYPE_WEIGHTS.water_polygon}
             WHEN 'transport_stop' THEN CASE
@@ -533,7 +601,8 @@ export function buildUnifiedSearchScoreSql(params: BuildUnifiedSearchScoreSqlPar
     )`;
 
     return Prisma.sql`(
-                        (CASE WHEN lower(d.code) = ${qNorm} THEN ${w.codeExact} ELSE 0 END)
+                        (CASE WHEN ${buildNumericTransportRouteExactSql(qNorm)} THEN ${w.numericRouteExact} ELSE 0 END)
+                      + (CASE WHEN ${buildCodeExactSql(qNorm)} THEN ${w.codeExact} ELSE 0 END)
                       + (CASE WHEN ${buildNameExactSql(qNorm)} THEN ${w.nameExact} ELSE 0 END)
                       + (CASE
                             WHEN ${buildAliasExactSql(qNorm)}

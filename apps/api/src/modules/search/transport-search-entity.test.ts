@@ -23,6 +23,12 @@ test("expandSearchEntityTypeFilters includes legacy and canonical transport type
     assert.ok(expanded.includes("transport_route"));
 });
 
+test("expandSearchEntityTypeFilters expands land_area to include legacy landuse documents", () => {
+    const expanded = expandSearchEntityTypeFilters(["land_area"]);
+    assert.ok(expanded.includes("land_area"));
+    assert.ok(expanded.includes("landuse"));
+});
+
 test("readTransportSearchDocumentMetadata extracts mode and stop_type", () => {
     const metadata = readTransportSearchDocumentMetadata({
         mode: "train",

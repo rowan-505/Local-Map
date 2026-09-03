@@ -9,7 +9,10 @@ import {
     isGeneratedOsmTransportName,
     normalizeTransportNameInput,
 } from "../transport/transport-naming.js";
+import { getOptionalR2MediaEnv } from "../../config/env.js";
+import type { MediaRepository } from "../media/media.repo.js";
 import type {
+    PublicStopPhoto,
     PublicTransportStopDetail,
     PublicTransportTerminalDetail,
 } from "../transport/transport-public.types.js";
@@ -46,6 +49,7 @@ import {
     resolvePublicSearchDisplayName,
     type PublicSearchLang,
 } from "./public-search-language.js";
+import { isNumericTransportQuery } from "./fold-search-code.js";
 import { PUBLIC_SEARCH_ENTITY_TYPES, type SearchMapPreviewEntityType } from "./public-map.schema.js";
 import {
     BUS_ROUTE_PATH_CAP,
@@ -169,6 +173,7 @@ export class PublicMapService {
         /** Optional: powers the public admin-area (region) search used by the profile picker. */
         private readonly adminAreasRepo?: AdminAreasRepository,
         private readonly transportPublicService?: TransportPublicService,
+        private readonly mediaRepo?: MediaRepository,
     ) {}
 
     async searchAdminAreas(input: {
@@ -286,8 +291,32 @@ export class PublicMapService {
         return {
             ...detail,
             plus_code,
+            photos: await this.listPublicStopPhotos(detail.publicId),
             ...(address_line !== undefined ? { address_line } : {}),
         };
+    }
+
+    private async listPublicStopPhotos(stopPublicId: string): Promise<PublicStopPhoto[]> {
+        if (!this.mediaRepo) {
+            return [];
+        }
+        const publicBaseUrl = getOptionalR2MediaEnv()?.publicBaseUrl;
+        if (!publicBaseUrl) {
+            return [];
+        }
+        const rows = await this.mediaRepo.listActivePublicStopPhotos(stopPublicId);
+        return rows.map((row) => {
+            const detailUrl = `${publicBaseUrl}/${row.detail_object_key.replace(/^\/+/, "")}`;
+            const cardKey = row.card_object_key ?? row.detail_object_key;
+            return {
+                cardUrl: `${publicBaseUrl}/${cardKey.replace(/^\/+/, "")}`,
+                detailUrl,
+                width: row.width,
+                height: row.height,
+                isPrimary: row.is_primary,
+                note: row.note,
+            };
+        });
     }
 
     async getTransportTerminalById(
@@ -1695,7 +1724,8 @@ export function parseCoordinate(q: string): { lat: number; lng: number } | null 
 /**
  * Decide whether/how a normalized text query runs:
  * - length 0–1: blocked unless it looks like a Plus Code or coordinate.
- * - length 2: allowed, but `prefix` mode (no `%q%` trigram fuzzy search).
+ * - numeric length 2+: full search so route-number intent can be evaluated.
+ * - other length 2: allowed, but `prefix` mode (no `%q%` trigram fuzzy search).
  * - length 3+: full search.
  */
 export function planPublicSearch(q: string): PublicSearchPlan {
@@ -1707,6 +1737,10 @@ export function planPublicSearch(q: string): PublicSearchPlan {
             return { allowed: true, mode: "full" };
         }
         return { allowed: false };
+    }
+
+    if (isNumericTransportQuery(trimmed)) {
+        return { allowed: true, mode: "full" };
     }
 
     if (len === 2) {

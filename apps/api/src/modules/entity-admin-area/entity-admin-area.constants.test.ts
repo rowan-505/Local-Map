@@ -15,7 +15,7 @@ describe("entity admin area constants", () => {
     });
 
     it("only admin role may override geometry mismatch", () => {
-        assert.equal(canOverrideEntityAdminAreaGeometryMismatch(["editor"]), false);
+        assert.equal(canOverrideEntityAdminAreaGeometryMismatch(["viewer"]), false);
         assert.equal(canOverrideEntityAdminAreaGeometryMismatch(["admin"]), true);
     });
 });

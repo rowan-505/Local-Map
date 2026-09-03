@@ -16,6 +16,8 @@ export const Tags = {
     Ref: "Reference Data",
     Routing: "Routing",
     Transport: "Transport",
+    Field: "Field",
+    Media: "Media",
     Reports: "Reports",
     Share: "Share",
 } as const;

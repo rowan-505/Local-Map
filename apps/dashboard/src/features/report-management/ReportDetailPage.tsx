@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { isAbortError } from "@/src/lib/api";
 import { reportsPath } from "@/src/lib/dashboardPaths";
+import dynamic from "next/dynamic";
 
 import {
     changeReportStatus,
@@ -21,7 +22,14 @@ import {
     statusLabel,
     targetTypeLabel,
 } from "./constants";
+import { fieldRouteEditorHref, fieldStopEditorHref } from "./fieldReportLinks";
+import ReportEvidence from "./ReportEvidence";
 import type { AdminReportDetail, ReportStatusCode, RewardReasonCode } from "./types";
+
+const ReportLocationCompareMap = dynamic(() => import("./ReportLocationCompareMap"), {
+    ssr: false,
+    loading: () => <p className="text-sm text-gray-500">Loading map…</p>,
+});
 
 const PRIMARY_BTN =
     "rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50";
@@ -130,13 +138,18 @@ export default function ReportDetailPage({ id }: { id: string }) {
     }
 
     const status = report.status.code;
+    const isField = report.source_code === "field_survey";
     const canMarkInReview = status === "submitted";
-    const canAccept = status === "in_review";
+    const canAccept = !isField && status === "in_review";
+    const canResolve = isField && status === "in_review";
     const canReject = status === "in_review";
-    const canMarkDuplicate = status === "submitted" || status === "in_review";
-    const canRequestInfo = status === "submitted" || status === "in_review";
+    const canMarkDuplicate = !isField && (status === "submitted" || status === "in_review");
+    const canRequestInfo = !isField && (status === "submitted" || status === "in_review");
     const canReward =
-        status === "accepted" && report.eligible_for_points && report.reward_granted_at === null;
+        !isField &&
+        status === "accepted" &&
+        report.eligible_for_points &&
+        report.reward_granted_at === null;
 
     const changeStatus = (next: ReportStatusCode, msg: string) =>
         runAction(() => changeReportStatus(report.public_id, next), msg);
@@ -145,6 +158,15 @@ export default function ReportDetailPage({ id }: { id: string }) {
     const osmUrl = hasGeom
         ? `https://www.openstreetmap.org/?mlat=${report.latitude}&mlon=${report.longitude}#map=17/${report.latitude}/${report.longitude}`
         : null;
+    const field = report.field;
+    const observedPoint =
+        report.latitude !== null && report.longitude !== null
+            ? { latitude: report.latitude, longitude: report.longitude }
+            : null;
+    const snapshotJson =
+        field?.canonical_snapshot != null
+            ? JSON.stringify(field.canonical_snapshot, null, 2)
+            : null;
 
     return (
         <main className="p-6">
@@ -170,6 +192,11 @@ export default function ReportDetailPage({ id }: { id: string }) {
                         {report.is_anonymous ? (
                             <span className="inline-flex rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600 ring-1 ring-gray-200">
                                 Anonymous
+                            </span>
+                        ) : null}
+                        {isField ? (
+                            <span className="inline-flex rounded-full bg-violet-50 px-2.5 py-0.5 text-xs font-medium text-violet-800 ring-1 ring-violet-100">
+                                Field survey
                             </span>
                         ) : null}
                     </div>
@@ -207,6 +234,114 @@ export default function ReportDetailPage({ id }: { id: string }) {
                                 </p>
                             </div>
                         </Card>
+
+                        {isField && field ? (
+                            <Card title="Field survey">
+                                <div className="grid grid-cols-2 gap-4">
+                                    <Field label="Route code" value={field.route_code ?? "—"} />
+                                    <Field label="D0 / D1" value={field.variant_code ?? "—"} />
+                                    <Field
+                                        label="Stop / target"
+                                        value={field.stop_name ?? field.stop_public_id ?? "—"}
+                                    />
+                                    <Field
+                                        label="Stop sequence"
+                                        value={field.stop_sequence != null ? String(field.stop_sequence) : "—"}
+                                    />
+                                    <Field
+                                        label="Snapshot revision"
+                                        value={field.snapshot_revision ?? "—"}
+                                    />
+                                    <Field
+                                        label="Observed time"
+                                        value={formatDateTime(report.observed_at)}
+                                    />
+                                    <Field
+                                        label="GPS accuracy"
+                                        value={
+                                            report.location_accuracy_m != null
+                                                ? `${Math.round(report.location_accuracy_m)} m`
+                                                : "—"
+                                        }
+                                    />
+                                    <Field
+                                        label="Target type"
+                                        value={targetTypeLabel(report.target_entity_type)}
+                                    />
+                                </div>
+                                <div className="mt-4 flex flex-wrap gap-2">
+                                    {field.stop_public_id ? (
+                                        <Link
+                                            prefetch={false}
+                                            href={fieldStopEditorHref(field.stop_public_id)}
+                                            className={`${PRIMARY_BTN} inline-flex items-center`}
+                                        >
+                                            Open Stop Editor
+                                        </Link>
+                                    ) : null}
+                                    {field.route_public_id ? (
+                                        <Link
+                                            prefetch={false}
+                                            href={fieldRouteEditorHref(field.route_public_id)}
+                                            className={`${SECONDARY_BTN} inline-flex items-center`}
+                                        >
+                                            Open route
+                                        </Link>
+                                    ) : null}
+                                </div>
+                                <p className="mt-3 text-xs text-gray-500">
+                                    Canonical stop edits happen in the existing transport editor, not
+                                    on this page. After Start Review, open the editor, then return
+                                    here to Resolve or Reject.
+                                </p>
+                            </Card>
+                        ) : null}
+
+                        {isField ? (
+                            <ReportEvidence
+                                items={report.media ?? []}
+                                stopPublicId={
+                                    report.field?.stop_public_id ??
+                                    (report.target_entity_type === "stop" ? report.target_public_id : null)
+                                }
+                            />
+                        ) : null}
+
+                        {isField ? (
+                            <Card title="Location comparison">
+                                <div className="mb-3 grid grid-cols-2 gap-4">
+                                    <Field
+                                        label="Observed report point"
+                                        value={
+                                            observedPoint
+                                                ? `${observedPoint.latitude}, ${observedPoint.longitude}`
+                                                : "—"
+                                        }
+                                    />
+                                    <Field
+                                        label="Current canonical geometry"
+                                        value={
+                                            report.canonical_target
+                                                ? `${report.canonical_target.latitude}, ${report.canonical_target.longitude}`
+                                                : "—"
+                                        }
+                                    />
+                                </div>
+                                <ReportLocationCompareMap
+                                    observed={observedPoint}
+                                    canonical={report.canonical_target}
+                                    distanceM={report.distance_m}
+                                />
+                            </Card>
+                        ) : null}
+
+                        {isField && snapshotJson ? (
+                            <Card title="Canonical snapshot">
+                                <pre className="max-h-72 overflow-auto rounded-md bg-gray-50 p-3 text-xs text-gray-800">
+                                    {snapshotJson}
+                                </pre>
+                            </Card>
+                        ) : null}
 
                         <Card title="Target">
                             <div className="grid grid-cols-2 gap-4">
@@ -329,19 +464,35 @@ export default function ReportDetailPage({ id }: { id: string }) {
                                 <button
                                     type="button"
                                     disabled={actionLoading || !canMarkInReview}
-                                    onClick={() => changeStatus("in_review", "Marked as in review.")}
+                                    onClick={() =>
+                                        changeStatus(
+                                            "in_review",
+                                            isField ? "Review started." : "Marked as in review."
+                                        )
+                                    }
                                     className={SECONDARY_BTN}
                                 >
-                                    Mark in review
+                                    {isField ? "Start Review" : "Mark in review"}
                                 </button>
-                                <button
-                                    type="button"
-                                    disabled={actionLoading || !canAccept}
-                                    onClick={() => changeStatus("accepted", "Report accepted.")}
-                                    className={PRIMARY_BTN}
-                                >
-                                    Accept
-                                </button>
+                                {isField ? (
+                                    <button
+                                        type="button"
+                                        disabled={actionLoading || !canResolve}
+                                        onClick={() => changeStatus("resolved", "Report resolved.")}
+                                        className={PRIMARY_BTN}
+                                    >
+                                        Resolve
+                                    </button>
+                                ) : (
+                                    <button
+                                        type="button"
+                                        disabled={actionLoading || !canAccept}
+                                        onClick={() => changeStatus("accepted", "Report accepted.")}
+                                        className={PRIMARY_BTN}
+                                    >
+                                        Accept
+                                    </button>
+                                )}
                                 <button
                                     type="button"
                                     disabled={actionLoading || !canReject}
@@ -350,15 +501,23 @@ export default function ReportDetailPage({ id }: { id: string }) {
                                 >
                                     Reject
                                 </button>
-                                <button
-                                    type="button"
-                                    disabled={actionLoading || !canMarkDuplicate}
-                                    onClick={() => changeStatus("duplicate", "Marked as duplicate.")}
-                                    className={SECONDARY_BTN}
-                                >
-                                    Mark duplicate
-                                </button>
+                                {!isField ? (
+                                    <button
+                                        type="button"
+                                        disabled={actionLoading || !canMarkDuplicate}
+                                        onClick={() => changeStatus("duplicate", "Marked as duplicate.")}
+                                        className={SECONDARY_BTN}
+                                    >
+                                        Mark duplicate
+                                    </button>
+                                ) : null}
                             </div>
+                            {isField ? (
+                                <p className="mt-3 text-xs text-gray-500">
+                                    Resolve means the field report is closed. It does not by itself
+                                    mean the canonical stop changed.
+                                </p>
+                            ) : null}
                             {status === "needs_more_info" ? (
                                 <p className="mt-3 text-xs text-gray-500">
                                     Waiting for the reporter to reply. The status returns to
@@ -422,6 +581,7 @@ export default function ReportDetailPage({ id }: { id: string }) {
                             </button>
                         </Card>
 
+                        {isField ? null : (
                         <Card title="Reward points">
                             {report.reward_granted_at ? (
                                 <p className="text-sm text-emerald-700">
@@ -497,6 +657,7 @@ export default function ReportDetailPage({ id }: { id: string }) {
                                 </p>
                             )}
                         </Card>
+                        )}
                     </div>
                 </div>
             </div>

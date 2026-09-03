@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import {
+    accountSidebarItem,
     dashboardSidebarItems,
     sidebarModuleFromPathname,
     userManagementSidebarItems,
@@ -11,6 +12,7 @@ import {
     type DashboardSidebarItem,
     type DashboardSidebarModuleKey,
 } from "@/src/lib/dashboardNavigation";
+import { accountPath } from "@/src/lib/dashboardPaths";
 import { useDashboardRoleAccess } from "@/src/hooks/useDashboardRoleAccess";
 
 function NavItem({
@@ -50,10 +52,10 @@ export default function DashboardSidebar() {
           : dashboardSidebarItems;
 
     return (
-        <aside className="flex w-52 shrink-0 flex-col border-r border-gray-200 bg-white">
-            <div className="border-b border-gray-100 px-4 py-4">
+        <aside className="sticky top-0 flex h-screen w-52 shrink-0 flex-col border-r border-gray-200 bg-white">
+            <div className="shrink-0 border-b border-gray-100 px-4 py-4">
                 <Link
-                    href="/dashboard"
+                    href={accountPath()}
                     prefetch={false}
                     className="text-sm font-semibold text-gray-900"
                 >
@@ -68,7 +70,7 @@ export default function DashboardSidebar() {
                     </p>
                 ) : null}
             </div>
-            <nav className="flex flex-col gap-0.5 p-2">
+            <nav className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-2">
                 {moduleItems.map((item) => (
                     <NavItem key={item.moduleKey} item={item} activeModule={activeModule} />
                 ))}
@@ -84,6 +86,9 @@ export default function DashboardSidebar() {
                     </>
                 ) : null}
             </nav>
+            <div className="shrink-0 border-t border-gray-200 bg-white p-2">
+                <NavItem item={accountSidebarItem} activeModule={activeModule} />
+            </div>
         </aside>
     );
 }

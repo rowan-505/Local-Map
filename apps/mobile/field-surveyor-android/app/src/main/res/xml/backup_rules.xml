@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <exclude domain="sharedpref" path="field_auth_prefs.xml" />
+    <exclude domain="database" path="." />
+    <exclude domain="file" path="reports/" />
+    <exclude domain="file" path="evidence/" />
+    <exclude domain="file" path="gps/" />
+    <exclude domain="file" path="basemap/" />
+    <exclude domain="file" path="media/" />
+</full-backup-content>

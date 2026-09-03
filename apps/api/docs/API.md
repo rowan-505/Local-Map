@@ -1,6 +1,6 @@
 # CoreMap API
 
-> **Generated:** 2026-08-18T12:12:50.756Z (UTC)  
+> **Generated:** 2026-09-02T18:14:44.221Z (UTC)  
 > **OpenAPI:** This file is produced from `buildApp().swagger()` in `scripts/generate-api-docs.ts` — the same JSON as `GET /openapi.json` when the server is running.
 
 ## Base URLs
@@ -1539,7 +1539,7 @@ Paginated place list for the dashboard (authenticated).
 
 **Summary:** Create place
 
-Requires admin or editor role. At least one of `myanmarName` or `englishName` must be provided.
+Requires dashboard write access (admin or super_admin). At least one of `myanmarName` or `englishName` must be provided.
 
 **Security:** Bearer JWT (`Authorization: Bearer …`)
 
@@ -2519,6 +2519,7 @@ GeoJSON FeatureCollection for map rendering.
       "road_class": "string",
       "road_class_name": "string",
       "surface": "string",
+      "travel_direction": "forward",
       "is_oneway": false,
       "bridge": false,
       "tunnel": false,
@@ -2528,6 +2529,7 @@ GeoJSON FeatureCollection for map rendering.
       "deleted_at": "2026-01-01T00:00:00.000Z",
       "last_edited_at": "2026-01-01T00:00:00.000Z",
       "is_active": false,
+      "verification_status": "string",
       "is_verified": false,
       "created_at": "2026-01-01T00:00:00.000Z",
       "updated_at": "2026-01-01T00:00:00.000Z",
@@ -2599,6 +2601,8 @@ GeoJSON FeatureCollection for map rendering.
   },
   "myanmarName": "string",
   "englishName": "string",
+  "travel_direction": "both",
+  "travelDirection": "both",
   "is_oneway": false,
   "surface": "string",
   "admin_area_id": "string",
@@ -2625,6 +2629,7 @@ GeoJSON FeatureCollection for map rendering.
     "road_class": "string",
     "road_class_name": "string",
     "surface": "string",
+    "travel_direction": "forward",
     "is_oneway": false,
     "bridge": false,
     "tunnel": false,
@@ -2634,6 +2639,7 @@ GeoJSON FeatureCollection for map rendering.
     "deleted_at": "2026-01-01T00:00:00.000Z",
     "last_edited_at": "2026-01-01T00:00:00.000Z",
     "is_active": false,
+    "verification_status": "string",
     "is_verified": false,
     "created_at": "2026-01-01T00:00:00.000Z",
     "updated_at": "2026-01-01T00:00:00.000Z",
@@ -2716,6 +2722,7 @@ GeoJSON FeatureCollection for map rendering.
     "road_class": "string",
     "road_class_name": "string",
     "surface": "string",
+    "travel_direction": "forward",
     "is_oneway": false,
     "bridge": false,
     "tunnel": false,
@@ -2725,6 +2732,7 @@ GeoJSON FeatureCollection for map rendering.
     "deleted_at": "2026-01-01T00:00:00.000Z",
     "last_edited_at": "2026-01-01T00:00:00.000Z",
     "is_active": false,
+    "verification_status": "string",
     "is_verified": false,
     "created_at": "2026-01-01T00:00:00.000Z",
     "updated_at": "2026-01-01T00:00:00.000Z",
@@ -2809,6 +2817,8 @@ GeoJSON FeatureCollection for map rendering.
   },
   "road_class_id": "string",
   "roadClassId": "string",
+  "travel_direction": "both",
+  "travelDirection": "both",
   "is_oneway": false,
   "isOneway": false,
   "surface": "string",
@@ -2834,6 +2844,7 @@ GeoJSON FeatureCollection for map rendering.
     "road_class": "string",
     "road_class_name": "string",
     "surface": "string",
+    "travel_direction": "forward",
     "is_oneway": false,
     "bridge": false,
     "tunnel": false,
@@ -2843,6 +2854,7 @@ GeoJSON FeatureCollection for map rendering.
     "deleted_at": "2026-01-01T00:00:00.000Z",
     "last_edited_at": "2026-01-01T00:00:00.000Z",
     "is_active": false,
+    "verification_status": "string",
     "is_verified": false,
     "created_at": "2026-01-01T00:00:00.000Z",
     "updated_at": "2026-01-01T00:00:00.000Z",
@@ -2941,6 +2953,7 @@ GeoJSON FeatureCollection for map rendering.
     "road_class": "string",
     "road_class_name": "string",
     "surface": "string",
+    "travel_direction": "forward",
     "is_oneway": false,
     "bridge": false,
     "tunnel": false,
@@ -2950,6 +2963,7 @@ GeoJSON FeatureCollection for map rendering.
     "deleted_at": "2026-01-01T00:00:00.000Z",
     "last_edited_at": "2026-01-01T00:00:00.000Z",
     "is_active": false,
+    "verification_status": "string",
     "is_verified": false,
     "created_at": "2026-01-01T00:00:00.000Z",
     "updated_at": "2026-01-01T00:00:00.000Z",
@@ -3062,6 +3076,7 @@ GeoJSON FeatureCollection for map rendering.
         "road_class": "string",
         "road_class_name": "string",
         "surface": "string",
+        "travel_direction": "forward",
         "is_oneway": false,
         "bridge": false,
         "tunnel": false,
@@ -3071,6 +3086,7 @@ GeoJSON FeatureCollection for map rendering.
         "deleted_at": "2026-01-01T00:00:00.000Z",
         "last_edited_at": "2026-01-01T00:00:00.000Z",
         "is_active": false,
+        "verification_status": "string",
         "is_verified": false,
         "created_at": "2026-01-01T00:00:00.000Z",
         "updated_at": "2026-01-01T00:00:00.000Z",
@@ -3105,6 +3121,7 @@ GeoJSON FeatureCollection for map rendering.
         "road_class": "string",
         "road_class_name": "string",
         "surface": "string",
+        "travel_direction": "forward",
         "is_oneway": false,
         "bridge": false,
         "tunnel": false,
@@ -3114,6 +3131,7 @@ GeoJSON FeatureCollection for map rendering.
         "deleted_at": "2026-01-01T00:00:00.000Z",
         "last_edited_at": "2026-01-01T00:00:00.000Z",
         "is_active": false,
+        "verification_status": "string",
         "is_verified": false,
         "created_at": "2026-01-01T00:00:00.000Z",
         "updated_at": "2026-01-01T00:00:00.000Z",
@@ -3300,7 +3318,7 @@ Snap helper within a search radius (meters).
 
 **Summary:** Validate street geometry
 
-Topology checks against `core.core_streets`. Requires admin or editor.
+Topology checks against `core.core_streets`. Requires dashboard write access (admin or super_admin).
 
 **Security:** Bearer JWT (`Authorization: Bearer …`)
 
@@ -5259,6 +5277,7 @@ Aggregated row counts for admin overview.
 
   ```json
   {
+    "countsMode": "exact",
     "overview": {
       "total_main_rows": 0,
       "total_metadata_rows": 0,
@@ -5479,10 +5498,19 @@ Unauthenticated stop detail for the public web map. Lookup accepts uuid public_i
         ]
       }
     ],
+    "photos": [
+      {
+        "cardUrl": "string",
+        "detailUrl": "string",
+        "width": 0,
+        "height": 0,
+        "isPrimary": false,
+        "note": "string"
+      }
+    ],
     "name_my": "string",
     "name_und": "string",
     "canonical_name": "string",
-    "address_line": "string",
     "…": "(more fields — see OpenAPI spec)"
   }
   ```
@@ -5595,6 +5623,905 @@ Unauthenticated terminal detail for the public web map. Lookup accepts uuid publ
 
   ```json
   {
+    "message": "string"
+  }
+  ```
+
+### Field
+
+Authenticated field-surveyor snapshot reads. JWT role `surveyor` only. No dashboard or canonical transport writes.
+
+#### `GET` `/field/bootstrap`
+
+**Summary:** Field YBS transport snapshot
+
+Authenticated surveyor-only compact YBS bus snapshot. Send `revision` to keep a cached copy when it matches `snapshotRevision`. Public UUIDs only. Gzip is expected at the reverse proxy, not in this API process.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| revision | Query | no | string |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "snapshotRevision": "string",
+    "unchanged": true
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "code": "string",
+    "message": "string"
+  }
+  ```
+
+#### `POST` `/field/reports`
+
+**Summary:** Submit a field anomaly
+
+Surveyor-only. Writes one feedback.user_reports row with source_code=field_survey. clientPublicId is the idempotency key. Distinct UUIDs are distinct anomalies. Does not use public POST /reports duplicate collapse or daily caps. Does not change canonical transport.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+**Request body** (`application/json`)
+
+```json
+{
+  "clientPublicId": "00000000-0000-4000-8000-000000000000",
+  "reportTypeCode": "string",
+  "observedAt": "2026-01-01T00:00:00.000Z",
+  "location": {
+    "lat": 0,
+    "lng": 0,
+    "accuracyM": 0
+  },
+  "target": {
+    "entityType": "stop",
+    "publicId": "00000000-0000-4000-8000-000000000000"
+  },
+  "context": {
+    "snapshotRevision": "string",
+    "variantCode": "D0",
+    "routePublicId": "00000000-0000-4000-8000-000000000000",
+    "variantPublicId": "00000000-0000-4000-8000-000000000000",
+    "stopPublicId": "00000000-0000-4000-8000-000000000000",
+    "stopSequence": 0,
+    "canonicalSnapshot": {}
+  },
+  "description": "string",
+  "note": "string"
+}
+```
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "publicId": "00000000-0000-4000-8000-000000000000",
+    "reportTypeCode": "string",
+    "statusCode": "string",
+    "sourceCode": "field_survey",
+    "observedAt": "2026-01-01T00:00:00.000Z",
+    "location": {
+      "lat": 0,
+      "lng": 0,
+      "accuracyM": 0
+    },
+    "target": {
+      "entityType": "string",
+      "publicId": "00000000-0000-4000-8000-000000000000"
+    },
+    "context": {},
+    "description": "string",
+    "adminAreaId": "string",
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T00:00:00.000Z"
+  }
+  ```
+
+- **`201`**
+
+  ```json
+  {
+    "publicId": "00000000-0000-4000-8000-000000000000",
+    "reportTypeCode": "string",
+    "statusCode": "string",
+    "sourceCode": "field_survey",
+    "observedAt": "2026-01-01T00:00:00.000Z",
+    "location": {
+      "lat": 0,
+      "lng": 0,
+      "accuracyM": 0
+    },
+    "target": {
+      "entityType": "string",
+      "publicId": "00000000-0000-4000-8000-000000000000"
+    },
+    "context": {},
+    "description": "string",
+    "adminAreaId": "string",
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T00:00:00.000Z"
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "code": "string",
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "code": "string",
+    "message": "string"
+  }
+  ```
+
+- **`429`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/field/reports/{publicId}`
+
+**Summary:** Get a field anomaly
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| publicId | Path | yes | string, uuid |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "publicId": "00000000-0000-4000-8000-000000000000",
+    "reportTypeCode": "string",
+    "statusCode": "string",
+    "sourceCode": "field_survey",
+    "observedAt": "2026-01-01T00:00:00.000Z",
+    "location": {
+      "lat": 0,
+      "lng": 0,
+      "accuracyM": 0
+    },
+    "target": {
+      "entityType": "string",
+      "publicId": "00000000-0000-4000-8000-000000000000"
+    },
+    "context": {},
+    "description": "string",
+    "adminAreaId": "string",
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T00:00:00.000Z"
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "code": "string",
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `PATCH` `/field/reports/{publicId}`
+
+**Summary:** Correct a submitted field anomaly
+
+Creator may edit while status is submitted. in_review, resolved, and rejected are locked.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| publicId | Path | yes | string, uuid |
+
+
+**Request body** (`application/json`)
+
+```json
+{
+  "observedAt": "2026-01-01T00:00:00.000Z",
+  "location": {
+    "lat": 0,
+    "lng": 0,
+    "accuracyM": 0
+  },
+  "reportTypeCode": "string",
+  "target": {
+    "entityType": "stop",
+    "publicId": "00000000-0000-4000-8000-000000000000"
+  },
+  "context": {},
+  "description": "string",
+  "note": "string"
+}
+```
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "publicId": "00000000-0000-4000-8000-000000000000",
+    "reportTypeCode": "string",
+    "statusCode": "string",
+    "sourceCode": "field_survey",
+    "observedAt": "2026-01-01T00:00:00.000Z",
+    "location": {
+      "lat": 0,
+      "lng": 0,
+      "accuracyM": 0
+    },
+    "target": {
+      "entityType": "string",
+      "publicId": "00000000-0000-4000-8000-000000000000"
+    },
+    "context": {},
+    "description": "string",
+    "adminAreaId": "string",
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T00:00:00.000Z"
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "code": "string",
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "code": "string",
+    "message": "string"
+  }
+  ```
+
+#### `POST` `/field/reports/{publicId}/followups`
+
+**Summary:** Add a field report follow-up
+
+Append-only. Closed reports cannot receive follow-ups. Does not change canonical transport.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| publicId | Path | yes | string, uuid |
+
+
+**Request body** (`application/json`)
+
+```json
+{
+  "message": "string"
+}
+```
+
+**Responses**
+
+- **`201`**
+
+  ```json
+  {
+    "publicId": "00000000-0000-4000-8000-000000000000",
+    "reportTypeCode": "string",
+    "statusCode": "string",
+    "sourceCode": "field_survey",
+    "observedAt": "2026-01-01T00:00:00.000Z",
+    "location": {
+      "lat": 0,
+      "lng": 0,
+      "accuracyM": 0
+    },
+    "target": {
+      "entityType": "string",
+      "publicId": "00000000-0000-4000-8000-000000000000"
+    },
+    "context": {},
+    "description": "string",
+    "adminAreaId": "string",
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T00:00:00.000Z"
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "code": "string",
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "code": "string",
+    "message": "string"
+  }
+  ```
+
+#### `POST` `/field/reports/{publicId}/media`
+
+**Summary:** Attach ready private media to a field report
+
+Surveyor-only. Attaches a ready private asset owned by the caller to an owned field_survey report.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| publicId | Path | yes | string, uuid |
+
+
+**Request body** (`application/json`)
+
+```json
+{
+  "assetPublicId": "00000000-0000-4000-8000-000000000000",
+  "note": "string",
+  "sortOrder": 0
+}
+```
+
+**Responses**
+
+- **`201`**
+
+  ```json
+  {
+    "reportPublicId": "00000000-0000-4000-8000-000000000000",
+    "assetPublicId": "00000000-0000-4000-8000-000000000000",
+    "note": "string",
+    "sortOrder": 0,
+    "createdAt": "2026-01-01T00:00:00.000Z"
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "code": "string",
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "code": "string",
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "code": "string",
+    "message": "string"
+  }
+  ```
+
+- **`503`**
+
+  ```json
+  {
+    "code": "string",
+    "message": "string"
+  }
+  ```
+
+### Media
+
+Authenticated private media uploads (presigned R2 PUT). JPEG only in this release. Secrets stay on the API; clients never receive R2 keys.
+
+#### `GET` `/admin/media/{publicId}/access`
+
+**Summary:** Get a short-lived private media URL (admin)
+
+Admin and super_admin only, matching report review. The asset must be ready, private, and linked to a user report. Returns a short-lived presigned GET. The URL is not stored in PostgreSQL. Does not publish to coremap-media-public.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| publicId | Path | yes | string, uuid |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "publicId": "00000000-0000-4000-8000-000000000000",
+    "mimeType": "string",
+    "byteSize": 0,
+    "method": "GET",
+    "url": "string",
+    "expiresAt": "2026-01-01T00:00:00.000Z"
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "code": "string",
+    "message": "string"
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "code": "string",
+    "message": "string"
+  }
+  ```
+
+- **`503`**
+
+  ```json
+  {
+    "code": "string",
+    "message": "string"
+  }
+  ```
+
+#### `POST` `/admin/media/{publicId}/publish-stop`
+
+**Summary:** Publish a sanitized stop photo (admin)
+
+Admin and super_admin only. Reads the private original, applies server-side crop/rotate/pixel blur, writes new public JPEGs (detail ~1280 and card ~640) to the public bucket, inserts public media.assets rows with source_asset_id, and links transport.stop_media. Never flips the private original to public. Does not run when a report is resolved.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| publicId | Path | yes | string, uuid |
+
+
+**Request body** (`application/json`)
+
+```json
+{
+  "rotateDegrees": 0,
+  "crop": {
+    "x": 0,
+    "y": 0,
+    "width": 0,
+    "height": 0
+  },
+  "blurRects": [
+    {
+      "x": 0,
+      "y": 0,
+      "width": 0,
+      "height": 0
+    }
+  ],
+  "note": "string",
+  "isPrimary": false
+}
+```
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "stopPublicId": "00000000-0000-4000-8000-000000000000",
+    "sourceAssetPublicId": "00000000-0000-4000-8000-000000000000",
+    "detail": {
+      "publicId": "00000000-0000-4000-8000-000000000000",
+      "url": "string",
+      "width": 0,
+      "height": 0
+    },
+    "card": {
+      "publicId": "00000000-0000-4000-8000-000000000000",
+      "url": "string",
+      "width": 0,
+      "height": 0
+    },
+    "isPrimary": false,
+    "note": "string"
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "code": "string",
+    "message": "string"
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "code": "string",
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "code": "string",
+    "message": "string"
+  }
+  ```
+
+- **`503`**
+
+  ```json
+  {
+    "code": "string",
+    "message": "string"
+  }
+  ```
+
+#### `POST` `/media/{publicId}/complete`
+
+**Summary:** Mark a private upload ready
+
+Owner-only. HEADs the private object, checks existence and size, then sets status=ready. Abandoned pending rows stay pending.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| publicId | Path | yes | string, uuid |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "publicId": "00000000-0000-4000-8000-000000000000",
+    "mediaType": "string",
+    "mimeType": "string",
+    "byteSize": 0,
+    "storageScope": "private",
+    "status": "ready",
+    "readyAt": "2026-01-01T00:00:00.000Z"
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "code": "string",
+    "message": "string"
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "code": "string",
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "code": "string",
+    "message": "string"
+  }
+  ```
+
+- **`503`**
+
+  ```json
+  {
+    "code": "string",
+    "message": "string"
+  }
+  ```
+
+#### `POST` `/media/uploads`
+
+**Summary:** Create a private media upload
+
+Authenticated. Creates a pending media.assets row and returns a short-lived presigned PUT for the private R2 bucket. JPEG images or short AAC/M4A audio. Does not make the object public.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+**Request body** (`application/json`)
+
+```json
+{
+  "mediaType": "image",
+  "mimeType": "image/jpeg",
+  "byteSize": 0
+}
+```
+
+**Responses**
+
+- **`201`**
+
+  ```json
+  {
+    "publicId": "00000000-0000-4000-8000-000000000000",
+    "mediaType": "image",
+    "mimeType": "image/jpeg",
+    "byteSize": 0,
+    "status": "pending",
+    "upload": {
+      "method": "PUT",
+      "url": "string",
+      "headers": {
+        "Content-Type": "string",
+        "Content-Length": "string"
+      },
+      "expiresAt": "2026-01-01T00:00:00.000Z"
+    }
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`503`**
+
+  ```json
+  {
+    "code": "string",
     "message": "string"
   }
   ```
@@ -7484,6 +8411,16 @@ Unified public search over the search index (search.search_documents). Matches p
   }
   ```
 
+- **`503`**
+
+  ```json
+  {
+    "code": "SEARCH_TIMEOUT",
+    "message": "string",
+    "retryable": true
+  }
+  ```
+
 #### `GET` `/public/search/{entityType}/{entityId}/geometry`
 
 **Summary:** Selected search-result geometry
@@ -7739,6 +8676,9 @@ User report / contribution flow (signed-in and anonymous), admin review, status 
 | type | Query | no | string |
 | adminAreaId | Query | no | integer |
 | targetEntityType | Query | no | string |
+| source | Query | no | string |
+| routeCode | Query | no | string |
+| variantCode | Query | no | string |
 | anonymous | Query | no | string |
 | createdFrom | Query | no | string, date |
 | createdTo | Query | no | string, date |
@@ -7776,6 +8716,26 @@ User report / contribution flow (signed-in and anonymous), admin review, status 
           "display_name": "string",
           "email": "string"
         },
+        "source_code": "public",
+        "observed_at": "2026-01-01T00:00:00.000Z",
+        "location_accuracy_m": 0,
+        "field": {
+          "route_code": "string",
+          "route_public_id": "00000000-0000-4000-8000-000000000000",
+          "variant_code": "string",
+          "variant_public_id": "00000000-0000-4000-8000-000000000000",
+          "stop_public_id": "00000000-0000-4000-8000-000000000000",
+          "stop_name": "string",
+          "stop_sequence": 0,
+          "snapshot_revision": "string",
+          "canonical_snapshot": null
+        },
+        "canonical_target": {
+          "latitude": 0,
+          "longitude": 0
+        },
+        "distance_m": 0,
+        "media_count": 0,
         "reason_code": "string",
         "target_entity_type": "string",
         "target_entity_id": "string",
@@ -7785,8 +8745,7 @@ User report / contribution flow (signed-in and anonymous), admin review, status 
         "longitude": 0,
         "admin_area_id": "string",
         "admin_note": "string",
-        "reviewed_at": "2026-01-01T00:00:00.000Z",
-        "reward_granted_at": "2026-01-01T00:00:00.000Z"
+        "…": "(more fields — see OpenAPI spec)"
       }
     ],
     "total": 0,
@@ -7864,6 +8823,26 @@ User report / contribution flow (signed-in and anonymous), admin review, status 
       "display_name": "string",
       "email": "string"
     },
+    "source_code": "public",
+    "observed_at": "2026-01-01T00:00:00.000Z",
+    "location_accuracy_m": 0,
+    "field": {
+      "route_code": "string",
+      "route_public_id": "00000000-0000-4000-8000-000000000000",
+      "variant_code": "string",
+      "variant_public_id": "00000000-0000-4000-8000-000000000000",
+      "stop_public_id": "00000000-0000-4000-8000-000000000000",
+      "stop_name": "string",
+      "stop_sequence": 0,
+      "snapshot_revision": "string",
+      "canonical_snapshot": null
+    },
+    "canonical_target": {
+      "latitude": 0,
+      "longitude": 0
+    },
+    "distance_m": 0,
+    "media_count": 0,
     "followups": [
       {
         "actor_type": "admin",
@@ -7881,17 +8860,25 @@ User report / contribution flow (signed-in and anonymous), admin review, status 
         "note": "string"
       }
     ],
+    "media": [
+      {
+        "publicId": "00000000-0000-4000-8000-000000000000",
+        "mimeType": "string",
+        "byteSize": 0,
+        "width": 0,
+        "height": 0,
+        "note": "string",
+        "sortOrder": 0,
+        "published": false
+      }
+    ],
     "reason_code": "string",
     "target_entity_type": "string",
     "target_entity_id": "string",
     "target_public_id": "string",
     "title": "string",
     "latitude": 0,
-    "longitude": 0,
-    "admin_area_id": "string",
-    "admin_note": "string",
-    "reviewed_at": "2026-01-01T00:00:00.000Z",
-    "reward_granted_at": "2026-01-01T00:00:00.000Z"
+    "…": "(more fields — see OpenAPI spec)"
   }
   ```
 
@@ -7980,6 +8967,26 @@ User report / contribution flow (signed-in and anonymous), admin review, status 
       "display_name": "string",
       "email": "string"
     },
+    "source_code": "public",
+    "observed_at": "2026-01-01T00:00:00.000Z",
+    "location_accuracy_m": 0,
+    "field": {
+      "route_code": "string",
+      "route_public_id": "00000000-0000-4000-8000-000000000000",
+      "variant_code": "string",
+      "variant_public_id": "00000000-0000-4000-8000-000000000000",
+      "stop_public_id": "00000000-0000-4000-8000-000000000000",
+      "stop_name": "string",
+      "stop_sequence": 0,
+      "snapshot_revision": "string",
+      "canonical_snapshot": null
+    },
+    "canonical_target": {
+      "latitude": 0,
+      "longitude": 0
+    },
+    "distance_m": 0,
+    "media_count": 0,
     "reason_code": "string",
     "target_entity_type": "string",
     "target_entity_id": "string",
@@ -7989,8 +8996,7 @@ User report / contribution flow (signed-in and anonymous), admin review, status 
     "longitude": 0,
     "admin_area_id": "string",
     "admin_note": "string",
-    "reviewed_at": "2026-01-01T00:00:00.000Z",
-    "reward_granted_at": "2026-01-01T00:00:00.000Z"
+    "…": "(more fields — see OpenAPI spec)"
   }
   ```
 
@@ -8081,6 +9087,26 @@ Adds an admin follow-up message and moves the report to 'needs_more_info' withou
       "display_name": "string",
       "email": "string"
     },
+    "source_code": "public",
+    "observed_at": "2026-01-01T00:00:00.000Z",
+    "location_accuracy_m": 0,
+    "field": {
+      "route_code": "string",
+      "route_public_id": "00000000-0000-4000-8000-000000000000",
+      "variant_code": "string",
+      "variant_public_id": "00000000-0000-4000-8000-000000000000",
+      "stop_public_id": "00000000-0000-4000-8000-000000000000",
+      "stop_name": "string",
+      "stop_sequence": 0,
+      "snapshot_revision": "string",
+      "canonical_snapshot": null
+    },
+    "canonical_target": {
+      "latitude": 0,
+      "longitude": 0
+    },
+    "distance_m": 0,
+    "media_count": 0,
     "followups": [
       {
         "actor_type": "admin",
@@ -8097,9 +9123,7 @@ Adds an admin follow-up message and moves the report to 'needs_more_info' withou
     "latitude": 0,
     "longitude": 0,
     "admin_area_id": "string",
-    "admin_note": "string",
-    "reviewed_at": "2026-01-01T00:00:00.000Z",
-    "reward_granted_at": "2026-01-01T00:00:00.000Z"
+    "…": "(more fields — see OpenAPI spec)"
   }
   ```
 
@@ -8201,6 +9225,26 @@ Manually grants points to the author of an ACCEPTED report via the append-only p
         "display_name": "string",
         "email": "string"
       },
+      "source_code": "public",
+      "observed_at": "2026-01-01T00:00:00.000Z",
+      "location_accuracy_m": 0,
+      "field": {
+        "route_code": "string",
+        "route_public_id": "00000000-0000-4000-8000-000000000000",
+        "variant_code": "string",
+        "variant_public_id": "00000000-0000-4000-8000-000000000000",
+        "stop_public_id": "00000000-0000-4000-8000-000000000000",
+        "stop_name": "string",
+        "stop_sequence": 0,
+        "snapshot_revision": "string",
+        "canonical_snapshot": null
+      },
+      "canonical_target": {
+        "latitude": 0,
+        "longitude": 0
+      },
+      "distance_m": 0,
+      "media_count": 0,
       "reason_code": "string",
       "target_entity_type": "string",
       "target_entity_id": "string",
@@ -8210,8 +9254,7 @@ Manually grants points to the author of an ACCEPTED report via the append-only p
       "longitude": 0,
       "admin_area_id": "string",
       "admin_note": "string",
-      "reviewed_at": "2026-01-01T00:00:00.000Z",
-      "reward_granted_at": "2026-01-01T00:00:00.000Z"
+      "…": "(more fields — see OpenAPI spec)"
     },
     "summary": {
       "total_points": 0,
@@ -8316,6 +9359,26 @@ Manually grants points to the author of an ACCEPTED report via the append-only p
       "display_name": "string",
       "email": "string"
     },
+    "source_code": "public",
+    "observed_at": "2026-01-01T00:00:00.000Z",
+    "location_accuracy_m": 0,
+    "field": {
+      "route_code": "string",
+      "route_public_id": "00000000-0000-4000-8000-000000000000",
+      "variant_code": "string",
+      "variant_public_id": "00000000-0000-4000-8000-000000000000",
+      "stop_public_id": "00000000-0000-4000-8000-000000000000",
+      "stop_name": "string",
+      "stop_sequence": 0,
+      "snapshot_revision": "string",
+      "canonical_snapshot": null
+    },
+    "canonical_target": {
+      "latitude": 0,
+      "longitude": 0
+    },
+    "distance_m": 0,
+    "media_count": 0,
     "reason_code": "string",
     "target_entity_type": "string",
     "target_entity_id": "string",
@@ -8325,8 +9388,7 @@ Manually grants points to the author of an ACCEPTED report via the append-only p
     "longitude": 0,
     "admin_area_id": "string",
     "admin_note": "string",
-    "reviewed_at": "2026-01-01T00:00:00.000Z",
-    "reward_granted_at": "2026-01-01T00:00:00.000Z"
+    "…": "(more fields — see OpenAPI spec)"
   }
   ```
 
@@ -17825,6 +18887,19 @@ Grouped counts over `import_review.*` candidates for the resolved review batch (
 
 - **`200`**
 
+#### `GET` `/core-review/{entity}/duplicate-warnings`
+
+**Security:** None
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| entity | Path | yes | string |
+
+
+**Responses**
+
+- **`200`**
+
 #### `GET` `/core-review/verification-summary`
 
 **Security:** None
@@ -19989,7 +21064,7 @@ Update editable travel/waiting seconds on one route_stops row, recalculate arriv
 
 **Summary:** Update transport route variant metadata (admin)
 
-Partial update of editable variant fields. Cannot edit source_refs or normalized_data. No hard delete.
+Partial update of editable variant fields. For YBS bus routes, direction_id is the source of truth and variant_code/direction_name are derived as D0/D1. Cannot edit source_refs or normalized_data. No hard delete.
 
 **Security:** Bearer JWT (`Authorization: Bearer …`)
 
@@ -20028,6 +21103,7 @@ Partial update of editable variant fields. Cannot edit source_refs or normalized
     "headsign": "string",
     "origin_name": "string",
     "destination_name": "string",
+    "first_stop_name": "string",
     "stop_count": 0,
     "path_count": 0,
     "path_status": "has_path",
@@ -20199,7 +21275,7 @@ Builds a Valhalla-snapped route path through the variant's ordered stop coordina
 
 | Name | In | Required | Schema |
 | --- | --- | --- | --- |
-| routePublicId | Path | yes | string, uuid |
+| publicId | Path | yes | string, uuid |
 
 
 **Responses**
@@ -20222,6 +21298,20 @@ Builds a Valhalla-snapped route path through the variant's ordered stop coordina
       "string"
     ],
     "distance_m": 0
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
   }
   ```
 
@@ -20249,7 +21339,7 @@ Builds a Valhalla-snapped route path through the variant's ordered stop coordina
   }
   ```
 
-- **`501`**
+- **`503`**
 
   ```json
   {
@@ -20828,7 +21918,7 @@ Paginated, filterable routes list with variant/stop/path counts. Never returns g
 
 **Summary:** Create transport route with auto variants (admin)
 
-Creates a route and its default variants in one transaction. route_kind is derived from the mode config; review_status=needs_review, confidence_score=60, is_active=true, and manual/admin source_refs are set by the server. Variants: loop -> ${code}-LOOP; bus/train -> ${code}-A outbound + ${code}-B inbound; ferry -> ${code}-A outbound (+ ${code}-B inbound when create_return_variant). Returns the created route detail including variants. 409 on duplicate code.
+Creates a route and its default variants in one transaction. route_kind is derived from the mode config; review_status=needs_review, confidence_score=60, is_active=true, and manual/admin source_refs are set by the server. Variants: YBS bus -> ${code}-D0 + ${code}-D1; loop -> ${code}-LOOP; other bus/train -> ${code}-A outbound + ${code}-B inbound; ferry -> ${code}-A outbound (+ ${code}-B inbound when create_return_variant). Returns the created route detail including variants. 409 on duplicate code.
 
 **Security:** Bearer JWT (`Authorization: Bearer …`)
 
@@ -20894,6 +21984,7 @@ Creates a route and its default variants in one transaction. route_kind is deriv
         "headsign": "string",
         "origin_name": "string",
         "destination_name": "string",
+        "first_stop_name": "string",
         "stop_count": 0,
         "path_count": 0,
         "path_status": "has_path",
@@ -21637,9 +22728,9 @@ Structured metadata editor endpoint. Upserts route_names my/en, updates route co
 
 #### `POST` `/transport/routes/{publicId}/swap-direction`
 
-**Summary:** Swap inbound/outbound direction metadata for a two-variant route (admin)
+**Summary:** Swap direction metadata for a two-variant route (admin)
 
-Atomically swaps direction_id, direction_name, variant_code suffix (-A/-B), and normalized_data.direction (when present) between the route's two active variants. Requires exactly one outbound (direction_id 0) and one inbound (direction_id 1). Does not change route_stops, paths, or endpoint stop pointers.
+Atomically swaps direction_id, direction_name, and variant_code between the route's two active variants. YBS uses neutral D0/D1 labels and preserves normalized_data provenance; non-YBS modes retain existing direction semantics. Requires exactly one direction_id 0 and one direction_id 1. Does not change route_stops, paths, or endpoint stop pointers.
 
 **Security:** Bearer JWT (`Authorization: Bearer …`)
 
@@ -21663,6 +22754,7 @@ Atomically swaps direction_id, direction_name, variant_code suffix (-A/-B), and 
         "headsign": "string",
         "origin_name": "string",
         "destination_name": "string",
+        "first_stop_name": "string",
         "stop_count": 0,
         "path_count": 0,
         "path_status": "has_path",
@@ -21740,6 +22832,7 @@ Atomically swaps direction_id, direction_name, variant_code suffix (-A/-B), and 
         "headsign": "string",
         "origin_name": "string",
         "destination_name": "string",
+        "first_stop_name": "string",
         "stop_count": 0,
         "path_count": 0,
         "path_status": "has_path",
@@ -21796,7 +22889,7 @@ Atomically swaps direction_id, direction_name, variant_code suffix (-A/-B), and 
 
 **Summary:** Create a route variant (admin)
 
-Creates a variant under an active route. variant_code is unique per route (route_id + variant_code); a collision returns 409. direction_id: 0 outbound, 1 inbound, 2 loop/branch/special, null unknown. review_status defaults to needs_review and confidence_score to 60 when omitted. Returns the created variant.
+Creates a variant under an active route. variant_code is unique per route (route_id + variant_code); a collision returns 409. For YBS bus routes, direction_id 0/1 generates canonical D0/D1 identity without geographic meaning. Other modes retain existing semantics; 2 is loop/branch/special and null unknown. review_status defaults to needs_review and confidence_score to 60 when omitted. Returns the created variant.
 
 **Security:** Bearer JWT (`Authorization: Bearer …`)
 
@@ -21835,6 +22928,7 @@ Creates a variant under an active route. variant_code is unique per route (route
     "headsign": "string",
     "origin_name": "string",
     "destination_name": "string",
+    "first_stop_name": "string",
     "stop_count": 0,
     "path_count": 0,
     "path_status": "has_path",
@@ -24032,6 +25126,7 @@ Partial update of editable variant fields, including origin/destination stop poi
     "headsign": "string",
     "origin_name": "string",
     "destination_name": "string",
+    "first_stop_name": "string",
     "stop_count": 0,
     "path_count": 0,
     "path_status": "has_path",
@@ -24306,6 +25401,7 @@ Upserts the variant's single active manual route path. If an active path exists 
       "headsign": "string",
       "origin_name": "string",
       "destination_name": "string",
+      "first_stop_name": "string",
       "stop_count": 0,
       "path_count": 0,
       "path_status": "has_path",
@@ -24394,6 +25490,7 @@ Soft-deletes the variant's active route path (deleted_at = now(), is_active = fa
       "headsign": "string",
       "origin_name": "string",
       "destination_name": "string",
+      "first_stop_name": "string",
       "stop_count": 0,
       "path_count": 0,
       "path_status": "has_path",
@@ -24586,14 +25683,6 @@ Many routes return JSON error bodies for failed validation, auth, or missing res
 }
 ```
 
-### HTTP 501
-
-```json
-{
-  "message": "string"
-}
-```
-
 ### HTTP 502
 
 ```json
@@ -24625,4 +25714,4 @@ Many routes return JSON error bodies for failed validation, auth, or missing res
 
 ---
 
-*OpenAPI version: 3.0.3 · API version: 0.1.0 · Operations: 287*
+*OpenAPI version: 3.0.3 · API version: 0.1.0 · Operations: 298*

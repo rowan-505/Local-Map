@@ -9,7 +9,10 @@ import {
     notFoundSchema,
 } from "../../lib/openapi/common.js";
 import {
+    ADMIN_REPORT_TARGET_ENTITY_TYPES,
+    FIELD_VARIANT_FILTER_CODES,
     REPORT_REWARD_REASON_CODES,
+    REPORT_SOURCE_CODES,
     REPORT_STATUS_CODES,
     REPORT_TARGET_ENTITY_TYPES,
     REPORT_TYPE_CODES,
@@ -99,9 +102,59 @@ const statusEventSchema = {
     additionalProperties: false,
 } as const;
 
+const fieldContextSchema = {
+    type: "object",
+    nullable: true,
+    required: [
+        "route_code",
+        "route_public_id",
+        "variant_code",
+        "variant_public_id",
+        "stop_public_id",
+        "stop_name",
+        "stop_sequence",
+        "snapshot_revision",
+        "canonical_snapshot",
+    ],
+    properties: {
+        route_code: { type: "string", nullable: true },
+        route_public_id: { type: "string", format: "uuid", nullable: true },
+        variant_code: { type: "string", nullable: true },
+        variant_public_id: { type: "string", format: "uuid", nullable: true },
+        stop_public_id: { type: "string", format: "uuid", nullable: true },
+        stop_name: { type: "string", nullable: true },
+        stop_sequence: { type: "integer", nullable: true },
+        snapshot_revision: { type: "string", nullable: true },
+        canonical_snapshot: { nullable: true },
+    },
+    additionalProperties: false,
+} as const;
+
+const canonicalTargetSchema = {
+    type: "object",
+    nullable: true,
+    required: ["latitude", "longitude"],
+    properties: {
+        latitude: { type: "number" },
+        longitude: { type: "number" },
+    },
+    additionalProperties: false,
+} as const;
+
 const adminReportSchema = {
     type: "object",
-    required: [...reportSchema.required, "anonymous_id", "author"],
+    required: [
+        ...reportSchema.required,
+        "anonymous_id",
+        "author",
+        "source_code",
+        "observed_at",
+        "location_accuracy_m",
+        "field",
+        "canonical_target",
+        "distance_m",
+        "media_count",
+    ],
     properties: {
         ...reportSchema.properties,
         anonymous_id: { type: "string", nullable: true },
@@ -116,6 +169,13 @@ const adminReportSchema = {
             },
             additionalProperties: false,
         },
+        source_code: { type: "string", enum: [...REPORT_SOURCE_CODES] },
+        observed_at: { type: "string", format: "date-time", nullable: true },
+        location_accuracy_m: { type: "number", nullable: true },
+        field: fieldContextSchema,
+        canonical_target: canonicalTargetSchema,
+        distance_m: { type: "number", nullable: true },
+        media_count: { type: "integer", minimum: 0 },
     },
     additionalProperties: false,
 } as const;
@@ -131,13 +191,30 @@ const reportDetailSchema = {
     additionalProperties: false,
 } as const;
 
+const reportMediaEvidenceSchema = {
+    type: "object",
+        required: ["publicId", "mimeType", "byteSize", "width", "height", "note", "sortOrder", "published"],
+    properties: {
+        publicId: { type: "string", format: "uuid" },
+        mimeType: { type: "string" },
+        byteSize: { type: "integer" },
+        width: { type: "integer", nullable: true },
+        height: { type: "integer", nullable: true },
+        note: { type: "string", nullable: true },
+        sortOrder: { type: "integer" },
+        published: { type: "boolean" },
+    },
+    additionalProperties: false,
+} as const;
+
 const adminReportDetailSchema = {
     type: "object",
-    required: [...adminReportSchema.required, "followups", "status_events"],
+    required: [...adminReportSchema.required, "followups", "status_events", "media"],
     properties: {
         ...adminReportSchema.properties,
         followups: { type: "array", items: followupSchema },
         status_events: { type: "array", items: statusEventSchema },
+        media: { type: "array", items: reportMediaEvidenceSchema },
     },
     additionalProperties: false,
 } as const;
@@ -262,7 +339,10 @@ export const getAdminReportsSchema = {
             status: { type: "string", enum: [...REPORT_STATUS_CODES] },
             type: { type: "string", enum: [...REPORT_TYPE_CODES] },
             adminAreaId: { type: "integer", minimum: 1 },
-            targetEntityType: { type: "string", enum: [...REPORT_TARGET_ENTITY_TYPES] },
+            targetEntityType: { type: "string", enum: [...ADMIN_REPORT_TARGET_ENTITY_TYPES] },
+            source: { type: "string", enum: [...REPORT_SOURCE_CODES] },
+            routeCode: { type: "string", minLength: 1, maxLength: 40 },
+            variantCode: { type: "string", enum: [...FIELD_VARIANT_FILTER_CODES] },
             anonymous: { type: "string", enum: ["true", "false"] },
             createdFrom: { type: "string", format: "date" },
             createdTo: { type: "string", format: "date" },

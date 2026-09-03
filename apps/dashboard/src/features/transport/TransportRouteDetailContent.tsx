@@ -89,7 +89,11 @@ import {
     RouteVariantsCard,
     TransportToolbarButton,
 } from "./TransportRouteDetailCards";
-import { evaluateGeneratePathFromStopsReadiness } from "./reviewMapPathGeneration";
+import {
+    buildGeneratePathFailureUi,
+    buildGeneratePathSuccessUi,
+    evaluateGeneratePathFromStopsReadiness,
+} from "./reviewMapPathGeneration";
 import {
     isTransportNetworkError,
     logTransportReadinessFetchError,
@@ -103,6 +107,7 @@ import {
 import {
     coordsToLineStringGeometry,
     deletePathVertex,
+    insertMidpointVertexAfterSelection,
     pathCoordsEqual,
     type PathCoord,
 } from "./reviewMapPathEdit";
@@ -550,6 +555,9 @@ export default function TransportRouteDetailContent({
     >(null);
     const [reviewMapPathEditLoading, setReviewMapPathEditLoading] = useState(false);
     const [reviewMapPathEditError, setReviewMapPathEditError] = useState("");
+    const [pathEditUndoStack, setPathEditUndoStack] = useState<
+        Array<{ coords: PathCoord[]; selectedIndex: number | null }>
+    >([]);
     const [generatePathOpen, setGeneratePathOpen] = useState(false);
     const [generatePathLoading, setGeneratePathLoading] = useState(false);
     const [generatePathError, setGeneratePathError] = useState("");
@@ -1016,8 +1024,8 @@ export default function TransportRouteDetailContent({
     const hasUnsavedMove = previewGeom !== null;
 
     const generatePathReadiness = useMemo(
-        () => evaluateGeneratePathFromStopsReadiness(stops, false),
-        [stops],
+        () => evaluateGeneratePathFromStopsReadiness(stops, hasUnsavedMove),
+        [stops, hasUnsavedMove],
     );
 
     const reviewMapPathDirty = useMemo(() => {
@@ -1088,8 +1096,19 @@ export default function TransportRouteDetailContent({
         } else if (pathIsReviewPlaceholder) {
             warnings.push("Placeholder route path — confirm stop locations in Review Map.");
         }
+        if (!generatePathOpen && generatePathWarnings.length > 0) {
+            warnings.push(...generatePathWarnings);
+        }
         return warnings;
-    }, [selectedVariantId, stopsLoading, stops, hasPathOverlay, pathIsReviewPlaceholder]);
+    }, [
+        selectedVariantId,
+        stopsLoading,
+        stops,
+        hasPathOverlay,
+        pathIsReviewPlaceholder,
+        generatePathOpen,
+        generatePathWarnings,
+    ]);
 
     const selectVariant = useCallback((variantId: string) => {
         setSelectedVariantId(variantId);
@@ -1117,6 +1136,9 @@ export default function TransportRouteDetailContent({
         setDraftPath([]);
         setPathError("");
         setConfirmDeletePath(false);
+        setGeneratePathOpen(false);
+        setGeneratePathError("");
+        setGeneratePathWarnings([]);
     }, []);
 
     const getInsertFallbackPlaceholderPoint = useCallback(() => {
@@ -1709,6 +1731,7 @@ export default function TransportRouteDetailContent({
         setReviewMapPathBaselineCoords(null);
         setReviewMapSelectedPathVertexIndex(null);
         setReviewMapPathEditError("");
+        setPathEditUndoStack([]);
         if (pathMode !== null) {
             setPathMode(null);
             setDraftPath([]);
@@ -1731,6 +1754,7 @@ export default function TransportRouteDetailContent({
         setReviewMapPathBaselineCoords(baseline);
         setReviewMapSelectedPathVertexIndex(null);
         setReviewMapPathEditError("");
+        setPathEditUndoStack([]);
     }, [path, pathMode]);
 
     const cancelReviewMapEditPath = useCallback(() => {
@@ -1739,12 +1763,31 @@ export default function TransportRouteDetailContent({
         setReviewMapPathBaselineCoords(null);
         setReviewMapSelectedPathVertexIndex(null);
         setReviewMapPathEditError("");
+        setPathEditUndoStack([]);
     }, []);
 
-    const handleReviewMapPathDraftChange = useCallback((coords: PathCoord[]) => {
-        setReviewMapPathDraftCoords(coords);
-        setReviewMapPathEditError("");
-    }, []);
+    const recordPathEditUndo = useCallback(() => {
+        if (!reviewMapPathDraftCoords) {
+            return;
+        }
+        const snapshot = {
+            coords: reviewMapPathDraftCoords.map((coord) => [coord[0], coord[1]] as PathCoord),
+            selectedIndex: reviewMapSelectedPathVertexIndex,
+        };
+        setPathEditUndoStack((prev) => {
+            const next = [...prev, snapshot];
+            return next.length > 40 ? next.slice(next.length - 40) : next;
+        });
+    }, [reviewMapPathDraftCoords, reviewMapSelectedPathVertexIndex]);
+
+    const handleReviewMapPathDraftChange = useCallback(
+        (coords: PathCoord[]) => {
+            recordPathEditUndo();
+            setReviewMapPathDraftCoords(coords);
+            setReviewMapPathEditError("");
+        },
+        [recordPathEditUndo],
+    );
 
     const deleteReviewMapSelectedPathVertex = useCallback(() => {
         if (reviewMapSelectedPathVertexIndex === null || !reviewMapPathDraftCoords) {
@@ -1755,12 +1798,41 @@ export default function TransportRouteDetailContent({
             setReviewMapPathEditError("Route path must keep at least 2 vertices.");
             return;
         }
+        recordPathEditUndo();
         setReviewMapPathDraftCoords(next);
         setReviewMapSelectedPathVertexIndex(
             Math.min(reviewMapSelectedPathVertexIndex, next.length - 1),
         );
         setReviewMapPathEditError("");
-    }, [reviewMapPathDraftCoords, reviewMapSelectedPathVertexIndex]);
+    }, [recordPathEditUndo, reviewMapPathDraftCoords, reviewMapSelectedPathVertexIndex]);
+
+    const addReviewMapPathVertex = useCallback(() => {
+        if (!reviewMapPathDraftCoords) {
+            return;
+        }
+        const inserted = insertMidpointVertexAfterSelection(
+            reviewMapPathDraftCoords,
+            reviewMapSelectedPathVertexIndex,
+        );
+        if (!inserted) {
+            return;
+        }
+        recordPathEditUndo();
+        setReviewMapPathDraftCoords(inserted.coords);
+        setReviewMapSelectedPathVertexIndex(inserted.newVertexIndex);
+        setReviewMapPathEditError("");
+    }, [recordPathEditUndo, reviewMapPathDraftCoords, reviewMapSelectedPathVertexIndex]);
+
+    const undoReviewMapPathEdit = useCallback(() => {
+        const last = pathEditUndoStack[pathEditUndoStack.length - 1];
+        if (!last) {
+            return;
+        }
+        setPathEditUndoStack((prev) => prev.slice(0, -1));
+        setReviewMapPathDraftCoords(last.coords);
+        setReviewMapSelectedPathVertexIndex(last.selectedIndex);
+        setReviewMapPathEditError("");
+    }, [pathEditUndoStack]);
 
     const saveReviewMapPathEdit = useCallback(() => {
         if (
@@ -2115,7 +2187,6 @@ export default function TransportRouteDetailContent({
             return;
         }
         setGeneratePathError("");
-        setGeneratePathWarnings([]);
         setGeneratePathOpen(true);
     }, [generatePathReadiness.eligible]);
 
@@ -2125,7 +2196,6 @@ export default function TransportRouteDetailContent({
         }
         setGeneratePathOpen(false);
         setGeneratePathError("");
-        setGeneratePathWarnings([]);
     }, [generatePathLoading]);
 
     const confirmGeneratePath = useCallback(() => {
@@ -2139,39 +2209,37 @@ export default function TransportRouteDetailContent({
             setGeneratePathWarnings([]);
             try {
                 const result = await generateTransportVariantPathFromStops(selectedVariantId);
-                setPath({
-                    path_kind: result.path_kind,
-                    review_status: result.review_status,
-                    distance_m: result.distance_m,
-                    geometry: result.geometry,
+                const ui = buildGeneratePathSuccessUi({
+                    stops,
+                    variants,
+                    selectedVariantId,
+                    result,
                 });
-                setGeneratePathWarnings(result.warnings ?? []);
+                setPath(ui.path);
+                setVariants(ui.variants);
+                setGeneratePathWarnings(ui.warnings);
                 setGeneratePathOpen(false);
-                showReviewMapToast(
-                    "success",
-                    result.warnings.length > 0
-                        ? "Path generated with warnings"
-                        : "Auto-generated path saved",
-                );
+                showReviewMapToast("success", ui.toastMessage);
+                void loadStopQuality(selectedVariantId, undefined);
             } catch (err) {
                 if (isAbortError(err)) {
                     return;
                 }
-                const message =
-                    err instanceof Error ? err.message : "Failed to generate path from stops.";
-                if (
-                    message.toLowerCase().includes("not implemented") ||
-                    message.includes("501")
-                ) {
-                    setGeneratePathError("Not implemented");
-                } else {
-                    setGeneratePathError(message);
-                }
+                const ui = buildGeneratePathFailureUi(err);
+                setGeneratePathError(ui.error);
             } finally {
                 setGeneratePathLoading(false);
             }
         })();
-    }, [generatePathLoading, generatePathReadiness.eligible, selectedVariantId, showReviewMapToast]);
+    }, [
+        generatePathLoading,
+        generatePathReadiness.eligible,
+        loadStopQuality,
+        selectedVariantId,
+        showReviewMapToast,
+        stops,
+        variants,
+    ]);
 
     const toggleEditInfo = useCallback(() => {
         setEditingRoute((prev) => !prev);
@@ -2559,6 +2627,9 @@ export default function TransportRouteDetailContent({
                 onExitEditPath={cancelReviewMapEditPath}
                 onPathVertexSelect={setReviewMapSelectedPathVertexIndex}
                 onPathEditDraftChange={handleReviewMapPathDraftChange}
+                onAddPathVertex={addReviewMapPathVertex}
+                onUndoPathEdit={undoReviewMapPathEdit}
+                canUndoPathEdit={pathEditUndoStack.length > 0}
                 onDeleteSelectedPathVertex={deleteReviewMapSelectedPathVertex}
                 pathEditLoading={reviewMapPathEditLoading}
                 pathEditError={reviewMapPathEditError}
@@ -2592,9 +2663,9 @@ export default function TransportRouteDetailContent({
 
             <GeneratePathFromStopsDialog
                 open={generatePathOpen}
+                hasSavedPath={hasSavedRoutePathGeometry(path)}
                 isBusy={generatePathLoading}
                 error={generatePathError}
-                warnings={generatePathWarnings}
                 onConfirm={confirmGeneratePath}
                 onCancel={cancelGeneratePath}
             />

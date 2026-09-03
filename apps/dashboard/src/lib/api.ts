@@ -1323,6 +1323,24 @@ export async function logout(): Promise<void> {
     redirectToLogin("logout");
 }
 
+export type AuthMeProfile = {
+    id: string;
+    public_id: string;
+    email: string;
+    display_name: string;
+    phone: string | null;
+    roles: string[];
+    email_verified: boolean;
+    account_status: string;
+    primary_region_id: string | null;
+    preferred_language: string;
+    total_points: number;
+};
+
+export function getAuthMe(fetchInit?: Pick<RequestInit, "signal">) {
+    return apiFetch<AuthMeProfile>("/auth/me", { method: "GET", ...fetchInit });
+}
+
 function redirectToLogin(reason: string) {
     if (typeof window === "undefined") {
         return;
