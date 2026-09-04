@@ -13,6 +13,7 @@
     "@hookform/resolvers": "^5.2.2",
     "@tanstack/react-query": "^5.100.14",
     "@turf/area": "^7.3.5",
+    "@vercel/analytics": "^2.0.1",
     "lucide-react": "^1.14.0",
     "maplibre-gl": "^5.24.0",
     "maplibre-gl-complex-text": "github:wipfli/maplibre-gl-complex-text",
