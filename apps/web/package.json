@@ -14,6 +14,7 @@
   "dependencies": {
     "@tailwindcss/vite": "^4.2.2",
     "@tanstack/react-query": "^5.96.1",
+    "@vercel/analytics": "^2.0.1",
     "maplibre-gl": "^5.21.1",
     "maplibre-gl-complex-text": "github:wipfli/maplibre-gl-complex-text",
     "react": "^19.2.4",
